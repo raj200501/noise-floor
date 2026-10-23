@@ -76,3 +76,32 @@ present, and every GLMM artifact records the backend that produced it.
   `p(1 - p) beta^2`, a monotone function of |beta|, so its interval is the image of the profile
   interval for beta. Factors with more levels get no interval from this path (reported as such),
   and the E1 design uses two-level factors. No Wald intervals for variance components.
+
+## D-010 2026-10-23 Docker-free agentic suite for E1 (nf-tools)
+No Docker daemon here, so the Terminal-Bench 2.0 arm through Harbor is skipped (recorded before
+any data). The Docker-free suite is `nf-tools`, procedurally generated tool-use tasks over a mock
+in-memory file system with mock tools (list, read, write, search, calculator, submit) and
+deterministic graders. Reasons: it runs anywhere with no network, no code execution, and no
+third-party task code; tasks are generated fresh from seeds, so no training-data contamination;
+difficulty has explicit knobs, so the pilot can place every model configuration between 0.2
+and 0.8 mean success (section 4); and grading is exact. Cost: less realistic than terminal
+tasks; the report says so. Pilot and confirmatory tasks come from disjoint seed ranges fixed in
+the preregistration.
+
+## D-011 2026-10-23 Local subjects and harness factor
+Local open-weight models (GGUF, 4-bit, pinned by repository revision and file SHA-256) are
+served by llama-cpp-python's OpenAI-compatible server (CPU build). Both local harnesses talk to
+the same server, so the harness factor changes only the scaffold: minimal-agent (this project's
+scaffold, JSON tool calls) versus Inspect's basic agent (inspect_ai, OpenAI-compatible provider).
+The Claude Code native harness cell is empty for local models and the Claude arm cannot run here
+(D-004); the design stays valid with those cells empty, and any contrast that is not crossed is
+labeled scaffold-confounded.
+
+## D-012 2026-10-23 Sandbox for subject runs
+Each run batch executes in a child process inside new user, network, and mount namespaces
+(`unshare`): no external network (only loopback, for the local model server started inside the
+same namespace), the repository mounted read-only, writes only to a temporary workspace, and an
+environment with tokens, API keys, `SSH_AUTH_SOCK`, and cloud credentials removed, plus
+`GIT_CONFIG_NOSYSTEM=1` and `GIT_CONFIG_GLOBAL=/dev/null`. nf-tools runs no model-generated code
+(its tools are in-process mocks), so the sandbox mainly confines third-party harness code
+(inspect_ai) and the model server. The sandbox is verified by tests before any data is collected.
