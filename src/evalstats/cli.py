@@ -13,6 +13,7 @@ from evalstats.compare import paired_difference
 from evalstats.glmm import decompose, describe
 from evalstats.intervals import INTERVAL_METHODS
 from evalstats.power import PairedDesign, design_from_results, mde, tasks_needed
+from evalstats.rank import rank_confidence
 from evalstats.readers import read_results
 from evalstats.schema import EvalResults, SchemaError
 
@@ -23,7 +24,7 @@ SUBCOMMANDS: dict[str, str] = {
     "decompose": "variance components of eval outcomes",
     "report": "confidence report for a leaderboard",
 }
-IMPLEMENTED = ("compare", "power", "decompose")
+IMPLEMENTED = ("compare", "power", "decompose", "rank")
 
 
 def _add_input(p: argparse.ArgumentParser, required: bool) -> None:
@@ -63,6 +64,17 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument("--effect", type=float, help="also report tasks needed for this effect")
             p.add_argument("--alpha", type=float, default=0.05)
             p.add_argument("--power", type=float, default=0.8)
+            p.add_argument("--json", action="store_true", help="print JSON")
+        elif name == "rank":
+            _add_input(p, required=True)
+            p.add_argument("--level", type=float, default=0.95)
+            p.add_argument(
+                "--marginal",
+                action="store_true",
+                help="marginal rank intervals instead of simultaneous ones",
+            )
+            p.add_argument("--n-boot", type=int, default=2000)
+            p.add_argument("--seed", type=int, default=None)
             p.add_argument("--json", action="store_true", help="print JSON")
         elif name == "decompose":
             _add_input(p, required=True)
@@ -200,7 +212,48 @@ def cmd_decompose(args: argparse.Namespace) -> int:
     return 0
 
 
-COMMANDS = {"compare": cmd_compare, "power": cmd_power, "decompose": cmd_decompose}
+def cmd_rank(args: argparse.Namespace) -> int:
+    """Run ``evalstats rank``."""
+    rc = rank_confidence(
+        _load(args),
+        level=args.level,
+        simultaneous=not args.marginal,
+        n_boot=args.n_boot,
+        seed=args.seed,
+    )
+    kind = "simultaneous" if rc.simultaneous else "marginal"
+    width = max(len(r.model) for r in rc.intervals)
+    lines = [
+        f"{len(rc.intervals)} models on {rc.n_tasks} shared tasks "
+        f"({rc.dropped_tasks} tasks dropped: not attempted by every model)",
+        f"{100 * rc.level:g}% {kind} rank intervals ({rc.n_boot} task resamples)",
+        f"{'rank':>4}  {'model':<{width}} {'score':>6}  interval",
+        *[
+            f"{r.rank:>4}  {r.model:<{width}} {r.score:6.3f}  [{r.best_rank}, {r.worst_rank}]"
+            for r in rc.intervals
+        ],
+        "adjacent pairs (paired difference, 95% marginal interval):",
+        *[
+            f"  {p.higher} > {p.lower}: {p.difference:+.3f} [{p.lo:+.3f}, {p.hi:+.3f}] "
+            + ("supported" if p.supported else "not supported")
+            for p in rc.adjacent
+        ],
+        f"share of adjacent pairs supported: {rc.share_adjacent_supported:.3f}",
+    ]
+    payload = asdict(rc) | {
+        "share_adjacent_supported": rc.share_adjacent_supported,
+        "top_set": list(rc.top_set),
+    }
+    _emit(payload, "\n".join(lines), args.json)
+    return 0
+
+
+COMMANDS = {
+    "compare": cmd_compare,
+    "power": cmd_power,
+    "decompose": cmd_decompose,
+    "rank": cmd_rank,
+}
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -100,3 +100,12 @@ def test_decompose_text_and_json(csv_path: Path, capsys: pytest.CaptureFixture[s
     assert [r["component"] for r in payload["components"]] == ["task", "model", "residual"]
     assert payload["components"][0]["lo"] is None
     assert cli.main(["decompose", str(csv_path), "--random", "nope"]) == 1
+
+
+def test_rank_text_and_json(csv_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert cli.main(["rank", str(csv_path), "--n-boot", "300", "--seed", "1"]) == 0
+    text = capsys.readouterr().out
+    assert "simultaneous rank intervals" in text and "adjacent pairs" in text
+    assert cli.main(["rank", str(csv_path), "--marginal", "--n-boot", "300", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["simultaneous"] is False and len(payload["intervals"]) == 2
