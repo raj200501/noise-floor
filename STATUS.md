@@ -7,35 +7,38 @@ Updated 2026-10-23, goal_turn 1 (Loop Protocol).
 
 ## Gates
 
-Fast ship-check (does not count) at f0c00dd, 3/14:
+Fast ship-check (does not count) at 2b82ae3: 5/14 (G1, G2, G3, G4, G14 pass).
 
-| Gate | Status | Evidence |
-|------|--------|----------|
-| G1 Build and tests | PASS | setup ok; 18 tests pass; line coverage 95.8% |
-| G2 Static quality | PASS | ruff check, ruff format, mypy --strict clean |
-| G3 CI parity | FAIL | ci.yml in place; `make ci` fails at `demo` |
-| G4 Offline demo | FAIL | no demo or golden output yet |
-| G5 Library validity | FAIL | E0 not built |
-| G6 Orchestrator validity | FAIL | not built |
-| G7 Factorial study | FAIL | not started |
-| G8 Leaderboards and bounds | FAIL | not started |
-| G9 Library shipped | FAIL | wheel builds and installs; no examples or API reference |
-| G10 Claim integrity | FAIL | no REPORT.md; claimcheck and freshness not built |
-| G11 Preregistration integrity | FAIL | no preregistrations; prereg-verify not built |
-| G12 Independent review | FAIL | no review yet |
-| G13 Documentation | FAIL | README.md is still the brief |
-| G14 Hygiene | PASS | secrets-scan clean; cash_usd = 0; private/ untracked |
+| Gate | Status | Evidence / next step |
+|------|--------|----------------------|
+| G1 Build and tests | PASS | 124 tests; line coverage 99% |
+| G2 Static quality | PASS | ruff, ruff format, mypy --strict clean |
+| G3 CI parity | PASS | `make ci` passes locally (lint, typecheck, test, demo) |
+| G4 Offline demo | PASS | 3 s in a network namespace, matches golden (tag v0.1 local) |
+| G5 Library validity | FAIL | library methods built; E0 grid prereg next |
+| G6 Orchestrator validity | FAIL | planted-effects simulator built; recovery study after E0 |
+| G7 Factorial study | FAIL | local runtime building; suite, wrapper, pilot next |
+| G8 Leaderboards and bounds | FAIL | bounds built; leaderboard sources being scouted |
+| G9 Library shipped | FAIL | wheel installs; examples and API reference later |
+| G10 Claim integrity | FAIL | claimcheck and freshness being built (subagent) |
+| G11 Preregistration integrity | FAIL | prereg chain being built (subagent) |
+| G12 Independent review | FAIL | first review at the E0 milestone |
+| G13 Documentation | FAIL | 7 references verified; README and REPORT at the end |
+| G14 Hygiene | PASS | secrets-scan clean; cash_usd = 0 |
 
 ## Now
 
-Bootstrap done (docs/BUILD_BRIEF.md section 10.1). Next iteration: M1, evalstats core (critical path for G1 to G4).
+goal_turn 1: evalstats core, GLMM decomposition (lme4 via rpy2), rank-confidence sets, policy
+bounds, offline demo, verified references. In flight: integrity tools (subagent), adapters
+(subagent), leaderboard scouting (subagent), llama.cpp CPU build.
 
 ## Next three actions
 
-1. M1: evalstats long-format schema, generic CSV/JSONL reader, paired bootstrap, cluster-robust
-   SEs, analytic power and MDE, CLI `compare` and `power`, tests to 85% (G1, G2, G3).
-2. M2: offline demo on labeled synthetic fixtures with golden output (G4, tag v0.1).
-3. M3: prereg chain, claimcheck, freshness (port from raise-v1 with attribution) (G10, G11).
+1. Subjects for E1: Docker-free tool-use suite, minimal-agent scaffold, client wrapper with caps
+   and ledger, sandbox, local GGUF models; pilot on disjoint tasks (0.2 to 0.8 success).
+2. Freeze the E0 simulation grid in prereg/ (after the prereg chain lands), then run E0 (G5) and
+   the planted-component recovery study (G6) in the background.
+3. Wire claimcheck, freshness, prereg-verify and the adapters into make targets and exports.
 
 ## Environment (make doctor, 2026-10-23)
 
@@ -56,13 +59,20 @@ cash_usd = 0. cap_share = 0.2 (D-007). Claude subject runs 0, single calls 0, re
 
 ## Needs Raj
 
-1. Claude subject arm (G7 needs at least 150 Claude-tier runs): the billing guard blocks Claude
+1. raise-v1-public could not be opened from this session (proxy 403: "GitHub access to this
+   repository is not enabled for this session"), so it is dropped from the references and its
+   tools are reimplemented instead of ported. Action (optional): enable access to
+   raj200501/raise-v1-public for this environment, or check the reference by hand.
+2. Claude subject arm (G7 needs at least 150 Claude-tier runs): the billing guard blocks Claude
    children in this hosted session. Action: when E1 is preregistered, run the Claude arm on a
    machine where `make doctor` shows `billing guard clean` and the `claude` CLI is logged in to
    the Max plan (for example your laptop), following the run instructions that will be in
    docs/PLAN.md. Not blocking yet.
-2. Optional: add `apt-get install -y r-base-core r-base-dev r-cran-lme4` to this environment's
+3. Optional: add `apt-get install -y r-base-core r-base-dev r-cran-lme4` to this environment's
    setup script so R and lme4 survive container restarts (D-008). Not blocking.
+4. FYI: one batch of citation fetches sent a User-Agent containing the local part of your email
+   address (not the full address) to arxiv.org, anthropic.com, and metr.org. Later fetches did
+   not. Fetch tooling now uses a generic User-Agent.
 
 ## Blocked
 
