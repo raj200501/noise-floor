@@ -41,7 +41,7 @@ freshness:
 	$(TODO) freshness G10 README.md docs/REPORT.md
 
 citecheck:
-	$(TODO) citecheck G13
+	$(TOOL) tools/citecheck.py
 
 secrets-scan:
 	$(TOOL) tools/secrets_scan.py

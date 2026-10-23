@@ -1,0 +1,334 @@
+{
+  "schema": 1,
+  "checked_by": "citation-checker subagent",
+  "method": "Each URL fetched once with curl -sSL -o <file> -w '%{url_effective} %{http_code}' (descriptive User-Agent, no other headers); content_sha256 is the sha256 of the raw response body. arXiv title, authors, and year come from the citation_title, citation_author, and citation_date meta tags of the abs page; other pages from the visible heading and byline. Raw bodies are kept outside the repository.",
+  "references": [
+    {
+      "key": "anthropic-infrastructure-noise-2026",
+      "url": "https://www.anthropic.com/engineering/infrastructure-noise",
+      "final_url": "https://www.anthropic.com/research/infrastructure-noise",
+      "http_status": 200,
+      "title": "Quantifying infrastructure noise in agentic coding evals",
+      "authors": [
+        "Gian Segato"
+      ],
+      "year": 2026,
+      "retrieved": "2026-10-23",
+      "content_sha256": "30e507921ae3edab09dcb63e37058986132a9ab6b5c4f52cb8d9b945630fab63",
+      "verified": true,
+      "note": "The cited URL redirects to /research/infrastructure-noise; the page still labels the post 'Team: Engineering'. The page heading and JSON-LD headline match the brief's title; the HTML title and og:title read 'Infrastructure noise in agentic coding evals'. Byline: 'Written by Gian Segato'; the JSON-LD author is the organization Anthropic. Published 2026-02-05 and modified 2026-10-18 per the page metadata, so the text checked is the modified version. The brief's claims match the text: resource configuration moved Terminal-Bench 2.0 scores by up to 6 points; the finding was replicated across Anthropic models, and other models were 'not rigorously tested'; time-of-day effects (attributed to API latency) were observed anecdotally and not quantified.",
+      "summary": {
+        "text": "Reports that Terminal-Bench 2.0 run with one Claude model under six container resource configurations showed a 6 percentage point gap between the most and least resourced setups (p < 0.01), with infrastructure error rates falling from 5.8% to 0.5%, and a smaller effect in a SWE-bench crossover. It suggests that leaderboard differences below 3 percentage points deserve skepticism until the eval configuration is documented and matched.",
+        "based_on": "full post text as served at the final URL",
+        "unconfirmed": []
+      }
+    },
+    {
+      "key": "miller-error-bars-2024",
+      "url": "https://arxiv.org/abs/2411.00640",
+      "final_url": "https://arxiv.org/abs/2411.00640",
+      "http_status": 200,
+      "title": "Adding Error Bars to Evals: A Statistical Approach to Language Model Evaluations",
+      "authors": [
+        "Miller, Evan"
+      ],
+      "year": 2024,
+      "retrieved": "2026-10-23",
+      "content_sha256": "159a0e76137a127202eea0c8bf8c48db8855fe69e69cfeeeb465a6276b8b42a6",
+      "verified": true,
+      "note": "The arXiv title carries a subtitle the brief omits: 'A Statistical Approach to Language Model Evaluations'. Author (Evan Miller) and year match the brief. Submitted 2024-11-01 (v1 only). Metadata from the abs page citation_* tags; the summary also draws on the arXiv HTML full text (see also_read).",
+      "also_read": [
+        {
+          "url": "https://arxiv.org/html/2411.00640",
+          "http_status": 200,
+          "content_sha256": "d7fed5cb82ff7bd8b636b5586bcf1102a39c89afeef91f6d031a1ede9b6ed077"
+        }
+      ],
+      "summary": {
+        "text": "Treats eval questions as draws from an unseen super-population and gives formulas for standard errors, clustered standard errors when questions come in related groups, inference on question-level paired differences between two models, and power analysis for planning an eval. Its worked example reports that clustered standard errors on two evals can be over 3 times the naive ones.",
+        "based_on": "arXiv abstract page and arXiv HTML full text (v1)",
+        "unconfirmed": []
+      }
+    },
+    {
+      "key": "heineman-signal-noise-2025",
+      "url": "https://arxiv.org/abs/2508.13144",
+      "final_url": "https://arxiv.org/abs/2508.13144",
+      "http_status": 200,
+      "title": "Signal and Noise: A Framework for Reducing Uncertainty in Language Model Evaluation",
+      "authors": [
+        "Heineman, David",
+        "Hofmann, Valentin",
+        "Magnusson, Ian",
+        "Gu, Yuling",
+        "Smith, Noah A.",
+        "Hajishirzi, Hannaneh",
+        "Lo, Kyle",
+        "Dodge, Jesse"
+      ],
+      "year": 2025,
+      "retrieved": "2026-10-23",
+      "content_sha256": "94c2c89ba151dfb9375b3b599677d945d362c592c5806dff5515b63ddcf023ae",
+      "verified": true,
+      "note": "The brief gives the short title 'Signal and Noise'; the full title adds 'A Framework for Reducing Uncertainty in Language Model Evaluation'. Year 2025 matches; the brief names no authors. Submitted 2025-08-18 (v1 only). Its 'noise' is variability between training checkpoints in pretraining experiments, not run-to-run or infrastructure noise in agentic evals.",
+      "summary": {
+        "text": "Defines signal (a benchmark's ability to separate better from worse models) and noise (sensitivity to random variability between training steps), and reports that benchmarks with a better signal-to-noise ratio are more reliable for decisions made at small scale. It proposes interventions (a different metric, filtering noisy subtasks, averaging intermediate checkpoints), tested on 30 benchmarks and 375 open-weight models.",
+        "based_on": "arXiv abstract page (abstract only)",
+        "unconfirmed": [
+          "Nothing beyond the abstract was read."
+        ]
+      }
+    },
+    {
+      "key": "metr-time-horizon-limitations-2026",
+      "url": "https://metr.org/notes/2026-01-22-time-horizon-limitations/",
+      "final_url": "https://metr.org/notes/2026-01-22-time-horizon-limitations/",
+      "http_status": 200,
+      "title": "Clarifying limitations of time horizon",
+      "authors": [
+        "Thomas Kwa"
+      ],
+      "year": 2026,
+      "retrieved": "2026-10-23",
+      "content_sha256": "b1aa2ec058d0956c5681111915240d3c277e370d9d022248b6373df6a6e188c3",
+      "verified": true,
+      "note": "Title mismatch: the brief calls it 'Time horizon limitations'; the page title, citation_title tag, and the page's own BibTeX give 'Clarifying limitations of time horizon' (the URL slug is time-horizon-limitations). It is a METR research note by Thomas Kwa dated 2026-01-22; the page says notes have had less review than research posts and do not necessarily reflect the views of METR as a whole. The brief's 'wide intervals' is confirmed; 'sensitivity to modeling and scoring choices' is partly confirmed (modeling and human-baseline choices are discussed, grading rules are not).",
+      "summary": {
+        "text": "Says time horizon estimates are imprecise (bootstrap error bars historically about a factor of 2 in each direction, wider as the benchmark saturates) and that relative comparisons between models have somewhat smaller error bars because model performance is correlated. It lists choices that move the estimates, including human baseline-time conventions, geometric versus arithmetic averaging of baselines, and the two-parameter logistic fit used for the 20% and 80% horizons.",
+        "based_on": "full note text as served",
+        "unconfirmed": [
+          "The brief's phrase 'scoring choices' is not used; the note covers modeling and human-baseline choices, not rules for grading agent outputs."
+        ]
+      }
+    },
+    {
+      "key": "bean-measuring-what-matters-2025",
+      "url": "https://arxiv.org/abs/2511.04703",
+      "final_url": "https://arxiv.org/abs/2511.04703",
+      "http_status": 200,
+      "title": "Measuring what Matters: Construct Validity in Large Language Model Benchmarks",
+      "authors": [
+        "Bean, Andrew M.",
+        "Kearns, Ryan Othniel",
+        "Romanou, Angelika",
+        "Hafner, Franziska Sofia",
+        "Mayne, Harry",
+        "Batzner, Jan",
+        "Foroutan, Negar",
+        "Schmitz, Chris",
+        "Korgul, Karolina",
+        "Batra, Hunar",
+        "Deb, Oishi",
+        "Beharry, Emma",
+        "Emde, Cornelius",
+        "Foster, Thomas",
+        "Gausen, Anna",
+        "Grandury, María",
+        "Han, Simeng",
+        "Hofmann, Valentin",
+        "Ibrahim, Lujain",
+        "Kim, Hazel",
+        "Kirk, Hannah Rose",
+        "Lin, Fangru",
+        "Liu, Gabrielle Kaili-May",
+        "Luettgau, Lennart",
+        "Magomere, Jabez",
+        "Rystrøm, Jonathan",
+        "Sotnikova, Anna",
+        "Yang, Yushi",
+        "Zhao, Yilun",
+        "Bibi, Adel",
+        "Bosselut, Antoine",
+        "Clark, Ronald",
+        "Cohan, Arman",
+        "Foerster, Jakob",
+        "Gal, Yarin",
+        "Hale, Scott A.",
+        "Raji, Inioluwa Deborah",
+        "Summerfield, Christopher",
+        "Torr, Philip H. S.",
+        "Ududec, Cozmin",
+        "Rocher, Luc",
+        "Mahdi, Adam"
+      ],
+      "year": 2025,
+      "retrieved": "2026-10-23",
+      "content_sha256": "e4daad7870cd5b6ece8fa4b7796ba6b0a70d8807fb2c78af76057d440f06a5ce",
+      "verified": true,
+      "note": "The full title adds 'Construct Validity in Large Language Model Benchmarks'. Year 2025 matches (submitted 2025-11-03); first author Andrew M. Bean. The arXiv comments field names the NeurIPS 2025 Track on Datasets and Benchmarks. The brief's claim (little statistical testing) is not in the abstract; it is confirmed in the arXiv HTML full text (see also_read), where it is one finding of a review that is mainly about construct validity.",
+      "also_read": [
+        {
+          "url": "https://arxiv.org/html/2511.04703",
+          "http_status": 200,
+          "content_sha256": "79e3c1ec50739bb9c24713ef77b8031fa6db0940964e46cfa0330db686d4f83e"
+        }
+      ],
+      "summary": {
+        "text": "A systematic review of 445 LLM benchmarks from NLP and ML venues, focused on construct validity, which reports that only 16.0% of the reviewed benchmarks used uncertainty estimates or statistical tests to compare results. Its checklist recommends reporting the sample size with a justification of statistical power and uncertainty estimates for all primary scores.",
+        "based_on": "arXiv abstract page and arXiv HTML full text",
+        "unconfirmed": []
+      }
+    },
+    {
+      "key": "polo-tinybenchmarks-2024",
+      "url": "https://arxiv.org/abs/2402.14992",
+      "final_url": "https://arxiv.org/abs/2402.14992",
+      "http_status": 200,
+      "title": "tinyBenchmarks: evaluating LLMs with fewer examples",
+      "authors": [
+        "Polo, Felipe Maia",
+        "Weber, Lucas",
+        "Choshen, Leshem",
+        "Sun, Yuekai",
+        "Xu, Gongjun",
+        "Yurochkin, Mikhail"
+      ],
+      "year": 2024,
+      "retrieved": "2026-10-23",
+      "content_sha256": "433e39eb37084231077d3b80356304af2c8cc0e87ebbd18d95cedd574fe46f31",
+      "verified": true,
+      "note": "Title and year match the brief (v1 2024-02-22, v2 2024-05-26; citation_date 2024/02/22). The arXiv comments field reads 'Proceedings of the 41st International Conference on Machine Learning (ICML)'. The IRT claim is not in the abstract; it is confirmed in the arXiv HTML full text (see also_read).",
+      "also_read": [
+        {
+          "url": "https://arxiv.org/html/2402.14992",
+          "http_status": 200,
+          "content_sha256": "038eecb0a464d9f44b8fd42c98595e9ee78ebec94a461eee4039b8cdf6453073"
+        }
+      ],
+      "summary": {
+        "text": "Uses item response theory (IRT) fitted to many LLMs' example-level results to choose small evaluation sets and to correct estimates from them, and reports that 100 curated examples per scenario estimate full-benchmark performance within about 2% error on average. The benchmarks are Open LLM Leaderboard, MMLU, HELM, and AlpacaEval 2.0, all static and non-agentic.",
+        "based_on": "arXiv abstract page and arXiv HTML full text (introduction, section 4)",
+        "unconfirmed": []
+      }
+    },
+    {
+      "key": "merrill-terminal-bench-2026",
+      "url": "https://arxiv.org/abs/2601.11868",
+      "final_url": "https://arxiv.org/abs/2601.11868",
+      "http_status": 200,
+      "title": "Terminal-Bench: Benchmarking Agents on Hard, Realistic Tasks in Command Line Interfaces",
+      "authors": [
+        "Merrill, Mike A.",
+        "Shaw, Alexander G.",
+        "Carlini, Nicholas",
+        "Li, Boxuan",
+        "Raj, Harsh",
+        "Bercovich, Ivan",
+        "Shi, Lin",
+        "Shin, Jeong Yeon",
+        "Walshe, Thomas",
+        "Buchanan, E. Kelly",
+        "Shen, Junhong",
+        "Ye, Guanghao",
+        "Lin, Haowei",
+        "Poulos, Jason",
+        "Wang, Maoyu",
+        "Nezhurina, Marianna",
+        "Jitsev, Jenia",
+        "Lu, Di",
+        "Mastromichalakis, Orfeas Menis",
+        "Xu, Zhiwei",
+        "Chen, Zizhao",
+        "Liu, Yue",
+        "Zhang, Robert",
+        "Chen, Leon Liangyu",
+        "Kashyap, Anurag",
+        "Uslu, Jan-Lucas",
+        "Li, Jeffrey",
+        "Wu, Jianbo",
+        "Yan, Minghao",
+        "Bian, Song",
+        "Sharma, Vedang",
+        "Sun, Ke",
+        "Dillmann, Steven",
+        "Anand, Akshay",
+        "Lanpouthakoun, Andrew",
+        "Koopah, Bardia",
+        "Hu, Changran",
+        "Guha, Etash",
+        "Dreiman, Gabriel H. S.",
+        "Zhu, Jiacheng",
+        "Krauth, Karl",
+        "Zhong, Li",
+        "Muennighoff, Niklas",
+        "Amanfu, Robert",
+        "Tan, Shangyin",
+        "Pimpalgaonkar, Shreyas",
+        "Aggarwal, Tushar",
+        "Lin, Xiangning",
+        "Lan, Xin",
+        "Zhao, Xuandong",
+        "Liang, Yiqing",
+        "Wang, Yuanli",
+        "Wang, Zilong",
+        "Zhou, Changzhi",
+        "Heineman, David",
+        "Liu, Hange",
+        "Trivedi, Harsh",
+        "Yang, John",
+        "Lin, Junhong",
+        "Shetty, Manish",
+        "Yang, Michael",
+        "Omi, Nabil",
+        "Raoof, Negin",
+        "Li, Shanda",
+        "Zhuo, Terry Yue",
+        "Lin, Wuwei",
+        "Dai, Yiwei",
+        "Wang, Yuxin",
+        "Chai, Wenhao",
+        "Zhou, Shang",
+        "Wahdany, Dariush",
+        "She, Ziyu",
+        "Hu, Jiaming",
+        "Dong, Zhikang",
+        "Zhu, Yuxuan",
+        "Cui, Sasha",
+        "Saiyed, Ahson",
+        "Kolbeinsson, Arinbjörn",
+        "Hu, Jesse",
+        "Rytting, Christopher Michael",
+        "Marten, Ryan",
+        "Wang, Yixin",
+        "Dimakis, Alex",
+        "Konwinski, Andy",
+        "Schmidt, Ludwig"
+      ],
+      "year": 2026,
+      "retrieved": "2026-10-23",
+      "content_sha256": "60d50fa9f8fcabe6776af2548867f1df8a70a104dc509886bfe11d7e156c1734",
+      "verified": true,
+      "note": "Year 2026 matches (submitted 2026-01-17, v1 only); the brief gives no title or authors. First authors Mike A. Merrill and Alexander G. Shaw. Only the abstract was read.",
+      "summary": {
+        "text": "Introduces Terminal-Bench 2.0, 89 hard tasks in command-line environments, each with its own environment, a human-written solution, and tests, and reports that frontier models and agents score below 65%. The dataset and evaluation harness are published.",
+        "based_on": "arXiv abstract page (abstract only)",
+        "unconfirmed": [
+          "The paper's treatment of resource limits, timeouts, or run-to-run variance was not checked."
+        ]
+      }
+    }
+  ],
+  "dropped": [
+    {
+      "key": "raise-v1-public",
+      "url": "https://github.com/raj200501/raise-v1-public",
+      "final_url": "https://github.com/raj200501/raise-v1-public",
+      "http_status": 403,
+      "title": null,
+      "authors": [],
+      "year": null,
+      "retrieved": "2026-10-23",
+      "content_sha256": "b3e03aaaff81d68730d67392a135ac3fdfdf022880c66632ab188d2fe084cda3",
+      "verified": false,
+      "note": "Not opened. curl got HTTP 403 from this session's egress proxy with the message 'GitHub access to this repository is not enabled for this session'; content_sha256 is the hash of that refusal body, not of the repository page. A request to attach the repository to the session (read access) was denied by the permission system, so no other route was tried. Needs Raj, or a session with access to this repository, for a manual check; until then leave it out of README.md and docs/REPORT.md.",
+      "summary": {
+        "text": "Not confirmed: the page did not open, so nothing is summarized.",
+        "based_on": "nothing (page not opened)",
+        "unconfirmed": [
+          "The brief's whole description (hash-chained preregistration, frozen readers, claimcheck, freshness checks, mutation-tested gates) is unconfirmed."
+        ]
+      },
+      "dropped": "2026-10-23: could not be opened from this session; dropped per rule 11 and listed under Needs Raj in STATUS.md"
+    }
+  ]
+}
