@@ -39,6 +39,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tokenize
 import tomllib
 import xml.etree.ElementTree as ET
 from collections.abc import Callable, Iterable
@@ -209,8 +210,13 @@ def need_setup(ctx: Ctx) -> None:
     need(bool(ctx.setup_ok), "make setup failed (see G1)")
 
 
+def _shown(path: Path) -> str:
+    parts = path.parts
+    return "/".join(parts[parts.index("clone") + 1 :]) if "clone" in parts else str(path)
+
+
 def load_json(path: Path) -> Any:
-    need(path.exists(), f"missing {path.name if path.is_absolute() else path}")
+    need(path.exists(), f"missing {_shown(path)}")
     try:
         return json.loads(path.read_text())
     except ValueError as exc:
@@ -409,19 +415,30 @@ def g2(ctx: Ctx) -> str:
     ignores = 0
     reason = re.compile(r"type:\s*ignore(\[[^\]]*\])?\s*#\s*\S.{2,}")
     for path in tracked_py(ctx, "src", "tests", "tools"):
-        for lineno, line in enumerate(path.read_text().splitlines(), 1):
-            where = f"{path.relative_to(ctx.clone)}:{lineno}"
-            if re.search(r"#\s*mypy:\s*ignore-errors", line):
-                raise GateError(f"{where} disables mypy for the file")
-            if "type: ignore" not in line and "type:ignore" not in line:
+        relp = path.relative_to(ctx.clone)
+        for lineno, comment, own_line in comments(path):
+            where = f"{relp}:{lineno}"
+            need(
+                re.search(r"mypy:\s*ignore-errors", comment) is None,
+                f"{where} disables mypy for the file",
+            )
+            if re.search(r"type:\s*ignore", comment) is None:
                 continue
             ignores += 1
-            need(
-                not (line.strip().startswith("#") and str(path).find("/src/") >= 0),
-                f"{where} file-level type: ignore",
-            )
-            need(reason.search(line) is not None, f"{where} type: ignore without a reason")
+            need(not (own_line and relp.parts[0] == "src"), f"{where} file-level type: ignore")
+            need(reason.search(comment) is not None, f"{where} type: ignore without a reason")
     return f"ruff check, ruff format, mypy --strict clean; {ignores} type: ignore, all with reasons"
+
+
+def comments(path: Path) -> list[tuple[int, str, bool]]:
+    """(line number, comment text, comment is alone on its line) for each comment token."""
+    with tokenize.open(path) as fh:
+        tokens = list(tokenize.generate_tokens(fh.readline))
+    return [
+        (tok.start[0], tok.string, tok.line.strip().startswith("#"))
+        for tok in tokens
+        if tok.type == tokenize.COMMENT
+    ]
 
 
 def g3(ctx: Ctx) -> str:
