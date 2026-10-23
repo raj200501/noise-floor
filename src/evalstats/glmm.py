@@ -133,26 +133,41 @@ function(df, formula, factors, level, do_profile) {
     lme4::glmer(stats::as.formula(formula), data = df, family = stats::binomial, control = ctrl),
     warning = keep
   )
-  profile_ci <- function(f) {
-    # Profile the random-effect SDs and the factor coefficients, not the intercept.
-    n_theta <- length(lme4::getME(f, "theta"))
-    fe_names <- names(lme4::fixef(f))
-    parm <- c(seq_len(n_theta), n_theta + which(fe_names != "(Intercept)"))
+  profile_one <- function(f, i) {
     tryCatch(
       withCallingHandlers(
         # devtol: deviance gains below 1e-4 found while profiling are numerical noise.
         stats::confint(
-          f, parm = parm, method = "profile", level = level, oldNames = FALSE, devtol = 1e-4
+          f, parm = i, method = "profile", level = level, oldNames = FALSE, devtol = 1e-4
         ),
         warning = keep
       ),
       error = function(e) conditionMessage(e)
     )
   }
+  profile_ci <- function(f) {
+    # Profile each random-effect SD and factor coefficient on its own (not the intercept),
+    # so a failure on one parameter (for example an SD on the boundary) loses only that one.
+    n_theta <- length(lme4::getME(f, "theta"))
+    fe_names <- names(lme4::fixef(f))
+    parm <- c(seq_len(n_theta), n_theta + which(fe_names != "(Intercept)"))
+    rows <- list()
+    for (i in parm) {
+      ci <- profile_one(f, i)
+      if (is.character(ci)) {
+        if (grepl("lower deviance", ci)) return(ci)
+        msgs <<- c(msgs, paste("profile failed for parameter", i, ":", ci))
+      } else {
+        rows[[length(rows) + 1]] <- ci
+      }
+    }
+    if (length(rows) == 0) return(NULL)
+    do.call(rbind, rows)
+  }
   ci <- NULL
   if (do_profile) {
     ci <- profile_ci(fit)
-    if (is.character(ci) && grepl("lower deviance", ci)) {
+    if (is.character(ci)) {
       # The profile found a better optimum: polish the fit with tight tolerances and retry.
       msgs <- c(msgs, paste("refit before profiling:", ci))
       tight <- lme4::glmerControl(
@@ -165,10 +180,10 @@ function(df, formula, factors, level, do_profile) {
         warning = keep
       )
       ci <- profile_ci(fit)
-    }
-    if (is.character(ci)) {
-      msgs <- c(msgs, paste("profile failed:", ci))
-      ci <- NULL
+      if (is.character(ci)) {
+        msgs <- c(msgs, paste("profile failed:", ci))
+        ci <- NULL
+      }
     }
   }
   vc <- as.data.frame(lme4::VarCorr(fit))
@@ -232,7 +247,7 @@ def _fit_lme4(
         random_ci=random_ci,
         fixed=fe,
         fixed_ci=fixed_ci,
-        interval_method="profile" if profile and ci else "none",
+        interval_method="profile" if profile else "none",
         converged=converged,
         messages=msgs,
     )
