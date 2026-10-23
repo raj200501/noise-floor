@@ -1,0 +1,42 @@
+{
+ "id": "725b4261-988d-43f0-9f6d-ed11117d4cae",
+ "started_at": "2026-02-05T16:08:29.167428",
+ "finished_at": "2026-02-05T17:41:09.757659",
+ "n_total_trials": 8,
+ "stats": {
+  "n_trials": 89,
+  "n_errors": 15,
+  "evals": {
+   "terminus-2__claude-opus-4-6__terminal-bench": {
+    "n_trials": 89,
+    "n_errors": 15,
+    "metrics": [
+     {
+      "mean": 0.6853932584269663
+     }
+    ],
+    "reward_stats": {
+     "reward": {
+      "0.0": [
+       "caffe-cifar-10__TJFkXqz",
+       "adaptive-rejection-sampler__gmpg6m3",
+       "compile-compcert__2GxsUKo",
+       "db-wal-recovery__NXkFBRk"
+      ],
+      "1.0": [
+       "break-filter-js-from-html__4Q9VHuF",
+       "bn-fit-modify__K4Mr5x5"
+      ]
+     }
+    },
+    "exception_stats": {
+     "AgentTimeoutError": [
+      "caffe-cifar-10__TJFkXqz",
+      "compile-compcert__2GxsUKo",
+      "db-wal-recovery__NXkFBRk"
+     ]
+    }
+   }
+  }
+ }
+}
