@@ -10,6 +10,7 @@ from typing import Any
 
 from evalstats import __version__
 from evalstats.compare import paired_difference
+from evalstats.glmm import decompose, describe
 from evalstats.intervals import INTERVAL_METHODS
 from evalstats.power import PairedDesign, design_from_results, mde, tasks_needed
 from evalstats.readers import read_results
@@ -22,7 +23,7 @@ SUBCOMMANDS: dict[str, str] = {
     "decompose": "variance components of eval outcomes",
     "report": "confidence report for a leaderboard",
 }
-IMPLEMENTED = ("compare", "power")
+IMPLEMENTED = ("compare", "power", "decompose")
 
 
 def _add_input(p: argparse.ArgumentParser, required: bool) -> None:
@@ -62,6 +63,19 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument("--effect", type=float, help="also report tasks needed for this effect")
             p.add_argument("--alpha", type=float, default=0.05)
             p.add_argument("--power", type=float, default=0.8)
+            p.add_argument("--json", action="store_true", help="print JSON")
+        elif name == "decompose":
+            _add_input(p, required=True)
+            p.add_argument(
+                "--random",
+                nargs="+",
+                default=["task", "model", "model:task"],
+                help="grouping terms with random intercepts (a:b for combinations)",
+            )
+            p.add_argument("--fixed", nargs="*", default=[], help="categorical fixed factors")
+            p.add_argument("--backend", default="auto", choices=["auto", "lme4", "statsmodels"])
+            p.add_argument("--level", type=float, default=0.95)
+            p.add_argument("--no-intervals", action="store_true", help="skip profile intervals")
             p.add_argument("--json", action="store_true", help="print JSON")
     return parser
 
@@ -148,6 +162,47 @@ def cmd_power(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_decompose(args: argparse.Namespace) -> int:
+    """Run ``evalstats decompose``."""
+    d = decompose(
+        _load(args),
+        random=args.random,
+        fixed=args.fixed,
+        level=args.level,
+        intervals=not args.no_intervals,
+        backend=args.backend,
+    )
+    rows = describe(d)
+
+    def fmt(x: float | None) -> str:
+        return "-" if x is None else f"{x:.4f}"
+
+    lines = [
+        f"{d.formula}  [{d.backend}; {d.n_obs} runs; converged: {d.converged}]",
+        f"latent (logit) scale; {100 * d.level:g}% intervals",
+        f"{'component':<16} {'kind':<9} {'variance':>9} {'share':>6}  interval",
+        *[
+            f"{r['component']:<16} {r['kind']:<9} {r['variance']:9.4f} {r['share']:6.3f}  "
+            f"[{fmt(r['lo'])}, {fmt(r['hi'])}] {r['interval']}"
+            for r in rows
+        ],
+        *[f"note: {m}" for m in d.messages],
+    ]
+    payload = {
+        "backend": d.backend,
+        "formula": d.formula,
+        "n_obs": d.n_obs,
+        "converged": d.converged,
+        "components": rows,
+        "messages": list(d.messages),
+    }
+    _emit(payload, "\n".join(lines), args.json)
+    return 0
+
+
+COMMANDS = {"compare": cmd_compare, "power": cmd_power, "decompose": cmd_decompose}
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the CLI and return a process exit code."""
     args = build_parser().parse_args(argv)
@@ -155,7 +210,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"evalstats {args.command}: not implemented yet", file=sys.stderr)
         return 2
     try:
-        return cmd_compare(args) if args.command == "compare" else cmd_power(args)
+        return COMMANDS[args.command](args)
     except (SchemaError, ValueError, OSError) as exc:
         print(f"evalstats {args.command}: error: {exc}", file=sys.stderr)
         return 1

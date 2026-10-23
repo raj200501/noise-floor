@@ -88,3 +88,15 @@ def test_run_column_optional(tmp_path: Path, capsys: pytest.CaptureFixture[str])
     frame.to_csv(path, index=False)
     assert cli.main(["compare", str(path), "--a", "a", "--b", "b", "--run-col", ""]) == 0
     assert "10 shared tasks" in capsys.readouterr().out
+
+
+def test_decompose_text_and_json(csv_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    args = ["decompose", str(csv_path), "--random", "task", "model", "--backend", "statsmodels"]
+    assert cli.main(args) == 0
+    text = capsys.readouterr().out
+    assert "outcome ~ 1 + (1 | task) + (1 | model)" in text and "residual" in text
+    assert cli.main([*args, "--json", "--no-intervals"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert [r["component"] for r in payload["components"]] == ["task", "model", "residual"]
+    assert payload["components"][0]["lo"] is None
+    assert cli.main(["decompose", str(csv_path), "--random", "nope"]) == 1

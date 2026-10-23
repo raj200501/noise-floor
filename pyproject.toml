@@ -21,6 +21,10 @@ dependencies = [
     "pandas>=2.1",
 ]
 
+[project.optional-dependencies]
+r = ["rpy2>=3.5.17,<3.6"]
+glmm = ["statsmodels>=0.14"]
+
 [project.scripts]
 evalstats = "evalstats.cli:main"
 
@@ -62,7 +66,9 @@ select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF", "PL", "D"]
 ignore = ["PLR0913", "PLR2004", "D203", "D213", "D401"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["D", "PLR"]
+"tests/**" = ["D", "PLR", "PLC0415"]
+# Optional backends (rpy2, statsmodels) are imported lazily, inside the functions that use them.
+"src/evalstats/glmm.py" = ["PLC0415"]
 "tools/**" = ["D", "PLR", "PLC0415"]
 
 [tool.mypy]
@@ -70,6 +76,10 @@ strict = true
 python_version = "3.11"
 mypy_path = "src"
 packages = ["evalstats", "noisefloor"]
+
+[[tool.mypy.overrides]]
+module = ["rpy2.*", "statsmodels.*", "patsy.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

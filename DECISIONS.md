@@ -60,3 +60,19 @@ present in the container, so they are treated as set:
 persistent: a new container needs it again, and Raj's environment setup script can add it. The
 library keeps a named Python fallback so it works without R; `make doctor` reports which is
 present, and every GLMM artifact records the backend that produced it.
+
+## D-009 2026-10-23 GLMM backends and variance-component intervals
+- Primary backend: lme4 (`glmer`, Laplace approximation, bobyqa) through rpy2. rpy2 is pinned to
+  `>=3.5.17,<3.6` as the optional extra `r`, because rpy2 3.6 needs R 4.5 and this container has
+  R 4.3; `make setup` adds the extra when `Rscript` is on the PATH.
+- Fallback when R is absent: statsmodels `BinomialBayesMixedGLM` (variational Bayes, extra
+  `glmm`). Its intervals are approximate posterior intervals and are labeled `vb_posterior`;
+  they are never used for a headline interval unless E0 shows they cover.
+- Variance partition on the latent logit scale (Nakagawa and Schielzeth style): random-effect
+  variances, the variance of each fixed factor's contribution to the linear predictor over the
+  observed design, and the logistic residual variance pi^2/3.
+- Intervals: profile likelihood from lme4 (`confint(method = "profile")`) for random-effect SDs
+  and fixed coefficients, mapped to variances. For a two-level fixed factor the contribution is
+  `p(1 - p) beta^2`, a monotone function of |beta|, so its interval is the image of the profile
+  interval for beta. Factors with more levels get no interval from this path (reported as such),
+  and the E1 design uses two-level factors. No Wald intervals for variance components.

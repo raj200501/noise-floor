@@ -12,7 +12,7 @@ def test_versions_and_exports() -> None:
         assert hasattr(evalstats, name)
 
 
-@pytest.mark.parametrize("command", ["rank", "decompose", "report"])
+@pytest.mark.parametrize("command", ["rank", "report"])
 def test_cli_unimplemented_exits_nonzero(command: str, capsys: pytest.CaptureFixture[str]) -> None:
     assert cli.main([command]) == 2
     assert "not implemented" in capsys.readouterr().err

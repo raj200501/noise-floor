@@ -10,8 +10,11 @@ PKGS   := src/evalstats src/noisefloor
 .PHONY: setup doctor test lint typecheck ci demo prereg-verify claimcheck freshness \
         citecheck secrets-scan budget review report reproduce ship-check
 
+# The R extra (rpy2 for lme4) is installed only where R is present.
+R_EXTRA := $(if $(shell command -v Rscript 2>/dev/null),--extra r,)
+
 setup:
-	$(UV) sync --locked
+	$(UV) sync --locked $(R_EXTRA)
 
 doctor:
 	$(TOOL) tools/doctor.py
