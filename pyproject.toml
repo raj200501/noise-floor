@@ -18,6 +18,7 @@ classifiers = [
 dependencies = [
     "numpy>=1.26",
     "scipy>=1.11",
+    "pandas>=2.1",
 ]
 
 [project.scripts]
@@ -30,6 +31,9 @@ dev = [
     "hypothesis>=6",
     "ruff>=0.6",
     "mypy>=1.11",
+    "pandas-stubs>=2.1",
+    "scipy-stubs>=1.11",
+    "statsmodels>=0.14",
 ]
 
 [build-system]
@@ -55,7 +59,7 @@ src = ["src", "tests", "tools"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF", "PL", "D"]
-ignore = ["PLR0913", "PLR2004", "D203", "D213"]
+ignore = ["PLR0913", "PLR2004", "D203", "D213", "D401"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["D", "PLR"]
