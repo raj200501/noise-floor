@@ -38,6 +38,8 @@ dev = [
     "pandas-stubs>=2.1",
     "scipy-stubs>=1.11",
     "statsmodels>=0.14",
+    "inspect-ai>=0.3.283",
+    "openai>=3.37.0",
 ]
 
 [build-system]
@@ -78,7 +80,7 @@ mypy_path = "src"
 packages = ["evalstats", "noisefloor"]
 
 [[tool.mypy.overrides]]
-module = ["rpy2.*", "statsmodels.*", "patsy.*"]
+module = ["rpy2.*", "statsmodels.*", "patsy.*", "inspect_ai.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
