@@ -1,0 +1,99 @@
+"""Unit tests for the stdlib-only tools that guard the ship gates."""
+
+import importlib.util
+import sys
+from pathlib import Path
+from types import ModuleType
+
+import pytest
+
+TOOLS = Path(__file__).resolve().parent.parent / "tools"
+
+
+def load(name: str) -> ModuleType:
+    spec = importlib.util.spec_from_file_location(f"tools_{name}", TOOLS / f"{name}.py")
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+ship_check = load("ship_check")
+secrets_scan = load("secrets_scan")
+budget = load("budget")
+doctor = load("doctor")
+
+
+def test_coverage_rule_exact_nominal_passes() -> None:
+    ok, cov, _ = ship_check.coverage_rule(1900, 2000, 0.95)
+    assert ok and cov == pytest.approx(0.95)
+
+
+def test_coverage_rule_tolerance_band() -> None:
+    # 0.93 observed with R = 2000: MCSE about 0.0057, threshold about 0.9236.
+    assert ship_check.coverage_rule(1860, 2000, 0.95)[0]
+    assert not ship_check.coverage_rule(1840, 2000, 0.95)[0]
+
+
+def test_coverage_rule_over_coverage_passes_and_zero_reps_fails() -> None:
+    assert ship_check.coverage_rule(2000, 2000, 0.95)[0]
+    assert not ship_check.coverage_rule(0, 0, 0.95)[0]
+
+
+def test_finite_interval() -> None:
+    assert ship_check.finite_interval({"estimate": 1, "lo": 0, "hi": 2})
+    assert not ship_check.finite_interval({"estimate": 3, "lo": 0, "hi": 2})
+    assert not ship_check.finite_interval({"estimate": float("nan"), "lo": 0, "hi": 2})
+    assert not ship_check.finite_interval({"lo": 0, "hi": 2})
+
+
+def test_secrets_patterns_detect_fake_tokens() -> None:
+    fake_github = ("gh" + "p_" + "a" * 36).encode()
+    fake_anthropic = ("sk-" + "ant-" + "b" * 30).encode()
+    fake_assignment = b'api_key = "' + b"c" * 30 + b'"'
+    assert "github-token" in secrets_scan.scan_bytes(fake_github, [])
+    assert "anthropic-key" in secrets_scan.scan_bytes(fake_anthropic, [])
+    assert "generic-assignment" in secrets_scan.scan_bytes(fake_assignment, [])
+
+
+def test_secrets_scan_env_value_and_clean_text() -> None:
+    assert secrets_scan.scan_bytes(b"xx s3cr3t-value-0123456789 yy", [b"s3cr3t-value-0123456789"])
+    assert secrets_scan.scan_bytes(b'"content_sha256": "' + b"f" * 64 + b'"', []) == []
+
+
+CAPS = {
+    "cash_usd": 0,
+    "claude_agent_runs_per_day": 2,
+    "claude_agent_max_turns": 40,
+    "claude_single_calls_per_day": 300,
+    "claude_review_runs_per_day": 6,
+}
+
+
+def test_budget_ok_and_plan_equivalent_not_cash() -> None:
+    entries = [{"ts": "2026-10-23T01:00:00", "kind": "agent_run", "plan_equivalent_usd": 1.5}]
+    lines, ok = budget.check(CAPS, entries)
+    assert ok and "cash_usd = 0" in lines
+
+
+def test_budget_daily_cap_and_cash_violations() -> None:
+    runs = [{"ts": f"2026-10-23T0{i}:00:00", "kind": "agent_run"} for i in range(3)]
+    assert not budget.check(CAPS, runs)[1]
+    lines, ok = budget.check(CAPS, [{"ts": "2026-10-23", "kind": "local", "cash_usd": 0.01}])
+    assert not ok and "cash_usd = 0" not in lines
+
+
+def test_budget_turn_cap() -> None:
+    entries = [{"ts": "2026-10-23", "kind": "agent_run", "turns": 41}]
+    assert not budget.check(CAPS, entries)[1]
+
+
+def test_billing_guard_detects_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in list(doctor.os.environ):
+        if name.startswith("ANTHROPIC_") or name.startswith("CLAUDE_CODE_USE_"):
+            monkeypatch.delenv(name)
+    monkeypatch.setattr(doctor, "CLAUDE_SETTINGS_FILES", ())
+    assert doctor.billing_guard_findings() == []
+    monkeypatch.setenv("CLAUDE_CODE_USE_BEDROCK", "1")
+    assert doctor.billing_guard_findings() == ["CLAUDE_CODE_USE_BEDROCK"]
