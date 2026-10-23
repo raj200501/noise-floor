@@ -124,3 +124,16 @@ brief's minimum:
 - freshness re-derives every registered claim, used or not.
 - Limits recorded in docs/INTEGRITY.md: numbers in words, in SVG figures, in HTML attributes, or in
   language-tagged code are not seen by claimcheck; results are kept out of those places.
+
+## D-014 2026-10-23 Commit authorship (Raj's instruction)
+Every commit from here on is authored as Raj Kashikar
+<65059626+raj200501@users.noreply.github.com> (repo-local git config; `--author` if the
+environment sets GIT_AUTHOR_*), keeping the Co-Authored-By and session trailers. Existing
+commits are not rewritten.
+
+## D-015 2026-10-23 GitHub Actions budget (Raj's instruction)
+ci.yml runs only on pushes to main, pull requests into main, and workflow_dispatch (never on
+claude/ branches or a schedule), with a cancel-in-progress concurrency group and
+timeout-minutes 10; jobs stay lean (setup, make ci). No other workflows. `make ci` must pass
+locally on a fresh clone before every push. (The stop-now commit that introduced this was pushed
+without running make ci, on Raj's instruction.)

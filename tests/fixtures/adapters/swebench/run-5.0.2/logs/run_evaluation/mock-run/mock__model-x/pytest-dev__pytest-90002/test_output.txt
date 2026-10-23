@@ -1,0 +1,5 @@
+>>>>> Applied Patch (pred)
+>>>>> Start Test Output
+FAILED testing/test_mock.py::test_fixed - AssertionError
+PASSED testing/test_mock.py::test_kept
+>>>>> End Test Output

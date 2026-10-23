@@ -1,0 +1,28 @@
+{
+    "job_name": "2026-10-23__02-00-00",
+    "n_attempts": 2,
+    "agents": [
+        {
+            "name": "terminus-2",
+            "model_name": "mock/model-a"
+        },
+        {
+            "name": "terminus-2",
+            "model_name": "mock/model-b"
+        }
+    ],
+    "tasks": [
+        {
+            "path": "tasks/mock-hello",
+            "source": "mock-dataset"
+        },
+        {
+            "path": "tasks/mock-regex",
+            "source": "mock-dataset"
+        },
+        {
+            "path": "tasks/mock-build",
+            "source": "mock-dataset"
+        }
+    ]
+}

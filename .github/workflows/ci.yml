@@ -2,14 +2,22 @@ name: ci
 
 on:
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ci:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -25,5 +33,3 @@ jobs:
         run: make setup
       - name: ci (lint, typecheck, test, offline demo)
         run: make ci
-      - name: secrets scan
-        run: make secrets-scan
