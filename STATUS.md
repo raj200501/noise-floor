@@ -7,11 +7,28 @@ Updated 2026-10-23, bootstrap (heartbeat turn; the `/goal` loop has not started,
 
 ## Gates
 
-Filled from the fast ship-check after the bootstrap commit.
+Fast ship-check (does not count) at f0c00dd, 3/14:
+
+| Gate | Status | Evidence |
+|------|--------|----------|
+| G1 Build and tests | PASS | setup ok; 18 tests pass; line coverage 95.8% |
+| G2 Static quality | PASS | ruff check, ruff format, mypy --strict clean |
+| G3 CI parity | FAIL | ci.yml in place; `make ci` fails at `demo` |
+| G4 Offline demo | FAIL | no demo or golden output yet |
+| G5 Library validity | FAIL | E0 not built |
+| G6 Orchestrator validity | FAIL | not built |
+| G7 Factorial study | FAIL | not started |
+| G8 Leaderboards and bounds | FAIL | not started |
+| G9 Library shipped | FAIL | wheel builds and installs; no examples or API reference |
+| G10 Claim integrity | FAIL | no REPORT.md; claimcheck and freshness not built |
+| G11 Preregistration integrity | FAIL | no preregistrations; prereg-verify not built |
+| G12 Independent review | FAIL | no review yet |
+| G13 Documentation | FAIL | README.md is still the brief |
+| G14 Hygiene | PASS | secrets-scan clean; cash_usd = 0; private/ untracked |
 
 ## Now
 
-Bootstrap (docs/BUILD_BRIEF.md section 10.1).
+Bootstrap done (docs/BUILD_BRIEF.md section 10.1). Next iteration: M1, evalstats core (critical path for G1 to G4).
 
 ## Next three actions
 
