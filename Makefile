@@ -35,13 +35,13 @@ demo:
 	$(RUN) python -m noisefloor.demo
 
 prereg-verify:
-	$(TODO) prereg-verify G11
+	$(TOOL) tools/prereg.py verify
 
 claimcheck:
-	$(TODO) claimcheck G10 README.md docs/REPORT.md
+	$(TOOL) tools/claimcheck.py README.md docs/REPORT.md
 
 freshness:
-	$(TODO) freshness G10 README.md docs/REPORT.md
+	$(TOOL) tools/freshness.py README.md docs/REPORT.md
 
 citecheck:
 	$(TOOL) tools/citecheck.py

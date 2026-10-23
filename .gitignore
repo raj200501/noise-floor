@@ -12,10 +12,11 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .hypothesis/
-.coverage
-.coverage.*
-coverage.json
-coverage.xml
+# Root-level coverage reports only (artifacts/e0/coverage.json is a banked artifact).
+/.coverage
+/.coverage.*
+/coverage.json
+/coverage.xml
 htmlcov/
 build/
 dist/

@@ -59,10 +59,10 @@ cash_usd = 0. cap_share = 0.2 (D-007). Claude subject runs 0, single calls 0, re
 
 ## Needs Raj
 
-1. raise-v1-public could not be opened from this session (proxy 403: "GitHub access to this
-   repository is not enabled for this session"), so it is dropped from the references and its
-   tools are reimplemented instead of ported. Action (optional): enable access to
-   raj200501/raise-v1-public for this environment, or check the reference by hand.
+1. raise-v1-public: its web page returns a proxy 403 here ("GitHub access to this repository is
+   not enabled for this session"), so it is dropped from the verified references; a git clone
+   worked, so its integrity tools were ported with Apache-2.0 attribution (THIRD_PARTY_NOTICES.md).
+   Action (optional): check the reference by hand, or enable web access to it for this environment.
 2. Claude subject arm (G7 needs at least 150 Claude-tier runs): the billing guard blocks Claude
    children in this hosted session. Action: when E1 is preregistered, run the Claude arm on a
    machine where `make doctor` shows `billing guard clean` and the `claude` CLI is logged in to

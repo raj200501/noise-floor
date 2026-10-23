@@ -1,0 +1,23 @@
+# Exemptions for tools/claimcheck.py (make claimcheck, gate G10). See docs/INTEGRITY.md.
+#
+# An exemption admits the number tokens inside one exact string of the Markdown source, in the
+# listed documents only. It never admits a number pattern. Result numbers (measured rates, counts
+# of outcomes, estimates, intervals, test statistics) are never exempt: mark them as claims.
+#
+# Fields, all required:
+#   text      exact source text; must contain a letter (a bare YYYY-MM-DD is allowed for "date")
+#   docs      documents it applies to, relative to the repository root
+#   category  one of: design-parameter, threshold, cap, date, version, gate-number,
+#             section-number (also figure, table, and step numbering), brief-quote (the text must
+#             occur in docs/BUILD_BRIEF.md)
+#   reason    why this number is not a result number
+#
+# An exemption that covers no number in its documents fails the check, so remove stale ones.
+#
+# Example:
+#
+# [[exempt]]
+# text = "Python 3.11 and 3.12"
+# docs = ["README.md"]
+# category = "version"
+# reason = "supported interpreter versions (section 6, G3), not a measurement"

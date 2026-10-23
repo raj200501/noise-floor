@@ -105,3 +105,22 @@ environment with tokens, API keys, `SSH_AUTH_SOCK`, and cloud credentials remove
 `GIT_CONFIG_NOSYSTEM=1` and `GIT_CONFIG_GLOBAL=/dev/null`. nf-tools runs no model-generated code
 (its tools are in-process mocks), so the sandbox mainly confines third-party harness code
 (inspect_ai) and the model server. The sandbox is verified by tests before any data is collected.
+
+## D-013 2026-10-23 Integrity tools (ported from raise-v1-public, Apache-2.0)
+`tools/prereg.py`, `tools/claimcheck.py`, `tools/freshness.py` are adapted from raise-v1-public at
+commit 9330c9d (git clone; see THIRD_PARTY_NOTICES.md). Interpretations, all stricter than the
+brief's minimum:
+- claimcheck checks untagged, `text`, and `console` code fences and digit-only inline code (only
+  fences tagged with a programming or config language are skipped); result numbers must carry a
+  `<!-- claim:<id> -->` marker resolving to `artifacts/claims.json` (artifact path, SHA-256, JSON
+  pointer, optional derivation and format). Exemptions in docs/claims_exempt.toml are exact strings
+  in context, scoped to named documents, each with a category from the brief's non-result list
+  and a reason; an unused exemption fails.
+- Preregistration numbers equal their chain position; amendments need `amends: NNNN` and `date:`
+  front matter. A commit touches a file only if it differs from every parent. Both the prereg file
+  and its chain entry must strictly predate every commit that introduced a confirmatory artifact;
+  `"confirmatory": true` without a prereg fails. The brief and its hash file must each have exactly
+  one committed version. prereg-verify needs full history (it fails on shallow clones).
+- freshness re-derives every registered claim, used or not.
+- Limits recorded in docs/INTEGRITY.md: numbers in words, in SVG figures, in HTML attributes, or in
+  language-tagged code are not seen by claimcheck; results are kept out of those places.

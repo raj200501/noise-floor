@@ -81,12 +81,12 @@ network; `docs/api/` is generated (says so) and names everything in `evalstats._
 
 ## G10 Claim integrity
 README.md and docs/REPORT.md exist; the `claimcheck` and `freshness` make targets name both;
-both targets pass.
+both targets pass. They read `artifacts/claims.json` and `docs/claims_exempt.toml` (docs/INTEGRITY.md).
 
 ## G11 Preregistration integrity
 At least one `prereg/NNNN-*.md`; each touched by exactly one commit; every artifact JSON with a
 `prereg` field has that prereg committed strictly before the artifact's first commit;
-`make prereg-verify` passes.
+`make prereg-verify` passes (hash chain in `prereg/CHAIN.jsonl`; docs/INTEGRITY.md).
 
 ## G12 Independent review
 `artifacts/review/latest.json`: verdict SHIP, no blocking issues, reviewed commit equal to HEAD or
