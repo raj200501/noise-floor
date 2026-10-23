@@ -14,6 +14,8 @@ Ledger entries are JSON objects with at least ``ts`` (ISO 8601) and ``kind``
 from __future__ import annotations
 
 import json
+import math
+import os
 import sys
 import tomllib
 from collections import Counter
@@ -27,6 +29,19 @@ DAILY_CAPS = {
     "single_call": "claude_single_calls_per_day",
     "review_run": "claude_review_runs_per_day",
 }
+
+
+def cap_share(caps: dict[str, Any], env: str | None) -> float:
+    """Effective share: the smaller of budget.toml cap_share and the CAP_SHARE env value."""
+    share = float(caps.get("cap_share", 1.0))
+    if env:
+        share = min(share, float(env))
+    return max(0.0, min(1.0, share))
+
+
+def effective_caps(caps: dict[str, Any], share: float) -> dict[str, Any]:
+    """Every claude_* cap multiplied by the share and rounded down; other keys unchanged."""
+    return {k: math.floor(v * share) if k.startswith("claude_") else v for k, v in caps.items()}
 
 
 def load_caps(path: Path) -> dict[str, Any]:
@@ -71,7 +86,10 @@ def check(caps: dict[str, Any], entries: list[dict[str, Any]]) -> tuple[list[str
 
 
 def main() -> int:
-    lines, ok = check(load_caps(REPO / "budget.toml"), load_ledger(LEDGER))
+    caps = load_caps(REPO / "budget.toml")
+    share = cap_share(caps, os.environ.get("CAP_SHARE"))
+    lines, ok = check(effective_caps(caps, share), load_ledger(LEDGER))
+    print(f"cap_share = {share:g}")
     print("\n".join(lines))
     return 0 if ok else 1
 

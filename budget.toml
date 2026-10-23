@@ -7,3 +7,7 @@ claude_single_calls_per_day = 300   # short single-turn calls (labeling, judging
 claude_review_runs_per_day = 6      # make review
 local_model_max_params_b = 8        # make doctor may lower this to fit RAM
 disk_floor_gb = 8                   # never download if free disk would fall below this
+
+# Raj's launch setting for the web session (DECISIONS.md D-007). The effective share is
+# min(cap_share, CAP_SHARE env); every claude_* cap is multiplied by it and rounded down.
+cap_share = 0.2

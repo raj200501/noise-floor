@@ -97,3 +97,21 @@ def test_billing_guard_detects_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert doctor.billing_guard_findings() == []
     monkeypatch.setenv("CLAUDE_CODE_USE_BEDROCK", "1")
     assert doctor.billing_guard_findings() == ["CLAUDE_CODE_USE_BEDROCK"]
+
+
+def test_cap_share_is_the_smaller_and_floors_claude_caps() -> None:
+    caps = {
+        **CAPS,
+        "claude_agent_runs_per_day": 30,
+        "claude_review_runs_per_day": 6,
+        "cap_share": 0.2,
+        "disk_floor_gb": 8,
+    }
+    assert budget.cap_share(caps, None) == pytest.approx(0.2)
+    assert budget.cap_share(caps, "0.1") == pytest.approx(0.1)
+    assert budget.cap_share(caps, "0.9") == pytest.approx(0.2)
+    eff = budget.effective_caps(caps, 0.2)
+    assert eff["claude_agent_runs_per_day"] == 6
+    assert eff["claude_review_runs_per_day"] == 1
+    assert eff["claude_agent_max_turns"] == 8
+    assert eff["disk_floor_gb"] == 8

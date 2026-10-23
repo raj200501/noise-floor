@@ -1,9 +1,9 @@
-goal_turn: 0
+goal_turn: 1
 STATE: ACTIVE
 
 # Status
 
-Updated 2026-10-23, bootstrap (heartbeat turn; the `/goal` loop has not started, so goal_turn is 0).
+Updated 2026-10-23, goal_turn 1 (Loop Protocol).
 
 ## Gates
 
@@ -52,7 +52,7 @@ Bootstrap done (docs/BUILD_BRIEF.md section 10.1). Next iteration: M1, evalstats
 
 ## Usage to date
 
-cash_usd = 0. Claude subject runs 0, single calls 0, review runs 0, local model runs 0.
+cash_usd = 0. cap_share = 0.2 (D-007). Claude subject runs 0, single calls 0, review runs 0, local model runs 0.
 
 ## Needs Raj
 
@@ -61,10 +61,8 @@ cash_usd = 0. Claude subject runs 0, single calls 0, review runs 0, local model 
    machine where `make doctor` shows `billing guard clean` and the `claude` CLI is logged in to
    the Max plan (for example your laptop), following the run instructions that will be in
    docs/PLAN.md. Not blocking yet.
-2. FYI, pushing: `ALLOW_PUSH` is unset, but this web session designates branch
-   `claude/gifted-darwin-k7q99b` and instructs pushing to it, and its container is ephemeral.
-   I push commits (never tags, never force) to that branch only (D-003). Say so if you want
-   pushes to stop.
+2. Optional: add `apt-get install -y r-base-core r-base-dev r-cran-lme4` to this environment's
+   setup script so R and lme4 survive container restarts (D-008). Not blocking.
 
 ## Blocked
 
