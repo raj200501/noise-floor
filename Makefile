@@ -29,7 +29,7 @@ typecheck:
 ci: lint typecheck test demo
 
 demo:
-	$(TODO) demo G4
+	$(RUN) python -m noisefloor.demo
 
 prereg-verify:
 	$(TODO) prereg-verify G11
