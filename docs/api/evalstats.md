@@ -27,7 +27,7 @@ Bounds on ``higher - lower`` over all ways of scoring the ambiguous runs.
 A model's score under each policy, its worst-case bounds, and their interval.
 
 
-### class `Decomposition(backend: 'str', formula: 'str', n_obs: 'int', level: 'float', components: 'tuple[VarianceComponent, ...]', fixed_effects: 'dict[str, float]', converged: 'bool', messages: 'tuple[str, ...]' = (), replicates: 'dict[str, tuple[float, ...]]' = <factory>) -> None`
+### class `Decomposition(backend: 'str', formula: 'str', n_obs: 'int', level: 'float', components: 'tuple[VarianceComponent, ...]', fixed_effects: 'dict[str, float]', converged: 'bool', messages: 'tuple[str, ...]' = (), replicates: 'dict[str, tuple[float, ...]]' = <factory>, coefficient_replicates: 'dict[str, tuple[float, ...]]' = <factory>) -> None`
 
 Variance decomposition of eval outcomes on the logit scale.
 
@@ -138,7 +138,7 @@ Returns the interval (t with G - 1 degrees of freedom, G clusters) and the
 standard error. Every observation weighs the same, so tasks with more runs
 weigh more; use :func:`t_interval` on task means for equal task weights.
 
-### `decompose(results: 'EvalResults', *, random: 'Sequence[str]' = ('task', 'model', 'model:task'), fixed: 'Sequence[str]' = (), level: 'float' = 0.95, intervals: 'bool' = True, backend: 'str' = 'auto', seed: 'int' = 0, method: 'str' = 'profile', n_boot: 'int' = 200, nagq: 'int' = 1, boot_interval: 'str' = 'percentile') -> 'Decomposition'`
+### `decompose(results: 'EvalResults', *, random: 'Sequence[str]' = ('task', 'model', 'model:task'), fixed: 'Sequence[str]' = (), level: 'float' = 0.95, intervals: 'bool' = True, backend: 'str' = 'auto', seed: 'int' = 0, method: 'str' = 'profile', n_boot: 'int' = 200, nagq: 'int' = 1, boot_interval: 'str' = 'percentile', box_interval: 'str' = 'percentile') -> 'Decomposition'`
 
 Fit a logit GLMM and partition the latent variance.
 
@@ -148,6 +148,16 @@ effects. Outcomes must be binary. ``method`` picks the lme4 intervals:
 ``profile`` (profile likelihood) or ``parametric_bootstrap`` (``n_boot``
 replicates, refits with ``nagq`` = 1 for Laplace or 0 for the faster
 approximation, random variances with ``boot_interval``; see the module docstring).
+
+### `design_from_logit(eta_a: 'float', eta_b: 'float', task_var: 'float', model_task_var: 'float', *, nodes: 'int' = 24) -> 'PairedDesign'`
+
+Variance inputs for a paired comparison implied by a logit model of the outcomes.
+
+Model: ``p_m = sigmoid(eta_m + u + v_m)`` for models ``a`` and ``b`` on a task, with
+task effect ``u ~ N(0, task_var)`` and independent model-by-task effects
+``v_m ~ N(0, model_task_var)``. ``between`` is ``Var(p_a - p_b)`` over the task
+population and ``within`` is ``E[p_a (1 - p_a) + p_b (1 - p_b)]`` (one run of each
+model per task), both by Gauss-Hermite quadrature with ``nodes`` points per axis.
 
 ### `design_from_results(results: 'EvalResults', model_a: 'str', model_b: 'str') -> 'PairedDesign'`
 

@@ -99,6 +99,33 @@ def tasks_needed(
     return max(1, math.ceil(((z_alpha + z_power) / effect) ** 2 * per_task - 1e-12))
 
 
+def design_from_logit(
+    eta_a: float, eta_b: float, task_var: float, model_task_var: float, *, nodes: int = 24
+) -> PairedDesign:
+    """Variance inputs for a paired comparison implied by a logit model of the outcomes.
+
+    Model: ``p_m = sigmoid(eta_m + u + v_m)`` for models ``a`` and ``b`` on a task, with
+    task effect ``u ~ N(0, task_var)`` and independent model-by-task effects
+    ``v_m ~ N(0, model_task_var)``. ``between`` is ``Var(p_a - p_b)`` over the task
+    population and ``within`` is ``E[p_a (1 - p_a) + p_b (1 - p_b)]`` (one run of each
+    model per task), both by Gauss-Hermite quadrature with ``nodes`` points per axis.
+    """
+    if task_var < 0 or model_task_var < 0:
+        raise ValueError("variances must be non-negative")
+    x, w = np.polynomial.hermite_e.hermegauss(nodes)
+    w = w / w.sum()
+    u = math.sqrt(task_var) * x[:, None, None]
+    s = math.sqrt(model_task_var)
+    pa = 1.0 / (1.0 + np.exp(-(eta_a + u + s * x[None, :, None])))
+    pb = 1.0 / (1.0 + np.exp(-(eta_b + u + s * x[None, None, :])))
+    weight = w[:, None, None] * w[None, :, None] * w[None, None, :]
+    diff = pa - pb
+    mean = float(np.sum(weight * diff))
+    between = max(0.0, float(np.sum(weight * diff**2)) - mean**2)
+    within = float(np.sum(weight * (pa * (1 - pa) + pb * (1 - pb))))
+    return PairedDesign(between_task_var=between, within_task_var=within)
+
+
 def design_from_results(results: EvalResults, model_a: str, model_b: str) -> PairedDesign:
     """Method-of-moments variance inputs estimated from observed results.
 

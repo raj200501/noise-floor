@@ -42,11 +42,13 @@ from evalstats import EvalResults
 from evalstats.glmm import (
     BOOT_INTERVALS,
     Decomposition,
+    boot_coef_interval,
     boot_variance_interval,
     contribution_box,
     decompose,
     level_weights,
 )
+from noisefloor.analysis import mde as mde_lib
 
 # Run-level two-level factors of the half fraction 2^(5-1) (defining relation I = ABCDE),
 # split into two blocks of 8 runs by the ABC interaction so that every main effect is
@@ -177,8 +179,69 @@ def simulate(design: Design, planted: Planted, seed: int) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+# MDE reference configuration (simulation coding): minimal harness, the long timeout, the
+# larger step budget, temperature 0, concurrency 1; day and block averaged.
+MDE_REFERENCE = {
+    "harness": "0",
+    "timeout": "1",
+    "steps": "1",
+    "temperature": "0",
+    "concurrency": "0",
+}
+MDE_AVERAGED = ("day", "block")
 RANDOM_TERMS = ("task", "model:task", "batch")
 FIXED_TERMS = ("model", *TWO_LEVEL, "day", "block")
+
+
+def planted_mde(
+    design: Design, planted: Planted, data: pd.DataFrame, designs: Sequence[tuple[int, int]]
+) -> dict[tuple[int, int], float]:
+    """The true MDE of each design, from the planted parameters at the reference levels."""
+    coefs: dict[str, float] = {"(Intercept)": planted.intercept}
+    for m in range(design.n_models):
+        coefs[f"modelm{m}"] = planted.model[m] - planted.model[0]
+    coefs["(Intercept)"] += planted.model[0]
+    for name in TWO_LEVEL:
+        coefs[f"{name}1"] = planted.factors[name]
+    for d in range(design.days):
+        coefs[f"dayd{d}"] = planted.day[d] - planted.day[0]
+    coefs["(Intercept)"] += planted.day[0]
+    for b in range(design.blocks_per_day):
+        coefs[f"blockb{b}"] = planted.block[b] - planted.block[0]
+    coefs["(Intercept)"] += planted.block[0]
+    models = [f"m{m}" for m in range(design.n_models)]
+    etas = mde_lib.reference_eta(coefs, data, models, MDE_REFERENCE, MDE_AVERAGED)
+    pooled = mde_lib.pooled_design(etas, planted.task_var, planted.model_task_var)
+    return mde_lib.mde_values(pooled, designs)
+
+
+def mde_components(
+    decomp: Decomposition,
+    data: pd.DataFrame,
+    design: Design,
+    designs: Sequence[tuple[int, int]],
+    level: float,
+) -> dict[str, dict[str, Any]]:
+    """Estimated MDE of each design with its replicate values (for intervals)."""
+    models = sorted(data["model"].unique())
+    variances = {c.name: c.variance for c in decomp.components if c.kind == "random"}
+    etas = mde_lib.reference_eta(decomp.fixed_effects, data, models, MDE_REFERENCE, MDE_AVERAGED)
+    point = mde_lib.mde_values(
+        mde_lib.pooled_design(etas, variances["task"], variances["model:task"]), designs
+    )
+    reps = mde_lib.replicate_mdes(
+        decomp.coefficient_replicates,
+        {k: decomp.replicates[k] for k in ("task", "model:task")},
+        data,
+        models=models,
+        reference=MDE_REFERENCE,
+        averaged=MDE_AVERAGED,
+        designs=designs,
+    )
+    out = {}
+    for key in designs:
+        out[f"mde:T{key[0]}:k{key[1]}"] = {"estimate": point[key], "replicates": reps[key]}
+    return out
 
 
 def planted_values(design: Design, planted: Planted, data: pd.DataFrame) -> dict[str, float]:
@@ -213,6 +276,8 @@ class AnalysisSettings:
     level: float = 0.95
     random: tuple[str, ...] = RANDOM_TERMS
     box_interval: str = "percentile"
+    mde_designs: tuple[tuple[int, int], ...] = ()
+    mde_interval: str = "percentile"
 
 
 def analyze(data: pd.DataFrame, settings: AnalysisSettings, seed: int) -> Decomposition:
@@ -250,6 +315,23 @@ def recover(
             "lo": comp.lo,
             "hi": comp.hi,
         }
+    if settings.mde_designs:
+        true_mde = planted_mde(design, planted, data, settings.mde_designs)
+        found = mde_components(decomp, data, design, settings.mde_designs, settings.level)
+        for (t, k), value in true_mde.items():
+            entry = found[f"mde:T{t}:k{k}"]
+            ci = boot_coef_interval(
+                entry["estimate"],
+                np.asarray(entry["replicates"]),
+                settings.level,
+                settings.mde_interval,
+            )
+            components[f"mde:T{t}:k{k}"] = {
+                "planted": value,
+                "estimate": entry["estimate"],
+                "lo": None if ci is None else max(0.0, ci[0]),
+                "hi": None if ci is None else ci[1],
+            }
     return {
         "seed": seed,
         "components": components,
@@ -324,6 +406,18 @@ def pilot_row(
             for kind in BOOT_INTERVALS:
                 entry[f"box_{kind}"] = contribution_box(weights, est, draws, settings.level, kind)
         rows[comp.name] = entry
+    if settings.mde_designs:
+        true_mde = planted_mde(design, planted, data, settings.mde_designs)
+        found = mde_components(decomp, data, design, settings.mde_designs, settings.level)
+        for (t, k), value in true_mde.items():
+            item = found[f"mde:T{t}:k{k}"]
+            entry = {"planted": value, "estimate": item["estimate"]}
+            for kind in BOOT_INTERVALS:
+                ci = boot_coef_interval(
+                    item["estimate"], np.asarray(item["replicates"]), settings.level, kind
+                )
+                entry[kind] = None if ci is None else (max(0.0, ci[0]), ci[1])
+            rows[f"mde:T{t}:k{k}"] = entry
     return {"seed": seed, "components": rows, "notes": list(decomp.messages)[-1:]}
 
 
@@ -385,6 +479,8 @@ def config_from(block: Mapping[str, Any]) -> tuple[Design, Planted, AnalysisSett
         level=float(st["level"]),
         random=tuple(str(r) for r in st["random"]),
         box_interval=str(st.get("box_interval", "percentile")),
+        mde_designs=tuple((int(t), int(k)) for t, k in st.get("mde_designs", [])),
+        mde_interval=str(st.get("mde_interval", "percentile")),
     )
     return Design(**block["design"]), planted, settings
 

@@ -73,3 +73,23 @@ def test_design_from_results_needs_replicates() -> None:
         design_from_results(make_results(runs=1), "a", "b")
     with pytest.raises(ValueError, match="2 shared tasks"):
         design_from_results(make_results(n_tasks=1), "a", "b")
+
+
+def test_design_from_logit_matches_monte_carlo() -> None:
+    import numpy as np
+
+    from evalstats import design_from_logit
+
+    d = design_from_logit(0.3, -0.2, 1.5, 0.4)
+    rng = np.random.default_rng(0)
+    n = 200_000
+    u = rng.normal(0, np.sqrt(1.5), n)
+    pa = 1 / (1 + np.exp(-(0.3 + u + rng.normal(0, np.sqrt(0.4), n))))
+    pb = 1 / (1 + np.exp(-(-0.2 + u + rng.normal(0, np.sqrt(0.4), n))))
+    assert d.between_task_var == pytest.approx(np.var(pa - pb), rel=0.03)
+    assert d.within_task_var == pytest.approx(np.mean(pa * (1 - pa) + pb * (1 - pb)), rel=0.01)
+    same = design_from_logit(0.0, 0.0, 0.0, 0.0)
+    assert same.between_task_var == pytest.approx(0.0, abs=1e-12)
+    assert same.within_task_var == pytest.approx(0.5)
+    with pytest.raises(ValueError, match="non-negative"):
+        design_from_logit(0.0, 0.0, -1.0, 0.0)

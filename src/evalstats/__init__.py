@@ -18,7 +18,14 @@ from evalstats.intervals import (
     percentile_interval,
     t_interval,
 )
-from evalstats.power import PairedDesign, design_from_results, mde, power_at, tasks_needed
+from evalstats.power import (
+    PairedDesign,
+    design_from_logit,
+    design_from_results,
+    mde,
+    power_at,
+    tasks_needed,
+)
 from evalstats.rank import AdjacentPair, RankConfidence, RankInterval, rank_confidence
 from evalstats.readers import read_csv, read_jsonl, read_results
 from evalstats.schema import EvalResults, PairedScores, SchemaError
@@ -45,6 +52,7 @@ __all__ = [
     "bca_interval",
     "cluster_robust_mean",
     "decompose",
+    "design_from_logit",
     "design_from_results",
     "interval_for_mean",
     "mde",
