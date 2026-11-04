@@ -26,7 +26,9 @@ A fixed factor's contribution gets the range of the contribution over a box of i
 for the factor's coefficients (``box_interval``: percentile, basic, bias-corrected, or
 studentized ``student``), each at level ``1 - (1 - level) / (k - 1)`` for ``k`` levels
 (Bonferroni), so it covers at least as often as the box. A share of the total gets the
-``share_interval`` rule (one of the variance rules) applied to its replicate shares, capped at 1.
+``share_interval`` rule: one of the variance rules applied to its replicate shares (capped at
+1), or ``plugin``, the component's own interval mapped through ``v / (v + rest)`` with the
+rest at its estimate (the residual then gets the percentile rule).
 """
 
 from __future__ import annotations
@@ -477,6 +479,7 @@ def _fixed_components(
 
 BOOT_INTERVALS = ("percentile", "basic", "bc", "basic_log")
 COEF_INTERVALS = (*BOOT_INTERVALS, "student")  # rules for coefficients (and boxes)
+SHARE_INTERVALS = (*BOOT_INTERVALS, "plugin")  # rules for shares of the total
 METHODS = ("profile", "parametric_bootstrap")
 _MAX_BOX_COEFS = 12  # a factor with more levels gets no box interval (2**12 vertices)
 
@@ -728,7 +731,7 @@ def decompose(
     _check_options(level, method, boot_interval, nagq, n_boot)
     if box_interval not in COEF_INTERVALS:
         raise ValueError(f"unknown bootstrap interval {box_interval!r}")
-    if share_interval not in BOOT_INTERVALS:
+    if share_interval not in SHARE_INTERVALS:
         raise ValueError(f"unknown bootstrap interval {share_interval!r}")
     frame = results.frame
     _check_names([*random, *fixed], frame)
@@ -789,6 +792,22 @@ def decompose(
     )
 
 
+def plugin_share(
+    interval: tuple[float, float] | None, variance: float, total: float
+) -> tuple[float | None, float | None]:
+    """A component's share interval with the rest of the total held at its estimate.
+
+    Maps the component's own interval ``[lo, hi]`` through ``v / (v + rest)``, with
+    ``rest = total - variance``, so the share interval covers whenever the component's
+    interval does and the rest is at its estimate; a lower end of 0 stays 0.
+    """
+    if interval is None:
+        return None, None
+    rest = total - variance
+    lo, hi = interval
+    return lo / (lo + rest), hi / (hi + rest)
+
+
 def _bootstrap_decomposition(
     frame: pd.DataFrame,
     data: pd.DataFrame,
@@ -814,16 +833,21 @@ def _bootstrap_decomposition(
     reps = np.column_stack([p[4] for p in parts]) if parts else np.empty((0, 0))
     totals = reps.sum(axis=1) + LOGISTIC_RESIDUAL_VAR if parts else np.empty(0)
 
-    def share_ci(estimate: float, values: np.ndarray) -> tuple[float | None, float | None]:
+    def share_ci(
+        estimate: float, values: np.ndarray, rule: str
+    ) -> tuple[float | None, float | None]:
         ok = np.isfinite(values) & np.isfinite(totals)
         if ok.sum() < 2:
             return None, None
-        ci = boot_variance_interval(estimate, values[ok] / totals[ok], level, share_interval)
+        ci = boot_variance_interval(estimate, values[ok] / totals[ok], level, rule)
         return (None, None) if ci is None else (ci[0], min(ci[1], 1.0))
 
     components = []
     for name, kind, variance, ci, values in parts:
-        s_lo, s_hi = share_ci(variance / total, values)
+        if share_interval == "plugin":
+            s_lo, s_hi = plugin_share(ci, variance, total)
+        else:
+            s_lo, s_hi = share_ci(variance / total, values, share_interval)
         components.append(
             VarianceComponent(
                 name=name,
@@ -838,8 +862,12 @@ def _bootstrap_decomposition(
                 share_hi=s_hi,
             )
         )
+    # The residual share falls as the other components grow; with "plugin" it gets the
+    # percentile interval of its replicate shares (the other components' total mapped).
     s_lo, s_hi = share_ci(
-        LOGISTIC_RESIDUAL_VAR / total, np.full(len(totals), LOGISTIC_RESIDUAL_VAR)
+        LOGISTIC_RESIDUAL_VAR / total,
+        np.full(len(totals), LOGISTIC_RESIDUAL_VAR),
+        "percentile" if share_interval == "plugin" else share_interval,
     )
     components.append(
         VarianceComponent(

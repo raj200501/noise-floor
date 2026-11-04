@@ -102,3 +102,33 @@ def test_choose_rule() -> None:
     assert not mp.choose_rule(rows, "random")["headline"]
     shares = [{"seed": 1, "components": {"share:task": comp(0.3, [0.2, 0.4], [0.1, 0.2])}}]
     assert mp.choose_rule(shares, "share")["rule"] == "basic"
+
+
+def test_plugin_shares_and_choices() -> None:
+    resid = math.pi**2 / 3
+    rows = []
+    for i in range(3):
+        rows.append(
+            {
+                "seed": i,
+                "components": {
+                    "task": {"planted": 2.0, "estimate": 2.0, "basic": [1.0, 3.0]},
+                    "model:task": {"planted": 0.5, "estimate": 0.5, "basic": [0.2, 0.9]},
+                    "harness": {"planted": 0.0, "estimate": 0.01, "box_basic": [0.0, 0.05]},
+                    "share:task": {"planted": 2.0 / (2.51 + resid), "estimate": 0.3},
+                    "share:harness": {"planted": 0.0, "estimate": 0.001},
+                    "share:residual": {"planted": 0.5, "estimate": 0.5, "percentile": [0.4, 0.6]},
+                    "mde:T20:k1": {"planted": 0.3, "estimate": 0.3, "basic": [0.2, 0.4]},
+                },
+            }
+        )
+    aug = mp.with_plugin_shares(rows, "basic", "box_basic")
+    total = 2.51 + resid
+    task = aug[0]["components"]["share:task"]["plugin"]
+    assert task == pytest.approx([1.0 / (1.0 + total - 2.0), 3.0 / (3.0 + total - 2.0)])
+    assert aug[0]["components"]["share:harness"]["plugin"][0] == 0.0  # covers a planted 0
+    assert aug[0]["components"]["share:residual"]["plugin"] == [0.4, 0.6]
+    assert "plugin" not in rows[0]["components"]["share:task"]  # input rows untouched
+    picked = mp.choices(aug, ["random", "fixed", "share", "mde"])
+    assert picked["share"]["rule"] == "plugin" and picked["share"]["min_coverage"] == 1.0
+    assert picked["random"]["rule"] == "basic" and picked["mde"]["components"] == ["mde:T20:k1"]

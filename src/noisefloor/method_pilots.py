@@ -21,6 +21,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from evalstats.glmm import LOGISTIC_RESIDUAL_VAR
 from noisefloor.recovery import TWO_LEVEL
 
 REPO = Path(__file__).resolve().parents[2]
@@ -182,6 +183,49 @@ def choose_rule(rows: Sequence[Mapping[str, Any]], kind: str) -> dict[str, Any]:
     }
 
 
+def with_plugin_shares(
+    rows: Sequence[Mapping[str, Any]], random_rule: str, box_rule: str
+) -> list[dict[str, Any]]:
+    """Rows whose share entries also carry the ``plugin`` share interval.
+
+    As ``evalstats.glmm.plugin_share``: each component's interval under the rule chosen for
+    its kind, mapped through ``v / (v + rest)`` with the rest of the estimated total held at
+    its estimate; the residual share takes its percentile interval.
+    """
+    out = []
+    for row in rows:
+        comps = {k: dict(v) for k, v in row["components"].items()}
+        names = [k for k in comps if not k.startswith(("share:", "mde:"))]
+        total = sum(comps[n]["estimate"] for n in names) + LOGISTIC_RESIDUAL_VAR
+        for n in names:
+            key = f"share:{n}"
+            if key not in comps:
+                continue
+            ci = comps[n].get(random_rule if n in KINDS["random"] else box_rule)
+            if not ci or None in ci:
+                comps[key]["plugin"] = None
+                continue
+            rest = total - comps[n]["estimate"]
+            comps[key]["plugin"] = [ci[0] / (ci[0] + rest), ci[1] / (ci[1] + rest)]
+        if "share:residual" in comps:
+            comps["share:residual"]["plugin"] = comps["share:residual"].get("percentile")
+        out.append({**row, "components": comps})
+    return out
+
+
+def choices(rows: Sequence[Mapping[str, Any]], kinds: Sequence[str]) -> dict[str, Any]:
+    """D-023 choices for the listed kinds.
+
+    Shares are chosen last, with the plugin candidate built from the rules chosen for the
+    random and fixed components.
+    """
+    out = {k: choose_rule(rows, k) for k in kinds if k != "share"}
+    if "share" in kinds:
+        aug = with_plugin_shares(rows, out["random"]["rule"], out["fixed"]["rule"])
+        out["share"] = choose_rule(aug, "share")
+    return out
+
+
 def summarize(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     """Everything the method decisions cite, for one pilot or one pool of pilots."""
     names = sorted({n for row in rows for n in row["components"]})
@@ -218,7 +262,7 @@ def build(directory: Path = DIR) -> dict[str, Any]:
         )
         entry = {"pilots": pool["pilots"], **summarize(joined)}
         if pool.get("choose"):
-            entry["choice"] = {k: choose_rule(joined, k) for k in pool["choose"]}
+            entry["choice"] = choices(joined, pool["choose"])
         out["pools"][pool["label"]] = entry
     return out
 

@@ -314,7 +314,14 @@ exploratory and banked in `artifacts/method_pilots/` (synthetic data, seeds from
   (`nAGQ = 1`). Replicates are fresh `glmer` fits that skip the final derivative pass (lme4's
   `refit` was slower for Laplace); convergence diagnostics come from the original fit.
 - Shares of the total get their own interval rule (`share_interval`), and G6 and E0 part 2
-  score every component's share, the residual's included, like the components.
+  score every component's share, the residual's included, like the components. Candidates:
+  the four variance rules on replicate shares, and `plugin`, each component's own interval
+  (under the rule chosen for its kind) mapped through `v / (v + rest)` with the rest of the
+  total at its estimate, the residual share taking its percentile interval. Added before pilot
+  6 was read because a planted share of exactly 0 (a null factor) can never sit inside a
+  percentile, bias-corrected, or log-scale interval of positive replicate shares; under
+  `plugin` a contribution box that reaches 0 gives a share interval that reaches 0. Shares are
+  chosen after the random and fixed rules.
 - Pilot 6 (exploratory, nAGQ = 1, seeds 990500 to 990599, the pilot 4 design) scores every
   rule. The rule for each kind of result is fixed here before its results are read: random
   variances (task, model:task), fixed-factor contributions (every fixed factor), shares (every

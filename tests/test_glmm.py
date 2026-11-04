@@ -220,6 +220,29 @@ def test_lme4_parametric_bootstrap(planted: EvalResults) -> None:
     q_lo, q_hi = np.quantile(reps, [0.025, 0.975])
     assert task.share_lo == pytest.approx(max(0.0, 2 * task.share - q_hi))
     assert task.share_hi == pytest.approx(min(1.0, 2 * task.share - q_lo))
+    plug = decompose(
+        planted,
+        random=("task", "model"),
+        fixed=("harness",),
+        method="parametric_bootstrap",
+        n_boot=12,
+        nagq=0,
+        boot_interval="basic",
+        share_interval="plugin",
+        seed=3,
+    )
+    total = plug.total_variance
+    for comp in plug.components:
+        if comp.kind == "residual":
+            same = d.component("residual")  # percentile, as in the default
+            assert (comp.share_lo, comp.share_hi) == (same.share_lo, same.share_hi)
+            continue
+        assert comp.lo is not None and comp.hi is not None
+        rest = total - comp.variance
+        assert comp.share_lo == pytest.approx(comp.lo / (comp.lo + rest))
+        assert comp.share_hi == pytest.approx(comp.hi / (comp.hi + rest))
+    assert glmm.plugin_share(None, 1.0, 5.0) == (None, None)
+    assert glmm.plugin_share((0.0, 2.0), 1.0, 5.0) == (0.0, 2.0 / 6.0)
 
 
 def test_bootstrap_option_validation(planted: EvalResults) -> None:
