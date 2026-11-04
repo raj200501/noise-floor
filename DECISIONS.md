@@ -398,3 +398,54 @@ From the prereg review, before freezing E1:
   round robin from a random offset, as `noisefloor.e1.local_plan` does, instead of one global
   permutation. Method pilots 1 to 6 ran with the earlier assignment (exploratory; noted in
   `artifacts/method_pilots/manifest.json`).
+
+## D-028 2026-11-04 Response to the E1 preregistration review (before freezing)
+Five reviewers and their verifiers read the drafts of 0004 to 0006 (workflow run
+wf_c2d326f8-d6b). Gate and bookkeeping fixes are D-026 and D-027 and the commits around them;
+the method decisions, written before acting and before any pilot 6 coverage was read:
+1. Fixed-factor contributions get task-jackknife intervals: each coefficient's interval is
+   its estimate plus or minus the t quantile on T - 1 degrees of freedom times its delete-one-
+   task jackknife standard error (T refits), at the Bonferroni level for a factor's k - 1
+   coefficients, and the contribution's interval is its range over that box. Reason: the
+   parametric bootstrap simulates from the main-effects model, so it omits task-by-factor
+   variation in the effects (the harness and step-budget effects plausibly depend on the task,
+   D-021), and would then make the fixed-factor intervals too narrow; a task jackknife resamples
+   whole tasks and keeps that variation. Random-effect variances, their shares, and the MDE rows
+   keep the parametric bootstrap (pilot 6, D-023). Exploratory pilot 7 checks the jackknife with
+   and without planted task-by-factor variation before E0 part 2 validates it.
+2. D-023's headline rule, tightened before pilot 6 is read (review: the 0.90 floor sat below
+   G5's pass point): a kind becomes headline when, under its chosen rule, its coverage pooled
+   over its components and datasets is at least 0.935 and every component's is at least 0.90.
+   Otherwise its intervals are reported as unvalidated estimates, its cells stay in E0 part 2 as
+   non-headline cells, and failing ones are listed as unsupported.
+3. Sampling: the logistic residual pi^2/3 is the latent scale's fixed observation-level
+   variance, not a measurement of run-to-run sampling, and E1's half fraction repeats no
+   configuration. E1 therefore adds two replicate runs to every (model, task) cell: a second run
+   of the MDE reference configuration (minimal-agent, 300 s, 15 steps, temperature 0.0,
+   concurrency 1) and a second run of the fraction's configuration minimal-agent, 300 s, 15
+   steps, temperature 0.7, concurrency 2. Each pair gives a within-configuration variance; their
+   means estimate run-to-run sampling at the two temperatures, and the temperature 0.0 one checks
+   the MDE's assumption of independent runs. The replicates stay out of the decomposition.
+4. A post-E1 check at the fitted values: 200 datasets (seeds fixed in 0004) simulated from the
+   E1 fit, with the batch variance of the batch-term fit and task-by-factor variances from one
+   auxiliary fit, analyzed by the unchanged primary analysis. A component whose coverage fails
+   the G5 rule there is reported as resting on an unsupported method. If the batch-term fit's
+   batch variance exceeds 0.05, the concurrency, day, and block intervals are also reported as
+   not validated.
+5. Planted values are design choices: task variance 4.0 (screening s3 showed many tasks with
+   identical outcomes across all runs, which variance 2.0 makes unlikely), model:task 0.5, the
+   factor effects as before. E0 part 2 adds a group with planted task-by-harness, task-by-steps,
+   and task-by-timeout variances of 0.25 each, analyzed by the primary analysis, for the fixed
+   contributions.
+6. The scaffold question gets its own test: for each pair of local models, the difference of
+   their harness contrasts, paired by task (one Holm family); and the Claude tiers are compared
+   pairwise under each harness (one Holm family). "Supported" means a Holm-adjusted p below
+   0.05 within its family everywhere.
+7. Operations: a batch that fails as a whole (server start, model check, runner exit before a
+   run) banks nothing, so its runs run later in their slot's block; the arm stops when a batch
+   banks nothing or when infra_error runs exceed 5 percent of banked runs; primary fits fall
+   back through a fixed optimizer sequence; a bootstrap kind with more than 10 percent failed
+   replicates reports no interval. The Claude slice ends when its 180 runs are banked or 45 days
+   after the freeze, whichever comes first, nothing about its outcomes is read before that, its
+   plan runs complete (tier, task) pairs back to back, and a run whose turn cap would be below 8
+   is refused. A dry run on pilot seeds at the E1 server settings precedes the arm.
