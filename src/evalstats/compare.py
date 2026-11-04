@@ -13,6 +13,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy import stats
 
+from evalstats import validity
 from evalstats.intervals import Interval, interval_for_mean, mean_se
 from evalstats.schema import EvalResults
 
@@ -68,6 +69,7 @@ def score_interval(
     scores = results.task_scores(model)
     runs = results.run_counts(model)
     values = scores.to_numpy(dtype=np.float64)
+    validity.check("score_interval", method, int(values.size))
     interval = interval_for_mean(values, method=method, level=level, n_boot=n_boot, seed=seed)
     return ScoreInterval(
         model=model,
@@ -97,6 +99,7 @@ def paired_difference(
         raise ValueError("compare two different models")
     pair = results.paired(model_a, model_b)
     diffs = pair.differences
+    validity.check("paired_difference", method, int(diffs.size))
     interval = interval_for_mean(diffs, method=method, level=level, n_boot=n_boot, seed=seed)
     se = mean_se(diffs)
     if diffs.size < 2:

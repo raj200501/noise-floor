@@ -1,0 +1,13 @@
+{
+ "source": "artifacts/e0/coverage.json",
+ "unsupported": {
+  "P-small-boot": {
+   "alternative": "method='cluster_t'",
+   "coverage": 0.908,
+   "function": "paired_difference",
+   "max_tasks": 20,
+   "method": "bootstrap",
+   "nominal": 0.95
+  }
+ }
+}
