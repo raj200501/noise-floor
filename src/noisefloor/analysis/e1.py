@@ -261,14 +261,18 @@ def _results(rows: Sequence[Mapping[str, Any]], key: str) -> EvalResults:
 def scores_table(
     rows: Sequence[Mapping[str, Any]], settings: Mapping[str, Any]
 ) -> list[dict[str, Any]]:
-    """Each model's success rate with a task-clustered t interval (confirmatory runs)."""
+    """Each model's success rate with its preregistered interval (confirmatory runs).
+
+    The interval method is ``settings["score_interval"]`` (default ``cluster_t``).
+    """
     usable = _usable(rows, settings["exclude_status"])
     if not usable:
         return []
     results = _results(usable, "model_id")
+    method = str(settings.get("score_interval", "cluster_t"))
     out = []
     for model in sorted({r["model_id"] for r in usable}):
-        si = score_interval(results, model, level=float(settings["level"]))
+        si = score_interval(results, model, method=method, level=float(settings["level"]))
         backend = next(r["backend"] for r in usable if r["model_id"] == model)
         out.append(
             {
@@ -279,7 +283,7 @@ def scores_table(
                 "hi": si.interval.hi,
                 "n_tasks": si.n_tasks,
                 "runs_per_task": si.runs_per_task,
-                "interval_method": "cluster_t",
+                "interval_method": si.interval.method,
             }
         )
     return out

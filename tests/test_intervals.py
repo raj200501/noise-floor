@@ -92,3 +92,34 @@ def test_level_and_method_validation() -> None:
         interval_for_mean([0.1, 0.2], method="wald")
     got = interval_for_mean([0.1, 0.2, 0.4], method="bootstrap", n_boot=500, seed=0)
     assert isinstance(got, Interval) and got.level == 0.95
+
+
+def test_cluster_wilson_interval() -> None:
+    from evalstats.intervals import cluster_wilson_interval
+
+    ones = cluster_wilson_interval(np.ones(30), np.full(30, 2.0))
+    z = float(stats.t.ppf(0.975, 29))
+    assert ones.estimate == 1.0 and ones.hi == 1.0
+    assert ones.lo == pytest.approx(60 / (60 + z * z))  # Wilson at the run count
+    means = np.array([0.0, 0.5, 1.0, 1.0, 0.5, 1.0, 0.0, 1.0])
+    runs = np.full(8, 2.0)
+    iv = cluster_wilson_interval(means, runs)
+    p, t_tasks = means.mean(), 8
+    var = max(means.var(ddof=1) / t_tasks, p * (1 - p) * 0.5 / t_tasks)
+    n = p * (1 - p) / var
+    q = float(stats.t.ppf(0.975, 7))
+    center = (p + q * q / (2 * n)) / (1 + q * q / n)
+    half = q * math.sqrt(p * (1 - p) / n + q * q / (4 * n * n)) / (1 + q * q / n)
+    assert (iv.lo, iv.hi) == pytest.approx((center - half, center + half))
+    assert iv.method == "cluster_wilson" and 0.0 <= iv.lo < p < iv.hi <= 1.0
+    # A design effect below 1 is floored: never narrower than the binomial Wilson interval.
+    even = cluster_wilson_interval(np.full(10, 0.5), np.full(10, 4.0))
+    n40 = 40.0
+    q10 = float(stats.t.ppf(0.975, 9))
+    half40 = q10 * math.sqrt(0.25 / n40 + q10 * q10 / (4 * n40 * n40)) / (1 + q10 * q10 / n40)
+    assert even.hi - even.lo == pytest.approx(2 * half40)
+    assert cluster_wilson_interval(np.array([0.3]), np.array([5.0])).lo == 0.0
+    with pytest.raises(ValueError, match=r"\[0, 1\]"):
+        cluster_wilson_interval(np.array([0.5, 1.5]), np.array([2.0, 2.0]))
+    with pytest.raises(ValueError, match="run count"):
+        cluster_wilson_interval(np.array([0.5, 1.0]), np.array([2.0]))

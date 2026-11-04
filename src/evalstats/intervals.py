@@ -79,6 +79,41 @@ def t_interval(values: npt.ArrayLike, level: float = 0.95) -> Interval:
     return Interval(est, est - q * se, est + q * se, level, "cluster_t")
 
 
+def cluster_wilson_interval(
+    task_means: npt.ArrayLike, runs: npt.ArrayLike, level: float = 0.95
+) -> Interval:
+    """Wilson interval for a success rate at its design-effect sample size.
+
+    ``task_means`` are per-task success rates in [0, 1] and ``runs`` the runs behind each;
+    the estimate is their mean (every task weighs the same). Its variance is the larger of
+    the task-clustered variance ``sd**2 / T`` and the binomial variance of the same
+    estimator, ``p (1 - p) mean(1 / runs) / T``, so the effective sample size
+    ``p (1 - p) / variance`` is at most the run count. The Wilson interval at that sample
+    size uses the t quantile with ``T - 1`` degrees of freedom. Unlike the t interval it
+    stays inside [0, 1] and keeps its width when most tasks are all-success or all-failure.
+    """
+    _check_level(level)
+    means = _as_vector(task_means, "task_means")
+    counts = _as_vector(runs, "runs")
+    if counts.shape != means.shape or np.any(counts < 1):
+        raise ValueError("runs must give a positive run count for every task")
+    if np.any(means < 0) or np.any(means > 1):
+        raise ValueError("cluster_wilson needs success rates in [0, 1]")
+    n_tasks = means.size
+    est = float(means.mean())
+    if n_tasks < 2:
+        return Interval(est, 0.0, 1.0, level, "cluster_wilson")
+    binomial_unit = float(np.mean(1.0 / counts)) / n_tasks  # times p (1 - p)
+    clustered = float(means.var(ddof=1)) / n_tasks
+    pq = est * (1 - est)
+    n_eff = pq / max(clustered, pq * binomial_unit) if pq > 0 else 1.0 / binomial_unit
+    z = float(stats.t.ppf(0.5 + level / 2, df=n_tasks - 1))
+    denom = 1 + z * z / n_eff
+    center = (est + z * z / (2 * n_eff)) / denom
+    half = z * math.sqrt(pq / n_eff + z * z / (4 * n_eff * n_eff)) / denom
+    return Interval(est, max(0.0, center - half), min(1.0, center + half), level, "cluster_wilson")
+
+
 def cluster_robust_mean(
     values: npt.ArrayLike, clusters: npt.ArrayLike, level: float = 0.95
 ) -> tuple[Interval, float]:
@@ -181,7 +216,9 @@ def interval_for_mean(
     """Interval for the mean of per-task values by the named method.
 
     Methods: ``cluster_t`` (t interval on task-level values), ``bootstrap``
-    (percentile, resampling tasks), ``bca`` (bias-corrected and accelerated).
+    (percentile, resampling tasks), ``bca`` (bias-corrected and accelerated). For a
+    success rate, :func:`cluster_wilson_interval` (``score_interval(method=
+    "cluster_wilson")``) also needs each task's run count, so it is not listed here.
     """
     try:
         fn = INTERVAL_METHODS[method]

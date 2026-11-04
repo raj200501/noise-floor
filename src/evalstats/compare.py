@@ -14,7 +14,7 @@ import numpy as np
 from scipy import stats
 
 from evalstats import validity
-from evalstats.intervals import Interval, interval_for_mean, mean_se
+from evalstats.intervals import Interval, cluster_wilson_interval, interval_for_mean, mean_se
 from evalstats.schema import EvalResults
 
 
@@ -65,12 +65,21 @@ def score_interval(
     n_boot: int = 10_000,
     seed: int | None = None,
 ) -> ScoreInterval:
-    """Interval for one model's benchmark score (mean over tasks of task means)."""
+    """Interval for one model's benchmark score (mean over tasks of task means).
+
+    ``method`` is ``cluster_t`` (default), ``bootstrap``, ``bca``, or ``cluster_wilson``
+    (a Wilson interval at the design-effect sample size, for success rates near 0 or 1;
+    see :func:`evalstats.intervals.cluster_wilson_interval`).
+    """
     scores = results.task_scores(model)
     runs = results.run_counts(model)
     values = scores.to_numpy(dtype=np.float64)
     validity.check("score_interval", method, int(values.size))
-    interval = interval_for_mean(values, method=method, level=level, n_boot=n_boot, seed=seed)
+    if method == "cluster_wilson":
+        counts = runs.reindex(scores.index).to_numpy(dtype=np.float64)
+        interval = cluster_wilson_interval(values, counts, level)
+    else:
+        interval = interval_for_mean(values, method=method, level=level, n_boot=n_boot, seed=seed)
     return ScoreInterval(
         model=model,
         n_tasks=int(values.size),

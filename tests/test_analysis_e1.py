@@ -26,6 +26,8 @@ SETTINGS = {
     "nagq": 0,
     "boot_interval": "basic_log",
     "box_interval": "basic",
+    "share_interval": "basic_log",
+    "score_interval": "cluster_wilson",
     "seed": 7,
     "exclude_status": ["infra_error"],
     "block_hours": [[0, 12], [12, 24]],
@@ -121,6 +123,7 @@ def test_build_and_verify(tmp_path: Path) -> None:
     scores = json.loads((tmp_path / "scores.json").read_text())["rows"]
     assert {r["model"] for r in scores} == {*DESIGN.models, *DESIGN.claude_tiers}
     assert all(r["lo"] <= r["score"] <= r["hi"] for r in scores)
+    assert {r["interval_method"] for r in scores} == {"cluster_wilson"}
     contrasts = json.loads((tmp_path / "contrasts.json").read_text())
     assert {r["contrast"] for r in contrasts["harness"]} == {
         f"harness:{m}" for m in (*DESIGN.models, *DESIGN.claude_tiers)

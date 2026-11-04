@@ -27,7 +27,7 @@ Bounds on ``higher - lower`` over all ways of scoring the ambiguous runs.
 A model's score under each policy, its worst-case bounds, and their interval.
 
 
-### class `Decomposition(backend: 'str', formula: 'str', n_obs: 'int', level: 'float', components: 'tuple[VarianceComponent, ...]', fixed_effects: 'dict[str, float]', converged: 'bool', messages: 'tuple[str, ...]' = (), replicates: 'dict[str, tuple[float, ...]]' = <factory>, coefficient_replicates: 'dict[str, tuple[float, ...]]' = <factory>) -> None`
+### class `Decomposition(backend: 'str', formula: 'str', n_obs: 'int', level: 'float', components: 'tuple[VarianceComponent, ...]', fixed_effects: 'dict[str, float]', converged: 'bool', messages: 'tuple[str, ...]' = (), replicates: 'dict[str, tuple[float, ...]]' = <factory>, coefficient_replicates: 'dict[str, tuple[float, ...]]' = <factory>, coefficient_se: 'dict[str, float]' = <factory>, coefficient_se_replicates: 'dict[str, tuple[float, ...]]' = <factory>) -> None`
 
 Variance decomposition of eval outcomes on the logit scale.
 
@@ -138,7 +138,19 @@ Returns the interval (t with G - 1 degrees of freedom, G clusters) and the
 standard error. Every observation weighs the same, so tasks with more runs
 weigh more; use :func:`t_interval` on task means for equal task weights.
 
-### `decompose(results: 'EvalResults', *, random: 'Sequence[str]' = ('task', 'model', 'model:task'), fixed: 'Sequence[str]' = (), level: 'float' = 0.95, intervals: 'bool' = True, backend: 'str' = 'auto', seed: 'int' = 0, method: 'str' = 'profile', n_boot: 'int' = 200, nagq: 'int' = 1, boot_interval: 'str' = 'percentile', box_interval: 'str' = 'percentile') -> 'Decomposition'`
+### `cluster_wilson_interval(task_means: 'npt.ArrayLike', runs: 'npt.ArrayLike', level: 'float' = 0.95) -> 'Interval'`
+
+Wilson interval for a success rate at its design-effect sample size.
+
+``task_means`` are per-task success rates in [0, 1] and ``runs`` the runs behind each;
+the estimate is their mean (every task weighs the same). Its variance is the larger of
+the task-clustered variance ``sd**2 / T`` and the binomial variance of the same
+estimator, ``p (1 - p) mean(1 / runs) / T``, so the effective sample size
+``p (1 - p) / variance`` is at most the run count. The Wilson interval at that sample
+size uses the t quantile with ``T - 1`` degrees of freedom. Unlike the t interval it
+stays inside [0, 1] and keeps its width when most tasks are all-success or all-failure.
+
+### `decompose(results: 'EvalResults', *, random: 'Sequence[str]' = ('task', 'model', 'model:task'), fixed: 'Sequence[str]' = (), level: 'float' = 0.95, intervals: 'bool' = True, backend: 'str' = 'auto', seed: 'int' = 0, method: 'str' = 'profile', n_boot: 'int' = 200, nagq: 'int' = 1, boot_interval: 'str' = 'percentile', box_interval: 'str' = 'percentile', share_interval: 'str' = 'percentile') -> 'Decomposition'`
 
 Fit a logit GLMM and partition the latent variance.
 
@@ -146,8 +158,9 @@ Fit a logit GLMM and partition the latent variance.
 random intercepts; ``fixed`` lists categorical covariates entered as fixed
 effects. Outcomes must be binary. ``method`` picks the lme4 intervals:
 ``profile`` (profile likelihood) or ``parametric_bootstrap`` (``n_boot``
-replicates, refits with ``nagq`` = 1 for Laplace or 0 for the faster
-approximation, random variances with ``boot_interval``; see the module docstring).
+replicates, each a fresh fit with ``nagq`` = 1 for Laplace or 0 for the faster
+approximation, random variances with ``boot_interval``, fixed contributions with
+``box_interval``, and shares with ``share_interval``; see the module docstring).
 
 ### `design_from_logit(eta_a: 'float', eta_b: 'float', task_var: 'float', model_task_var: 'float', *, nodes: 'int' = 24) -> 'PairedDesign'`
 
@@ -172,7 +185,9 @@ of per-task differences minus their average sampling variance, floored at 0.
 Interval for the mean of per-task values by the named method.
 
 Methods: ``cluster_t`` (t interval on task-level values), ``bootstrap``
-(percentile, resampling tasks), ``bca`` (bias-corrected and accelerated).
+(percentile, resampling tasks), ``bca`` (bias-corrected and accelerated). For a
+success rate, :func:`cluster_wilson_interval` (``score_interval(method=
+"cluster_wilson")``) also needs each task's run count, so it is not listed here.
 
 ### `mde(design: 'PairedDesign', n_tasks: 'int', runs_per_task: 'int' = 1, *, alpha: 'float' = 0.05, power: 'float' = 0.8, two_sided: 'bool' = True) -> 'float'`
 
@@ -221,6 +236,10 @@ Read CSV or JSON Lines, chosen by file extension.
 ### `score_interval(results: 'EvalResults', model: 'str', *, method: 'str' = 'cluster_t', level: 'float' = 0.95, n_boot: 'int' = 10000, seed: 'int | None' = None) -> 'ScoreInterval'`
 
 Interval for one model's benchmark score (mean over tasks of task means).
+
+``method`` is ``cluster_t`` (default), ``bootstrap``, ``bca``, or ``cluster_wilson``
+(a Wilson interval at the design-effect sample size, for success rates near 0 or 1;
+see :func:`evalstats.intervals.cluster_wilson_interval`).
 
 ### `t_interval(values: 'npt.ArrayLike', level: 'float' = 0.95) -> 'Interval'`
 

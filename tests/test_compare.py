@@ -63,3 +63,14 @@ def test_score_interval(results: EvalResults) -> None:
     assert got.interval.lo == pytest.approx(lo) and got.interval.hi == pytest.approx(hi)
     assert got.n_tasks == 30 and got.runs_per_task == 3.0
     assert got.se == pytest.approx(float(np.std(scores, ddof=1) / np.sqrt(30)))
+
+
+def test_score_interval_cluster_wilson(results: EvalResults) -> None:
+    from evalstats import cluster_wilson_interval
+
+    got = score_interval(results, "a", method="cluster_wilson")
+    direct = cluster_wilson_interval(
+        results.task_scores("a").to_numpy(), results.run_counts("a").to_numpy(dtype=float)
+    )
+    assert got.interval == direct and got.interval.method == "cluster_wilson"
+    assert got.interval.lo <= got.interval.estimate <= got.interval.hi
