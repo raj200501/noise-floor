@@ -115,3 +115,139 @@ def test_sixteen_runs_per_cell() -> None:
     assert e1.E1Design.from_json(full.to_json()) == full
     with pytest.raises(ValueError, match="runs_per_cell"):
         e1.E1Design(models=MODELS, runs_per_cell=4)
+
+
+def plan_prereg(tmp_path, design):
+    import json as _json
+
+    path = tmp_path / "prereg.md"
+    path.write_text("# test\n\n```json e1-plan\n" + _json.dumps(design.to_json()) + "\n```\n")
+    return path
+
+
+def fake_execute(calls):
+    import json as _json
+
+    def run(specs, *, artifact, ledger, prefix, stamp, log):
+        calls.append((prefix, len(specs)))
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        with artifact.open("a") as fh:
+            for s in specs:
+                fh.write(_json.dumps({"run_id": s.run_id, **stamp}) + "\n")
+        return len(specs)
+
+    return run
+
+
+def test_blocks_and_waiting() -> None:
+    from datetime import UTC, datetime
+
+    morning = datetime(2026, 11, 5, 3, 30, tzinfo=UTC)
+    evening = datetime(2026, 11, 5, 23, 59, 30, tzinfo=UTC)
+    assert e1.current_block(morning) == 1 and e1.current_block(evening) == 2
+    assert e1.seconds_to_next_block(morning) == pytest.approx(8.5 * 3600)
+    assert e1.seconds_to_next_block(evening) == pytest.approx(30)
+    with pytest.raises(ValueError, match="no block"):
+        e1.current_block(morning, ((5, 6),))
+
+
+def never_sleep(seconds):
+    raise AssertionError(f"slept {seconds} s")
+
+
+def block_runs(design):
+    batches = e1.planned_batches(e1.local_plan(design))
+    out = {1: 0, 2: 0}
+    for label, specs in batches.items():
+        out[int(label.split("/")[0][-1])] += len(specs)
+    return out
+
+
+def test_run_local_follows_time_of_day(tmp_path) -> None:
+    from datetime import UTC, datetime
+
+    design = e1.E1Design(models=MODELS[:2], families=("config",), tasks_per_family=3)
+    per_block = block_runs(design)
+    assert per_block[1] and per_block[2]  # this design has batches in both blocks
+    prereg = plan_prereg(tmp_path, design)
+    artifact = tmp_path / "local.jsonl"
+    calls: list = []
+    clock = [datetime(2026, 11, 5, 3, 0, tzinfo=UTC)]
+    banked = e1.run_local(
+        prereg,
+        artifact=artifact,
+        ledger=tmp_path / "l",
+        now=lambda: clock[0],
+        sleep=never_sleep,
+        log=lambda m: None,
+        wait=False,
+        execute=fake_execute(calls),
+    )
+    assert banked == per_block[1] and all("-b1-" in prefix for prefix, _ in calls)
+    sleeps: list = []
+
+    def tick(seconds):
+        sleeps.append(seconds)
+        clock[0] = datetime(2026, 11, 5, 13, 0, tzinfo=UTC)
+
+    rest = e1.run_local(
+        prereg,
+        artifact=artifact,
+        ledger=tmp_path / "l",
+        now=lambda: clock[0],
+        sleep=tick,
+        log=lambda m: None,
+        execute=fake_execute(calls),
+    )
+    assert rest == per_block[2] and sleeps == [600.0]  # waited for b2 once (capped at 600 s)
+    lines = [__import__("json").loads(ln) for ln in artifact.read_text().splitlines()]
+    assert len(lines) == len(e1.local_plan(design)) and all(r["confirmatory"] for r in lines)
+    assert all(r["prereg"] == str(prereg) for r in lines)
+    assert (
+        e1.run_local(
+            prereg,
+            artifact=artifact,
+            ledger=tmp_path / "l",
+            now=lambda: clock[0],
+            sleep=never_sleep,
+            log=lambda m: None,
+            execute=fake_execute(calls),
+        )
+        == 0
+    )
+
+
+def test_run_local_stops_when_nothing_is_banked(tmp_path) -> None:
+    from datetime import UTC, datetime
+
+    design = e1.E1Design(models=MODELS[:2], families=("config",), tasks_per_family=3)
+    prereg = plan_prereg(tmp_path, design)
+    morning = datetime(2026, 11, 5, 3, 0, tzinfo=UTC)
+    assert (
+        e1.run_local(
+            prereg,
+            artifact=tmp_path / "a.jsonl",
+            ledger=tmp_path / "l",
+            now=lambda: morning,
+            sleep=never_sleep,
+            log=lambda m: None,
+            execute=lambda *a, **k: 0,
+        )
+        == 0
+    )
+
+
+def test_run_claude_and_plan_command(tmp_path, capsys) -> None:
+    design = e1.E1Design(models=MODELS[:1], families=("config",), tasks_per_family=2)
+    prereg = plan_prereg(tmp_path, design)
+    calls: list = []
+    n = e1.run_claude(
+        prereg,
+        artifact=tmp_path / "c.jsonl",
+        ledger=tmp_path / "l",
+        log=lambda m: None,
+        execute=fake_execute(calls),
+    )
+    assert n == len(e1.claude_plan(design)) and calls[0][0] == "e1c"
+    assert e1.main(["plan", str(prereg)]) == 0
+    assert "Claude runs" in capsys.readouterr().out

@@ -274,6 +274,7 @@ def _bank(
     base: Mapping[str, Any],
     started: str,
     salvaged: bool,
+    stamp: Mapping[str, Any] | None = None,
 ) -> None:
     """Append records with provenance, merge the batch ledger, and mark the workspace."""
     by_id = {s.run_id: s for s in batch.runs}
@@ -281,6 +282,7 @@ def _bank(
         for row in rows:
             record = {
                 **row,
+                **(stamp or {}),
                 "provenance": provenance(by_id[row["run_id"]], batch, base),
                 "batch_started_at": started,
             }
@@ -321,11 +323,13 @@ def execute(
     work_root: Path | None = None,
     log: Callable[[str], None] = print,
     max_batch: int = 10,
+    stamp: Mapping[str, Any] | None = None,
 ) -> int:
     """Run every spec not yet banked in ``artifact``; returns the number banked now.
 
     Runs that an interrupted earlier call completed but did not bank are salvaged from
-    their workspaces first (marked ``"salvaged": true``) and never re-run.
+    their workspaces first (marked ``"salvaged": true``) and never re-run. ``stamp``
+    fields (such as the preregistration a confirmatory run follows) go on every record.
     """
     spec_list = list(specs)
     by_id = {s.run_id: s for s in spec_list}
@@ -347,6 +351,7 @@ def execute(
             base=base,
             started=started,
             salvaged=True,
+            stamp=stamp,
         )
         done |= {r["run_id"] for r in rows}
         banked += len(rows)
@@ -365,6 +370,7 @@ def execute(
             base=base,
             started=started,
             salvaged=False,
+            stamp=stamp,
         )
         banked += len(rows)
         ok = sum(r.get("status") == "ok" for r in rows)

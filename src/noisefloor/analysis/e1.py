@@ -23,7 +23,6 @@ import argparse
 import hashlib
 import json
 import math
-import re
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -36,20 +35,13 @@ from evalstats.glmm import LOGISTIC_RESIDUAL_VAR, Decomposition, boot_coef_inter
 from noisefloor.analysis import mde as mde_lib
 from noisefloor.e1 import E1Design, claude_plan, local_plan
 from noisefloor.models import MODELS, is_claude
+from noisefloor.preregs import prereg_block
 
 REPO = Path(__file__).resolve().parents[3]
 E1_DIR = REPO / "artifacts" / "e1"
 INPUTS = ("local.jsonl", "claude.jsonl")
 OUTPUTS = ("runs.jsonl", "variance_components.json", "mde.json")
 GAPS = (0.02, 0.05, 0.10)
-
-
-def prereg_block(path: Path, name: str) -> Any:
-    """The JSON of the ```json <name>``` block of a preregistration file."""
-    match = re.search(rf"```json[ \t]+{re.escape(name)}[ \t]*\n(.*?)\n```", path.read_text(), re.S)
-    if match is None:
-        raise ValueError(f"{path}: no ```json {name}``` block")
-    return json.loads(match.group(1))
 
 
 def _rel(path: Path) -> str:

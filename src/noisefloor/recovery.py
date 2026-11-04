@@ -28,7 +28,6 @@ import json
 import math
 import multiprocessing as mp
 import os
-import re
 import sys
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
@@ -49,6 +48,7 @@ from evalstats.glmm import (
     level_weights,
 )
 from noisefloor.analysis import mde as mde_lib
+from noisefloor.preregs import prereg_block
 
 # Run-level two-level factors of the half fraction 2^(5-1) (defining relation I = ABCDE),
 # split into two blocks of 8 runs by the ABC interaction so that every main effect is
@@ -457,14 +457,6 @@ REPO = Path(__file__).resolve().parents[2]
 CONFIG_BLOCK = "recovery-config"  # design, planted values, and analysis settings
 E0_DIR = REPO / "artifacts" / "e0"
 G6_DIR = REPO / "artifacts" / "g6"
-
-
-def prereg_block(path: Path, name: str) -> Any:
-    """The JSON of the ```json <name>``` block of a preregistration file."""
-    match = re.search(rf"```json[ \t]+{re.escape(name)}[ \t]*\n(.*?)\n```", path.read_text(), re.S)
-    if match is None:
-        raise ValueError(f"{path}: no ```json {name}``` block")
-    return json.loads(match.group(1))
 
 
 def config_from(block: Mapping[str, Any]) -> tuple[Design, Planted, AnalysisSettings]:

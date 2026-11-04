@@ -20,12 +20,18 @@ All tasks are procedurally generated mock tasks (nf-tools suite version 2).
 
 from __future__ import annotations
 
+import argparse
 import random
-from collections.abc import Mapping, Sequence
+import sys
+import time
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from noisefloor.models import CLAUDE_TIERS, MODELS
+from noisefloor.preregs import REPO, prereg_block, repo_path
 from noisefloor.recovery import TWO_LEVEL, cell_runs, half_fraction_blocks
 from noisefloor.runner import RunSpec
 from noisefloor.suite import FAMILY_NAMES, Task, check_disjoint, generate, suite_manifest
@@ -253,3 +259,143 @@ def claude_plan(design: E1Design) -> list[RunSpec]:
                 )
     rng.shuffle(plan)
     return plan
+
+
+# ---------------------------------------------------------------------------
+# running the preregistered plan
+
+ARTIFACTS = REPO / "artifacts" / "e1"
+LEDGER = REPO / "artifacts" / "usage" / "ledger.jsonl"
+BLOCK_HOURS = ((0, 12), (12, 24))  # UTC time-of-day blocks b1 and b2
+
+
+def current_block(now: datetime, block_hours: Sequence[Sequence[int]] = BLOCK_HOURS) -> int:
+    """1-based time-of-day block of a UTC time."""
+    for index, (start, end) in enumerate(block_hours):
+        if start <= now.hour < end:
+            return index + 1
+    raise ValueError(f"hour {now.hour} is in no block")
+
+
+def seconds_to_next_block(
+    now: datetime, block_hours: Sequence[Sequence[int]] = BLOCK_HOURS
+) -> float:
+    """Seconds from ``now`` until the next block starts."""
+    end = block_hours[current_block(now, block_hours) - 1][1]
+    boundary = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=end - now.hour)
+    return max(1.0, (boundary - now).total_seconds())
+
+
+def planned_batches(plan: Sequence[RunSpec]) -> dict[str, list[RunSpec]]:
+    """Planned batches by ``block`` label, in plan order."""
+    batches: dict[str, list[RunSpec]] = {}
+    for spec in plan:
+        batches.setdefault(spec.block, []).append(spec)
+    return batches
+
+
+def run_local(
+    prereg: Path,
+    *,
+    artifact: Path = ARTIFACTS / "local.jsonl",
+    ledger: Path = LEDGER,
+    now: Callable[[], datetime] = lambda: datetime.now(UTC),
+    sleep: Callable[[float], None] = time.sleep,
+    log: Callable[[str], None] = print,
+    wait: bool = True,
+    execute: Callable[..., int] | None = None,
+) -> int:
+    """Run the local arm of the preregistered plan; returns the number of runs banked now.
+
+    A planned batch starts only in its time-of-day block (its slot's ``b<n>``); the earliest
+    unfinished eligible batch runs next, so a slot that overruns its block continues in the
+    same block of the next day, and the analysis uses each run's actual start. Without
+    ``wait``, the call returns when no batch is eligible instead of sleeping. Resumable.
+    """
+    from noisefloor.orchestrate import banked_ids  # noqa: PLC0415 - orchestrate imports runner
+    from noisefloor.orchestrate import execute as default_execute  # noqa: PLC0415
+
+    run = execute or default_execute
+    design = E1Design.from_json(prereg_block(prereg, "e1-plan"))
+    batches = planned_batches(local_plan(design))
+    stamp = {"prereg": repo_path(prereg), "confirmatory": True}
+    banked = 0
+    while True:
+        done = banked_ids(artifact)
+        pending = [k for k, specs in batches.items() if any(s.run_id not in done for s in specs)]
+        if not pending:
+            log("e1 local arm: every planned run is banked")
+            return banked
+        block = current_block(now())
+        eligible = [k for k in pending if k.split("/")[0].endswith(f"-b{block}")]
+        if not eligible:
+            if not wait:
+                return banked
+            pause = seconds_to_next_block(now())
+            log(f"e1 local arm: no batch planned for block b{block}; waiting {pause:.0f} s")
+            sleep(min(pause, 600.0))
+            continue
+        label = eligible[0]
+        added = run(
+            batches[label],
+            artifact=artifact,
+            ledger=ledger,
+            prefix="e1-" + label.replace("/", "-"),
+            stamp=stamp,
+            log=log,
+        )
+        banked += added
+        if added == 0:
+            log(f"e1 local arm: batch {label} banked nothing (refused or failed); stopping")
+            return banked
+
+
+def run_claude(
+    prereg: Path,
+    *,
+    artifact: Path = ARTIFACTS / "claude.jsonl",
+    ledger: Path = LEDGER,
+    log: Callable[[str], None] = print,
+    execute: Callable[..., int] | None = None,
+) -> int:
+    """Run the Claude slice until it is done or a cap, the guard, or a plan limit stops it."""
+    from noisefloor.orchestrate import execute as default_execute  # noqa: PLC0415
+
+    run = execute or default_execute
+    design = E1Design.from_json(prereg_block(prereg, "e1-plan"))
+    stamp = {"prereg": repo_path(prereg), "confirmatory": True}
+    return int(
+        run(
+            claude_plan(design),
+            artifact=artifact,
+            ledger=ledger,
+            prefix="e1c",
+            stamp=stamp,
+            log=log,
+        )
+    )
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """``python -m noisefloor.e1 plan|local|claude PREREG [--no-wait]``."""
+    parser = argparse.ArgumentParser(description="E1 factorial study")
+    parser.add_argument("command", choices=["plan", "local", "claude"])
+    parser.add_argument("prereg", type=Path)
+    parser.add_argument("--no-wait", action="store_true", help="local: do not wait for a block")
+    args = parser.parse_args(list(argv) if argv is not None else None)
+    design = E1Design.from_json(prereg_block(args.prereg, "e1-plan"))
+    if args.command == "plan":
+        lp, cp = local_plan(design), claude_plan(design)
+        print(f"local runs {len(lp)} in {len(planned_batches(lp))} batches; Claude runs {len(cp)}")
+        print(f"task manifest {manifest(design)['sha256']}")
+        return 0
+    if args.command == "local":
+        banked = run_local(args.prereg, wait=not args.no_wait, log=lambda m: print(m, flush=True))
+    else:
+        banked = run_claude(args.prereg, log=lambda m: print(m, flush=True))
+    print(f"banked {banked} runs")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
