@@ -274,3 +274,27 @@ version 1: exploratory, never pooled with version 2 data.
   will report how many timeout rows have outcome 1.
 - csv_sum difficulty 4 and 5 are unchanged: they fit the 15-call budget only with search-based
   discovery (the test oracle now runs under that budget), which the E1 preregistration states.
+
+## D-022 2026-11-04 E1 decomposition method and design, from exploratory simulation pilots
+All evidence here is exploratory (method pilots on seeds 990000-990359, synthetic data only;
+never pooled with the confirmatory G6 or E0 seeds).
+- Profile-likelihood intervals are not usable for E1: one E1-sized fit took 8 minutes and every
+  interval failed. Intervals use the parametric bootstrap instead (allowed by the brief), with
+  `nAGQ = 0` fits and refits: point estimates matched Laplace closely (model:task variance 0.204
+  against 0.197 and 0.422 against 0.417 on the same data) at about a tenth of the time.
+- No batch random effect in the primary decomposition (supersedes D-018's plan): its variance was
+  estimated about 40 percent low and its intervals covered at most 0.75 (pilot 1). Batches are
+  randomized over slots, so whole-plot factors stay in the model; a decomposition with a batch
+  term is reported as an exploratory sensitivity analysis.
+- Day and time-of-day block enter as fixed factors: with 3 days, or 2 blocks, a random-effect
+  variance cannot be estimated with valid intervals (a likelihood-ratio interval for 6 groups
+  covers about 0.906, and less for fewer).
+- 16 runs per (model, task) cell (the full half fraction): with 8 binary runs per cell the
+  model:task variance was estimated about 20 percent low and no bootstrap rule reached nominal
+  coverage (pilot 3, 60 datasets: percentile 0.72, basic 0.77, log-basic 0.77, bias-corrected
+  0.85); with 16 the point bias fell to about 5 percent (20-seed scans).
+- The model-by-harness question is answered by per-model paired harness contrasts (task-clustered
+  t intervals), not by an interaction term in the decomposition, whose variance split would
+  depend on the contrast coding.
+- The interval rule for each kind of component, and the MDE interval, are chosen from pilot 4
+  (the candidate E1 shape) before the E1, E0 part 2, and G6 preregistrations freeze them.
