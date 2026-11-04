@@ -765,3 +765,11 @@ analysis-code pin fixes the corrected code; none rests on E1 data, which do not 
    method takes amendments of 0003, 0004, and (for a GLMM kind) 0006; 0006 names 0004's
    fixed-factor reading; the E0 coverage artifacts are labeled synthetic; CORRECTIONS.md records
    the withdrawn and corrected claims.
+15. Grader (found by a property test during `make prepush`, not by the review). `grade_answer`
+   scored an answer that matches as submitted as wrong when extraction changes it, which
+   happens when the expected answer itself looks like a wrapper (`_0_` reads as markdown
+   emphasis). The score is now 1 when the answer matches as submitted or after extraction
+   (D-021's rule otherwise). Every expected answer of the suite is a fixed point of extraction
+   (checked on all four answer families, three difficulties, and seeds 100000 to 100999 and
+   900000 to 900999; a test pins the E1 seed range), so for every suite task a match as
+   submitted already implied a match after extraction, and no grade of a suite task changes.

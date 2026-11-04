@@ -352,3 +352,31 @@ def test_property_file_grade_ignores_line_endings_and_padding(lines, newline, pa
     if len(lines) > 1 and lines != lines[::-1]:
         flipped = Snapshot({"/out.txt": "\n".join(lines[::-1])})
         assert not grade_file(spec, flipped).passed
+
+
+def test_an_exact_match_passes_even_when_extraction_would_change_it():
+    # Found by the casefold property: "_0_" reads as markdown emphasis to extract_answer.
+    for mode in ("text", "casefold"):
+        grade = grade_answer(AnswerSpec("_0_", mode), "_0_")
+        assert grade.passed and grade.strict == 1
+    assert not grade_answer(AnswerSpec("_0_", "text"), "0").passed
+
+
+def test_expected_answers_of_the_e1_tasks_are_extraction_fixed_points():
+    # So the score is the comparison after extraction for every task E1 runs (seeds
+    # 100000 on), and extraction cannot turn a wrong answer into the expected one.
+    from noisefloor.suite.grading import extract_answer as extract
+    from noisefloor.suite.grading import normalize_text as normalize
+    from noisefloor.suite.tasks import FAMILIES, generate
+
+    checked = 0
+    for family in sorted(FAMILIES):
+        for difficulty in (1, 2, 3):
+            for seed in range(100000, 100020):
+                spec = generate(family, seed, difficulty).expected
+                if isinstance(spec, AnswerSpec):
+                    checked += 1
+                    numeric = spec.mode == "numeric"
+                    assert extract(spec.expected, numeric=numeric) == spec.expected
+                    assert normalize(spec.expected) == spec.expected
+    assert checked >= 200

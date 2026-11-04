@@ -249,16 +249,21 @@ def _short(text: str, limit: int = 60) -> str:
 def grade_answer(spec: AnswerSpec, answer: str | None) -> Grade:
     """Grade a submitted answer (None means nothing was submitted).
 
-    The score uses :func:`extract_answer`; ``strict`` records the comparison of the
-    answer as submitted.
+    The score is 1 when the answer matches as submitted or after :func:`extract_answer`;
+    ``strict`` records the comparison of the answer as submitted. An answer that matches
+    as submitted always passes, even if extraction would change it (an expected answer
+    shaped like a wrapper, ``_x_``); no expected answer in the suite has that shape, so
+    there the score is the comparison after extraction.
     """
     if answer is None:
         return Grade(0, "no answer submitted", strict=0)
     strict = _compare(spec, answer)
+    if strict.score:
+        return Grade(1, strict.reason, strict=1)
     lenient = _compare(spec, extract_answer(answer, numeric=spec.mode == "numeric"))
-    if lenient.score and not strict.score:
+    if lenient.score:
         lenient = Grade(1, lenient.reason + " after extraction")
-    return Grade(lenient.score, lenient.reason, strict=strict.score)
+    return Grade(lenient.score, lenient.reason, strict=0)
 
 
 def _compare(spec: AnswerSpec, answer: str) -> Grade:
