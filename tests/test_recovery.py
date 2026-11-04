@@ -94,7 +94,7 @@ def test_summaries() -> None:
     empty = rc.coverage_summary(
         [{"components": {"b": {"planted": 1, "estimate": 1, "lo": None, "hi": None}}}]
     )
-    assert math.isnan(empty["b"]["coverage"])
+    assert empty["b"]["coverage"] == 0.0 and math.isnan(empty["b"]["mean_width"])
     pilot = [
         {
             "components": {
