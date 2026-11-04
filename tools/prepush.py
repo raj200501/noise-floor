@@ -28,6 +28,7 @@ def main() -> int:
         subprocess.run(
             ["git", "-C", str(clone), "checkout", "--quiet", "--detach", head], check=True
         )
+        env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
         for step in ("setup", "ci"):
             proc = subprocess.run(
                 ["make", "-s", "--no-print-directory", step],
@@ -35,6 +36,7 @@ def main() -> int:
                 capture_output=True,
                 text=True,
                 check=False,
+                env=env,
             )
             (tmp / f"{step}.log").write_text(proc.stdout + proc.stderr)
             print(f"make {step}: exit {proc.returncode}")
