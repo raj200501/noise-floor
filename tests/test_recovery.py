@@ -77,8 +77,9 @@ def test_recover_and_pilot_rows() -> None:
     row = rc.recover(SMALL, SMALL_PLANTED, settings, 7)
     analyzed = {"task", "model:task", "batch", "model", *rc.TWO_LEVEL, "day"}
     shares = {f"share:{n}" for n in (*analyzed, "residual")}
+    local = {"score:m0", "score:m1", "harness:m0", "harness:m1", "pair:m0-m1"}
     # one time-of-day block: block is held constant and left out
-    assert row["seed"] == 7 and set(row["components"]) == analyzed | shares
+    assert row["seed"] == 7 and set(row["components"]) == analyzed | shares | local
     for comp in row["components"].values():
         assert comp["lo"] is None or comp["lo"] <= comp["hi"]
     assert sum(row["components"][s]["planted"] for s in shares) == pytest.approx(1.0)
@@ -240,3 +241,50 @@ def test_failed_fit_is_recorded(monkeypatch: pytest.MonkeyPatch) -> None:
     assert row["converged"] is False and "lme4 refused" in row["error"]
     assert row["components"]["task"] == {"planted": 2.0, "estimate": None, "lo": None, "hi": None}
     assert "mde:T40:k1" in row["components"] and "harness" in row["components"]
+    assert row["components"]["score:m0"]["lo"] is not None  # needs no GLMM fit
+
+
+def test_local_intervals_and_planted_success() -> None:
+    data = rc.simulate(SMALL, SMALL_PLANTED, 5)
+    success = rc.planted_success(data, SMALL_PLANTED)
+    eta = rc.run_fixed_eta(data, SMALL_PLANTED)
+    zero = rc.Planted(
+        model=(0.0, 0.0), factors=dict.fromkeys(rc.TWO_LEVEL, 0.0), day=(0.0, 0.0), block=(0.0,)
+    )
+    assert rc.planted_success(data, zero) == pytest.approx(np.full(len(data), 0.5))
+    assert np.all((success > 0) & (success < 1)) and np.corrcoef(eta, success)[0, 1] > 0.99
+    out = rc.local_intervals(data, SMALL_PLANTED, rc.AnalysisSettings())
+    assert set(out) == {"score:m0", "score:m1", "harness:m0", "harness:m1", "pair:m0-m1"}
+    for entry in out.values():
+        assert entry["lo"] <= entry["estimate"] <= entry["hi"]
+    m0 = data[data["model"] == "m0"]
+    assert out["score:m0"]["estimate"] == pytest.approx(m0.groupby("task")["outcome"].mean().mean())
+    assert out["score:m0"]["planted"] == pytest.approx(
+        success[(data["model"] == "m0").to_numpy()].mean()
+    )
+    assert out["harness:m0"]["planted"] > 0  # planted harness effect 0.5 on level 1
+    assert out["pair:m0-m1"]["planted"] > 0  # model effects 0.3 and -0.3
+
+
+def test_e0_local_group(tmp_path: Path) -> None:
+    grid = [
+        {
+            "cell": f"L-t-{comp.replace(':', '-')}",
+            "method": "score_interval" if comp.startswith("score") else "paired_difference",
+            "interval_type": "cluster_t",
+            "nominal": 0.95,
+            "replicates": 3,
+            "params": {"group": "loc", "analysis": "local", "component": comp, "n_tasks": 6},
+        }
+        for comp in ("score:m0", "harness:m1", "pair:m0-m1")
+    ]
+    prereg = write_prereg(tmp_path / "a.md", e0_grid=grid, recovery_config=small_config())
+    assert rc.run_e0_glmm(prereg, root=tmp_path, log=lambda m: None) == 3
+    rows = [
+        json.loads(ln) for ln in (tmp_path / "raw" / "L-t-score-m0.jsonl").read_text().splitlines()
+    ]
+    assert [r["i"] for r in rows] == [0, 1, 2] and all(r["lo"] <= r["hi"] for r in rows)
+    mixed = [grid[0], {**grid[1], "params": {**grid[1]["params"], "analysis": "full"}}]
+    bad = write_prereg(tmp_path / "b.md", e0_grid=mixed, recovery_config=small_config())
+    with pytest.raises(ValueError, match="mixes analyses"):
+        rc.run_e0_glmm(bad, root=tmp_path, log=lambda m: None)

@@ -37,7 +37,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from evalstats import EvalResults
+from evalstats import EvalResults, paired_difference, score_interval
 from evalstats.glmm import (
     BOOT_INTERVALS,
     COEF_INTERVALS,
@@ -50,6 +50,7 @@ from evalstats.glmm import (
     level_weights,
 )
 from noisefloor.analysis import mde as mde_lib
+from noisefloor.e0 import expected_sigmoid
 from noisefloor.preregs import prereg_block
 
 # Run-level two-level factors of the half fraction 2^(5-1) (defining relation I = ABCDE),
@@ -312,6 +313,93 @@ class AnalysisSettings:
     mde_designs: tuple[tuple[int, int], ...] = ()
     mde_interval: str = "percentile"
     share_interval: str = "percentile"
+    score_interval: str = "cluster_t"  # local-arm scores
+    contrast_interval: str = "cluster_t"  # local harness contrasts and model pairs
+
+
+def run_fixed_eta(data: pd.DataFrame, planted: Planted) -> np.ndarray:
+    """Each run's planted linear predictor without its task, model:task, or batch effect."""
+    eta = np.full(len(data), planted.intercept, dtype=np.float64)
+    eta += np.array([planted.model[int(str(m)[1:])] for m in data["model"]])
+    for name in TWO_LEVEL:
+        eta += planted.factors[name] * data[name].astype(int).to_numpy()
+    eta += np.array([planted.day[int(str(d)[1:])] for d in data["day"]])
+    eta += np.array([planted.block[int(str(b)[1:])] for b in data["block"]])
+    return eta
+
+
+def planted_success(data: pd.DataFrame, planted: Planted) -> np.ndarray:
+    """Each run's success probability averaged over the task population.
+
+    The task, model:task, and batch effects are integrated out (normal, Gauss-Hermite), so a
+    mean of these over runs is the super-population quantity a task-clustered interval for
+    a score or a paired difference estimates.
+    """
+    sd = math.sqrt(planted.task_var + planted.model_task_var + planted.batch_var)
+    cache: dict[float, float] = {}
+    out = np.empty(len(data), dtype=np.float64)
+    for i, eta in enumerate(run_fixed_eta(data, planted)):
+        key = round(float(eta), 12)
+        if key not in cache:
+            cache[key] = expected_sigmoid(key, sd)
+        out[i] = cache[key]
+    return out
+
+
+def _results(frame: pd.DataFrame, model: pd.Series) -> EvalResults:
+    return EvalResults.from_frame(
+        pd.DataFrame(
+            {
+                "model": model.to_numpy(),
+                "task": frame["task"].to_numpy(),
+                "run": frame["run"].to_numpy(),
+                "outcome": frame["outcome"].to_numpy(),
+            }
+        )
+    )
+
+
+def _entry(truth: float, interval: Any) -> dict[str, Any]:
+    return {"planted": truth, "estimate": interval.estimate, "lo": interval.lo, "hi": interval.hi}
+
+
+def local_intervals(
+    data: pd.DataFrame, planted: Planted, settings: AnalysisSettings
+) -> dict[str, dict[str, Any]]:
+    """Local-arm score and contrast intervals as the E1 analysis computes them.
+
+    ``score:<m>``: model ``m``'s success rate over all its runs; ``harness:<m>``: harness
+    level 1 minus level 0 within model ``m`` (paired by task); ``pair:<a>-<b>``: model ``a``
+    minus model ``b`` on harness level 0 runs (the minimal-agent runs of E1). Planted values
+    are the matching means of :func:`planted_success` over the same runs.
+    """
+    success = planted_success(data, planted)
+    models = sorted(str(m) for m in data["model"].unique())
+    level = settings.level
+    out: dict[str, dict[str, Any]] = {}
+    everyone = _results(data, data["model"])
+    harness_one = (data["harness"] == "1").to_numpy()
+    for m in models:
+        mine = (data["model"] == m).to_numpy()
+        si = score_interval(everyone, m, method=settings.score_interval, level=level)
+        out[f"score:{m}"] = _entry(float(success[mine].mean()), si.interval)
+        sub = data[mine]
+        by_harness = _results(sub, "h" + sub["harness"].astype(str))
+        pc = paired_difference(
+            by_harness, "h1", "h0", method=settings.contrast_interval, level=level
+        )
+        truth = success[mine & harness_one].mean() - success[mine & ~harness_one].mean()
+        out[f"harness:{m}"] = _entry(float(truth), pc.difference)
+    minimal = data[~harness_one]
+    pairs = _results(minimal, minimal["model"])
+    for i, a in enumerate(models):
+        for b in models[i + 1 :]:
+            pc = paired_difference(pairs, a, b, method=settings.contrast_interval, level=level)
+            is_a = (data["model"] == a).to_numpy() & ~harness_one
+            is_b = (data["model"] == b).to_numpy() & ~harness_one
+            truth = success[is_a].mean() - success[is_b].mean()
+            out[f"pair:{a}-{b}"] = _entry(float(truth), pc.difference)
+    return out
 
 
 def analyze(data: pd.DataFrame, settings: AnalysisSettings, seed: int) -> Decomposition:
@@ -355,6 +443,7 @@ def recover(
         if settings.mde_designs:
             for (t, k), value in planted_mde(design, planted, data, settings.mde_designs).items():
                 failed[f"mde:T{t}:k{k}"] = {"planted": value, **empty}
+        failed.update(local_intervals(data, planted, settings))
         error = f"{type(exc).__name__}: {exc}"[:300]
         return {"seed": seed, "components": failed, "converged": False, "error": error}
     components = {}
@@ -391,6 +480,7 @@ def recover(
                 "lo": None if ci is None else max(0.0, ci[0]),
                 "hi": None if ci is None else ci[1],
             }
+    components.update(local_intervals(data, planted, settings))
     return {
         "seed": seed,
         "components": components,
@@ -550,12 +640,22 @@ def config_from(block: Mapping[str, Any]) -> tuple[Design, Planted, AnalysisSett
         mde_designs=tuple((int(t), int(k)) for t, k in st.get("mde_designs", [])),
         mde_interval=str(st.get("mde_interval", "percentile")),
         share_interval=str(st.get("share_interval", "percentile")),
+        score_interval=str(st.get("score_interval", "cluster_t")),
+        contrast_interval=str(st.get("contrast_interval", "cluster_t")),
     )
     return Design(**block["design"]), planted, settings
 
 
 def _pilot_job(job: tuple[Design, Planted, AnalysisSettings, int]) -> dict[str, Any]:
     return pilot_row(*job)
+
+
+def _local_job(job: tuple[dict[str, Any], int]) -> dict[str, Any]:
+    """Only the local-arm score and contrast intervals of one dataset (no decomposition)."""
+    block, seed = job
+    design, planted, settings = config_from(block)
+    data = simulate(design, planted, seed)
+    return {"seed": seed, "components": local_intervals(data, planted, settings)}
 
 
 def _recover_job(job: tuple[dict[str, Any], int]) -> dict[str, Any]:
@@ -647,20 +747,26 @@ def e0_glmm_seed(group: str, replicate: int) -> int:
 
 
 def run_e0_glmm(amendment: Path, workers: int = 1, root: Path = E0_DIR, log: Any = print) -> int:
-    """Fill the raw files of the amendment's ``glmm_component`` cells (resumable).
+    """Fill the raw files of the amendment's grouped cells (those with a ``group``; resumable).
 
-    Each replicate index is one simulated dataset shared by every component cell of its
-    group (seed :func:`e0_glmm_seed`); a cell's raw line holds that component's planted
-    value as ``truth``, its estimate, and its interval.
+    Each replicate index is one simulated dataset shared by every cell of its group (seed
+    :func:`e0_glmm_seed`); a cell's raw line holds that component's planted value as
+    ``truth``, its estimate, and its interval. A group whose cells all have
+    ``"analysis": "local"`` computes only the local-arm score and contrast intervals
+    (:func:`local_intervals`); any other group runs the full E1 analysis (:func:`recover`).
     """
     grid = prereg_block(amendment, "e0-grid")
     block = prereg_block(amendment, CONFIG_BLOCK)
-    cells = [c for c in grid if c["method"] == "glmm_component"]
+    cells = [c for c in grid if "group" in c["params"]]
     groups: dict[str, list[dict[str, Any]]] = {}
     for c in cells:
         groups.setdefault(str(c["params"]["group"]), []).append(c)
     added = 0
     for group, members in groups.items():
+        kinds = {c["params"].get("analysis", "full") for c in members}
+        if len(kinds) != 1:
+            raise ValueError(f"group {group} mixes analyses {sorted(kinds)}")
+        job = _local_job if kinds == {"local"} else _recover_job
         reps = max(int(c["replicates"]) for c in members)
         paths = {
             str(c["params"]["component"]): root / "raw" / f"{c['cell']}.jsonl" for c in members
@@ -676,7 +782,7 @@ def run_e0_glmm(amendment: Path, workers: int = 1, root: Path = E0_DIR, log: Any
         index = {e0_glmm_seed(group, i): i for i in todo}
         for path in paths.values():
             path.parent.mkdir(parents=True, exist_ok=True)
-        for row in _pool_map(jobs, _recover_job, workers):
+        for row in _pool_map(jobs, job, workers):
             i = index[int(row["seed"])]
             for component, path in paths.items():
                 comp = row["components"].get(component)
