@@ -20,7 +20,7 @@ shares the CPU.
 | G4 Offline demo | PASS | 6 s in a network namespace, matches golden |
 | G5 Library validity | FAIL | E0 part 2 (E1-shaped GLMM, share, MDE, score, and contrast cells) to preregister and run |
 | G6 Orchestrator validity | FAIL | recovery runner ready; Laplace method pilot 6 running; prereg 0006 next |
-| G7 Factorial study | FAIL | E1 design, runner, and analysis built; s3 screening at 70/100; Claude arm needs Raj |
+| G7 Factorial study | FAIL | E1 models chosen from s3 (D-025: qwen3-1.7b, qwen3-4b, granite-4.0-micro); prereg in review; Claude arm needs Raj |
 | G8 Leaderboards and bounds | FAIL | E2 and both confidence reports done; E3 still needs E1 |
 | G9 Library shipped | FAIL | API reference lacked `__version__` (fixed); to re-check |
 | G10 Claim integrity | FAIL | README and docs/REPORT.md not written yet |
@@ -40,18 +40,16 @@ headline map reads E0 amendments. 17 more references verified and banked.
 
 ## Next three actions
 
-1. Finish pilot 6 (25 seeds now, the rest when s3 frees the CPU); choose the interval rule for
-   each kind of E1 result (D-023), then finish and review preregistrations 0004 (E1), 0005 (E0
-   part 2, with a headline block), and 0006 (G6), and freeze them in one commit.
-2. Finish s3 (granite-4.0-micro and phi-4-mini left); choose the E1 local models (at least 3
-   configurations over at least 2 families, success 0.2 to 0.8).
-3. Run G6 and E0 part 2 (Laplace bootstrap, about 3 core-minutes per dataset), then the E1
-   local arm over at least 3 days.
+1. Finish pilot 6 (parts A, B, C running on the whole CPU); bank it; apply the D-023 rule choice;
+   fix the prereg review's confirmed findings; freeze 0004, 0005, and 0006 in one commit.
+2. `make prepush`, push; run G6 and E0 part 2 (Laplace bootstrap, most of a day on 4 CPUs).
+3. Launch the E1 local arm (3 models x 30 tasks x 16 runs, at least 3 UTC days), with
+   check-ins; nothing CPU-heavy runs beside it (D-024).
 
 ## Usage to date
 
 cash_usd = 0. cap_share = 0.2 (D-007). Claude subject runs 0, single calls 0, review runs 0.
-Local model runs: pilot p1 24, screening s2 11 (exploratory, suite v1), s3 70 of 100 (suite v2).
+Local model runs: pilot p1 24, screening s2 11 (exploratory, suite v1), s3 84 (suite v2; stopped early, D-025).
 
 ## Needs Raj
 
