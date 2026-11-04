@@ -41,7 +41,7 @@ import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import ExitStack
+from contextlib import ExitStack, suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -214,6 +214,41 @@ def run_inspect(spec: RunSpec, proxy_url: str, out_dir: Path) -> dict[str, Any]:
     return dict(json.loads(result_path.read_text()))
 
 
+def _proc_kb(path: Path) -> dict[str, int]:
+    """The ``Name: <n> kB`` fields of a /proc file, in kB (empty if unreadable)."""
+    try:
+        text = path.read_text()
+    except OSError:
+        return {}
+    out = {}
+    for line in text.splitlines():
+        name, _, rest = line.partition(":")
+        parts = rest.split()
+        if parts and parts[0].isdigit():
+            out[name.strip()] = int(parts[0])
+    return out
+
+
+def host_readings(server_pid: int | None = None) -> dict[str, Any]:
+    """Load average, available memory, and the model server's memory, now.
+
+    These go on every run record (``host``), so CPU contention and memory pressure can be
+    checked run by run; fields that cannot be read are left out.
+    """
+    out: dict[str, Any] = {}
+    with suppress(OSError):
+        out["loadavg"] = [round(x, 2) for x in os.getloadavg()]
+    available = _proc_kb(Path("/proc/meminfo")).get("MemAvailable")
+    if available is not None:
+        out["mem_available_mb"] = available // 1024
+    if server_pid is not None:
+        status = _proc_kb(Path(f"/proc/{server_pid}/status"))
+        for field_name, key in (("VmRSS", "server_rss_mb"), ("VmHWM", "server_peak_rss_mb")):
+            if field_name in status:
+                out[key] = status[field_name] // 1024
+    return out
+
+
 class _Recorder:
     """Appends run records to ``results.jsonl``; thread-safe."""
 
@@ -223,6 +258,7 @@ class _Recorder:
         self.batch_id = batch_id
         self.count = 0
         self.lock = threading.Lock()
+        self.server_pid: int | None = None
 
     def __call__(self, spec: RunSpec, fields: Mapping[str, Any], started: str) -> None:
         """Append one run record."""
@@ -233,6 +269,7 @@ class _Recorder:
             "finished_at": _now(),
             "batch_id": self.batch_id,
             "sandboxed": os.environ.get("NOISEFLOOR_SANDBOXED") == "1",
+            "host": host_readings(self.server_pid),
         }
         with self.lock:
             jsonl.append(self.path, [row])
@@ -378,14 +415,23 @@ def run_batch(batch: Mapping[str, Any], out_dir: Path) -> int:
         abort(out_dir, "model file missing or hash mismatch")
         return 0
     port = free_port()
+    server: dict[str, Any] = {}
     with ExitStack() as stack:
         try:
             server_cmd = stack.enter_context(
-                serve(model, port, threads, parallel=concurrency, log_path=out_dir / "server.log")
+                serve(
+                    model,
+                    port,
+                    threads,
+                    parallel=concurrency,
+                    log_path=out_dir / "server.log",
+                    info=server,
+                )
             )
         except Exception as exc:  # no run started, so nothing is recorded
             abort(out_dir, f"server did not start: {type(exc).__name__}: {exc}"[:500])
             return 0
+        record.server_pid = server.get("pid")
         (out_dir / "server_command.json").write_text(json.dumps(server_cmd))
         client = Client(
             ledger=Ledger(out_dir / "ledger.jsonl"),

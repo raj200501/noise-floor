@@ -247,3 +247,20 @@ def test_main_usage(tmp_path: Path, fake_model: str) -> None:
     batch = tmp_path / "batch.json"
     batch.write_text(json.dumps({"batch_id": "z", "runs": [spec(model=fake_model).to_json()]}))
     assert runner.main([str(batch), str(tmp_path / "zout")]) == 0
+
+
+def test_host_readings_name_load_memory_and_the_server() -> None:
+    import os
+
+    here = runner.host_readings(os.getpid())
+    assert len(here["loadavg"]) == 3 and here["mem_available_mb"] > 0
+    assert here["server_rss_mb"] > 0 and here["server_peak_rss_mb"] >= here["server_rss_mb"]
+    assert "server_rss_mb" not in runner.host_readings()
+    assert runner._proc_kb(Path("/nonexistent")) == {}
+
+
+def test_run_records_carry_host_readings(tmp_path: Path, fake_model: str) -> None:
+    batch = {"batch_id": "hr", "runs": [spec(model=fake_model).to_json()]}
+    assert run_batch(batch, tmp_path / "hr") == 1
+    row = json.loads((tmp_path / "hr" / "results.jsonl").read_text())
+    assert row["host"]["server_peak_rss_mb"] >= 0 and len(row["host"]["loadavg"]) == 3

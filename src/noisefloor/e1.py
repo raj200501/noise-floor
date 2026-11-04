@@ -273,6 +273,94 @@ def _with_block(spec: RunSpec, block: str) -> RunSpec:
     return RunSpec.from_json({**spec.to_json(), "block": block})
 
 
+DRY_SEEDS = range(900600, 900700)  # pilot seeds of the E1 dry run, unused by earlier pilots
+DRY_CONFIGS = ((4, 1), (4, 2), (3, 1), (3, 2))  # (server threads, concurrency)
+
+
+def dry_plan(
+    design: E1Design,
+    runs_per_config: int = 4,
+    configs: Sequence[tuple[int, int]] = DRY_CONFIGS,
+) -> list[RunSpec]:
+    """The exploratory E1 dry run: every model at each (threads, concurrency) setting.
+
+    Each (model, setting) is one batch of ``runs_per_config`` runs on the same pilot tasks
+    (families in turn, difficulties in rotation, seeds from :data:`DRY_SEEDS`). A batch
+    takes the half-fraction rows of its concurrency level whose temperature level
+    alternates by model, so harness, timeout, and step budget are balanced in it, and a
+    run matches its counterpart at the other thread count (same task, levels, and seed)
+    for paired wall-time comparisons. Phase ``e1-dry``: never confirmatory, never pooled.
+    """
+    first, second = half_fraction_blocks()
+    c_at, t_at = TWO_LEVEL.index("concurrency"), TWO_LEVEL.index("temperature")
+    chosen = [
+        generate(
+            design.families[k % len(design.families)],
+            DRY_SEEDS[k],
+            design.difficulties[k % len(design.difficulties)],
+        )
+        for k in range(runs_per_config)
+    ]
+    plan: list[RunSpec] = []
+    for mi, model in enumerate(design.models):
+        for threads, concurrency in configs:
+            c_bit = list(design.levels["concurrency"]).index(concurrency)
+            rows = [b for b in first + second if b[c_at] == c_bit and b[t_at] == mi % 2]
+            for k, task in enumerate(chosen):
+                bits = rows[k % len(rows)]
+                seed = random.Random(f"e1-dry:{design.order_seed}:{model}:{concurrency}:{k}")
+                spec = _local_spec(design, model, task, bits, seed.randrange(2**31)).to_json()
+                code = "".join(str(b) for b in bits)
+                spec.update(
+                    run_id=f"e1dry-{model}-t{threads}-c{concurrency}-{task.id}-{code}",
+                    phase="e1-dry",
+                    threads=threads,
+                    block=f"dry/{model}-t{threads}-c{concurrency}",
+                )
+                plan.append(RunSpec.from_json(spec))
+    return plan
+
+
+def dry_summary(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Infrastructure readings of a dry run, per batch (no outcomes).
+
+    Per (model, threads, concurrency): runs, infra_error and timeout counts, median and
+    largest wall time, the largest 1-minute load average, the least available memory,
+    and the model server's peak resident memory, from the runs' ``host`` readings.
+    """
+    groups: dict[tuple[str, int, int], list[Mapping[str, Any]]] = {}
+    for row in rows:
+        key = (str(row["model"]), int(row["threads"]), int(row["concurrency"]))
+        groups.setdefault(key, []).append(row)
+    out = []
+    for (model, threads, concurrency), members in sorted(groups.items()):
+        walls = sorted(float(r.get("wall_s") or 0.0) for r in members)
+        hosts = [r.get("host") or {} for r in members]
+
+        def most(key: str, hosts: list[Mapping[str, Any]] = hosts) -> Any:
+            values = [h[key] for h in hosts if key in h]
+            return max(values) if values else None
+
+        loads = [h["loadavg"][0] for h in hosts if h.get("loadavg")]
+        free = [h["mem_available_mb"] for h in hosts if "mem_available_mb" in h]
+        out.append(
+            {
+                "model": model,
+                "threads": threads,
+                "concurrency": concurrency,
+                "runs": len(members),
+                "infra_error": sum(1 for r in members if r.get("status") == "infra_error"),
+                "timeout": sum(1 for r in members if r.get("status") == "timeout"),
+                "wall_median_s": walls[len(walls) // 2] if walls else None,
+                "wall_max_s": walls[-1] if walls else None,
+                "load_max": max(loads) if loads else None,
+                "mem_available_min_mb": min(free) if free else None,
+                "server_peak_rss_mb": most("server_peak_rss_mb"),
+            }
+        )
+    return out
+
+
 def claude_plan(design: E1Design) -> list[RunSpec]:
     """Every Claude-slice run: harness crossed with timeout, balanced within each task.
 
@@ -341,6 +429,7 @@ def claude_plan(design: E1Design) -> list[RunSpec]:
 # running the preregistered plan
 
 ARTIFACTS = REPO / "artifacts" / "e1"
+DRY_ARTIFACT = REPO / "artifacts" / "pilot" / "e1-dry.jsonl"
 LEDGER = REPO / "artifacts" / "usage" / "ledger.jsonl"
 BLOCK_HOURS = ((0, 12), (12, 24))  # UTC time-of-day blocks b1 and b2
 
@@ -708,8 +797,43 @@ def run_claude(
             return exc.banked
 
 
+def run_dry(
+    plan_file: Path,
+    *,
+    runs: int = 4,
+    artifact: Path = DRY_ARTIFACT,
+    ledger: Path = LEDGER,
+    log: Callable[[str], None] = print,
+    execute: Callable[..., int] | None = None,
+) -> list[dict[str, Any]]:
+    """Run the exploratory dry run (:func:`dry_plan`) batch by batch; returns each batch's fate.
+
+    A batch that fails as a whole is a finding, not a stop: it is logged, listed in
+    ``<artifact stem>-batches.jsonl`` with its reason, and the next batch runs.
+    """
+    from noisefloor.orchestrate import BatchFailedError  # noqa: PLC0415
+    from noisefloor.orchestrate import execute as default_execute  # noqa: PLC0415
+
+    run = execute or default_execute
+    block = prereg_block(plan_file, "e1-plan")
+    design = E1Design.from_json(block)
+    digest = hashlib.sha256(json.dumps(block, sort_keys=True).encode()).hexdigest()
+    stamp = {"exploratory": True, "dry_run": "e1", "e1_plan_sha256": digest}
+    fates = []
+    for label, specs in planned_batches(dry_plan(design, runs)).items():
+        fate: dict[str, Any] = {"block": label, "runs": len(specs), "failed": None}
+        try:
+            run(specs, artifact=artifact, ledger=ledger, prefix="e1dry", stamp=stamp, log=log)
+        except BatchFailedError as exc:
+            fate["failed"] = exc.reason
+            log(f"e1 dry run: {label} failed ({exc.reason}); next batch")
+        fates.append(fate)
+    jsonl.append(artifact.with_name(f"{artifact.stem}-batches.jsonl"), fates)
+    return fates
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    """``python -m noisefloor.e1 plan|local|claude PREREG`` or ``stop|resume ARM``.
+    """``python -m noisefloor.e1 plan|local|claude PREREG``, ``stop|resume ARM``, or ``dry-run PLAN``.
 
     Exit codes: 0 done or waiting, 3 the arm is stopped (``resume`` after a repair), 4
     another runner holds the arm's lock.
@@ -728,7 +852,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     resume_cmd.add_argument("arm", choices=["local", "claude"])
     resume_cmd.add_argument("--note", required=True, help="what was repaired")
     resume_cmd.add_argument("--amendment", type=Path, help="frozen amendment (defect stops)")
+    dry_cmd = sub.add_parser("dry-run", help="exploratory dry run at the E1 server settings")
+    dry_cmd.add_argument("plan", type=Path, help="a file with the e1-plan block (a draft works)")
+    dry_cmd.add_argument("--runs", type=int, default=4, help="runs per model and setting")
+    dry_cmd.add_argument("--summary", action="store_true", help="summarize the banked runs only")
     args = parser.parse_args(list(argv) if argv is not None else None)
+    if args.command == "dry-run":
+        if not args.summary:
+            run_dry(args.plan, runs=args.runs, log=lambda m: print(m, flush=True))
+        for line in dry_summary(jsonl.read(DRY_ARTIFACT, tail_ok=True)):
+            print(json.dumps(line, sort_keys=True))
+        return 0
     if args.command in ("stop", "resume"):
         stops = stops_path(ARTIFACTS / f"{args.arm}.jsonl")
         at = datetime.now(UTC)

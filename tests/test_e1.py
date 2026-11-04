@@ -622,3 +622,74 @@ def test_a_stopped_local_arm_still_ends_after_day_seven(tmp_path) -> None:
     go = local_runner(tmp_path, prereg, clock, fake_execute([], clock))
     assert go() == 0 and e1.open_stop(stops)["kind"] == "day_limit"
     assert go() == 0 and len(e1.jsonl.read(stops)) == 2  # recorded once
+
+
+def test_dry_plan_balances_each_batch_and_pairs_thread_counts(design: e1.E1Design) -> None:
+    plan = e1.dry_plan(design)
+    batches = e1.planned_batches(plan)
+    assert len(batches) == len(design.models) * len(e1.DRY_CONFIGS)
+    assert all(s.phase == "e1-dry" and s.task_seed in e1.DRY_SEEDS for s in plan)
+    assert not {s.task_seed for s in plan} & set(e1.CONFIRMATORY_SEEDS)
+    for label, specs in batches.items():
+        assert len(specs) == 4 and len({(s.threads, s.concurrency, s.model) for s in specs}) == 1
+        for factor in ("harness", "timeout", "steps"):
+            levels = collections.Counter(s.factors[factor] for s in specs)
+            assert sorted(levels.values()) == [2, 2], (label, factor)
+        assert len({s.factors["temperature"] for s in specs}) == 1
+    by_key = collections.defaultdict(list)
+    for s in plan:
+        by_key[(s.model, s.concurrency, s.task_seed)].append(s)
+    for runs in by_key.values():  # the two thread counts run the same configuration
+        assert len(runs) == 2 and runs[0].seed == runs[1].seed
+        assert runs[0].factors == runs[1].factors and {r.threads for r in runs} == {3, 4}
+    assert len({s.run_id for s in plan}) == len(plan)
+
+
+def test_run_dry_keeps_going_after_a_failed_batch(tmp_path) -> None:
+    import json
+
+    from noisefloor.orchestrate import BatchFailedError
+
+    design = e1.E1Design(models=MODELS[:1], families=("config", "pointer"), tasks_per_family=2)
+    plan_file = plan_prereg(tmp_path, design)
+    artifact = tmp_path / "e1-dry.jsonl"
+    seen: list = []
+
+    def execute(specs, *, artifact, ledger, prefix, stamp, log):
+        seen.append(specs[0].block)
+        if specs[0].concurrency == 2 and specs[0].threads == 4:
+            raise BatchFailedError("b", "server did not start", 0)
+        rows = [
+            {
+                **s.to_json(),
+                **stamp,
+                "status": "timeout" if i == 0 else "ok",
+                "wall_s": 10.0 * (i + 1),
+                "host": {"loadavg": [3.5 + i, 1, 1], "mem_available_mb": 9000 - i},
+            }
+            for i, s in enumerate(specs)
+        ]
+        rows[0]["host"]["server_peak_rss_mb"] = 2400
+        artifact.write_text(
+            (artifact.read_text() if artifact.exists() else "")
+            + "".join(json.dumps(r) + "\n" for r in rows)
+        )
+        return len(rows)
+
+    fates = e1.run_dry(
+        plan_file, artifact=artifact, ledger=tmp_path / "l", log=lambda m: None, execute=execute
+    )
+    assert len(fates) == len(seen) == len(e1.DRY_CONFIGS)
+    failed = [f for f in fates if f["failed"]]
+    assert len(failed) == 1 and failed[0]["block"].endswith("-t4-c2")
+    banked = e1.jsonl.read(tmp_path / "e1-dry-batches.jsonl")
+    assert banked == fates
+    rows = e1.jsonl.read(artifact)
+    assert all(r["exploratory"] and len(r["e1_plan_sha256"]) == 64 for r in rows)
+    summary = e1.dry_summary(rows)
+    assert [(s["threads"], s["concurrency"]) for s in summary] == [(3, 1), (3, 2), (4, 1)]
+    first = summary[0]
+    assert first["runs"] == 4 and first["timeout"] == 1 and first["infra_error"] == 0
+    assert first["wall_median_s"] == 30.0 and first["wall_max_s"] == 40.0
+    assert first["load_max"] == 6.5 and first["mem_available_min_mb"] == 8997
+    assert first["server_peak_rss_mb"] == 2400

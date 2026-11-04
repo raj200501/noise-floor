@@ -20,6 +20,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 DEFAULT_MODELS_DIR = Path.home() / ".cache" / "noisefloor" / "models"
 DEFAULT_SERVER = (
@@ -252,13 +253,19 @@ def serve(
     parallel: int = 1,
     log_path: Path | None = None,
     models_dir: Path | None = None,
+    info: dict[str, Any] | None = None,
 ) -> Iterator[list[str]]:
-    """Run llama-server for the duration of the block; yields its command line."""
+    """Run llama-server for the duration of the block; yields its command line.
+
+    ``info``, when given, receives the server's process id under ``pid``.
+    """
     cmd = server_command(model, port, threads, ctx=ctx, parallel=parallel, models_dir=models_dir)
     env = dict(os.environ)
     env["LD_LIBRARY_PATH"] = str(server_binary().parent)
     log = (log_path or Path(os.devnull)).open("ab")
     proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, env=env)
+    if info is not None:
+        info["pid"] = proc.pid
     try:
         if not wait_ready(port):
             raise RuntimeError(f"llama-server did not become ready on port {port}")
