@@ -115,3 +115,45 @@ def test_cap_share_is_the_smaller_and_floors_claude_caps() -> None:
     assert eff["claude_review_runs_per_day"] == 1
     assert eff["claude_agent_max_turns"] == 8
     assert eff["disk_floor_gb"] == 8
+
+
+def _ctx(root: Path):
+    return ship_check.Ctx(repo=root, clone=root, tmp=root, fast=True, env={}, netns=[])
+
+
+def test_e0_grids_and_frozen_headline_cells(tmp_path: Path) -> None:
+    import json
+
+    pre = tmp_path / "prereg"
+    pre.mkdir()
+    (pre / "0001-other.md").write_text("# no grid\n")
+    (pre / "0003-grid.md").write_text(
+        "# 0003\n\nHeadline cells (every interval behind an E2 headline number): `S-a`,\n"
+        "`P-b`. Every headline cell must\npass; see `evalstats.validity`.\n\n"
+        '```json e0-grid\n[{"cell": "S-a"}]\n```\n'
+    )
+    (pre / "0005-more.md").write_text(
+        "---\namends: 0003\ndate: 2026-11-04\n---\n# 0005\n\n"
+        '```json e0-grid\n[{"cell": "G-c"}]\n```\n\n'
+        '```json headline\n{"e1 thing": "G-c"}\n```\n'
+    )
+    (pre / "0006-bad.md").write_text("---\namends: 0001\n---\n")
+    files = ["prereg/0001-other.md", "prereg/0003-grid.md", "prereg/0005-more.md"]
+    (pre / "CHAIN.jsonl").write_text("".join(json.dumps({"file": f}) + "\n" for f in files))
+    ctx = _ctx(tmp_path)
+    assert ship_check.amends(ctx, "prereg/0005-more.md") == "0003"
+    assert ship_check.amends(ctx, "prereg/0003-grid.md") is None
+    grids = ship_check.e0_grids(ctx)
+    assert grids == [
+        ("prereg/0003-grid.md", "artifacts/e0/coverage.json"),
+        ("prereg/0005-more.md", "artifacts/e0/coverage-0005.json"),
+    ]
+    assert ship_check.frozen_headline_cells(ctx, grids) == {"S-a", "P-b", "G-c"}
+    (pre / "0006-bad.md").write_text(
+        '---\namends: 0001\n---\n```json e0-grid\n[{"cell": "x"}]\n```\n'
+    )
+    (pre / "CHAIN.jsonl").write_text(
+        "".join(json.dumps({"file": f}) + "\n" for f in [*files, "prereg/0006-bad.md"])
+    )
+    with pytest.raises(ship_check.GateError, match="does not amend"):
+        ship_check.e0_grids(ctx)

@@ -533,28 +533,79 @@ def raw_covered(ctx: Ctx, cell: str, reps: int) -> int:
     return sum(covered(rows[i]) for i in range(reps))
 
 
+PART1_HEADLINE_RE = re.compile(r"Headline cells \([^)]*\):(.*?)\.\s+Every headline cell", re.S)
+
+
+def chain_files(ctx: Ctx) -> list[str]:
+    """Preregistration files of prereg/CHAIN.jsonl, in freeze order."""
+    path = rel(ctx, "prereg/CHAIN.jsonl")
+    need(path.exists(), "missing prereg/CHAIN.jsonl")
+    return [str(json.loads(ln)["file"]) for ln in path.read_text().splitlines() if ln.strip()]
+
+
+def has_block(ctx: Ctx, prereg: str, tag: str) -> bool:
+    """True if the preregistration has a fenced ```json <tag>``` block."""
+    return any(m.group(1) == tag for m in FENCE_RE.finditer(rel(ctx, prereg).read_text()))
+
+
+def amends(ctx: Ctx, prereg: str) -> str | None:
+    """The NNNN of an `amends: NNNN` front-matter line, if any."""
+    text = rel(ctx, prereg).read_text()
+    if not text.startswith("---"):
+        return None
+    front = text.split("---", 2)[1]
+    found = re.search(r"^amends:\s*(\d{4})\s*$", front, re.M)
+    return found.group(1) if found else None
+
+
+def e0_grids(ctx: Ctx) -> list[tuple[str, str]]:
+    """(prereg, coverage artifact) for every frozen E0 grid: the base grid first, then each
+    amendment of it, each banked in its own artifact (D-026)."""
+    preregs = [f for f in chain_files(ctx) if has_block(ctx, f, "e0-grid")]
+    bases = [f for f in preregs if amends(ctx, f) is None]
+    need(len(bases) == 1, f"expected one base E0 grid in the chain, found {len(bases)}")
+    base = bases[0]
+    number = Path(base).name[:4]
+    out = [(base, "artifacts/e0/coverage.json")]
+    for f in preregs:
+        if f != base:
+            need(amends(ctx, f) == number, f"{f} has an e0-grid but does not amend {base}")
+            out.append((f, f"artifacts/e0/coverage-{Path(f).name[:4]}.json"))
+    return out
+
+
+def frozen_headline_cells(ctx: Ctx, grids: list[tuple[str, str]]) -> set[str]:
+    """Headline cells named by the frozen preregistrations: the base grid's list and every
+    amendment's ```json headline``` block."""
+    base = grids[0][0]
+    found = PART1_HEADLINE_RE.search(rel(ctx, base).read_text())
+    need(found is not None, f"{base} names no headline cells")
+    cells = set(re.findall(r"`([A-Za-z0-9_-]+)`", found.group(1)))
+    for prereg, _ in grids[1:]:
+        if has_block(ctx, prereg, "headline"):
+            block = prereg_block(ctx, prereg, "headline")
+            need(isinstance(block, dict), f"{prereg} headline block is not an object")
+            cells |= {str(v) for v in block.values()}
+    return cells
+
+
 def g5(ctx: Ctx) -> str:
-    art = "artifacts/e0/coverage.json"
-    data = load_json(rel(ctx, art))
-    prereg = str(data.get("prereg", ""))
-    sources = [prereg, *(str(a) for a in data.get("amendments", []))]
-    grid: list[Any] = []
-    for source in sources:
-        block = prereg_block(ctx, source, "e0-grid")
-        need(isinstance(block, list) and bool(block), f"e0-grid in {source} is empty")
-        check_prereg_link(ctx, source, art)
-        grid.extend(block)
-    for amendment in sources[1:]:
-        number = Path(prereg).name[:4]
-        need(
-            re.search(rf"^amends:\s*{number}\s*$", rel(ctx, amendment).read_text(), re.M)
-            is not None,
-            f"{amendment} does not amend {prereg}",
-        )
-    planned = {str(c["cell"]): c for c in grid}
-    need(len(planned) == len(grid), "cell ids repeat across the frozen grids")
-    cells = {str(c["cell"]): c for c in data.get("cells", [])}
-    need(set(cells) == set(planned), "E0 cells differ from the frozen grid")
+    grids = e0_grids(ctx)
+    planned: dict[str, Any] = {}
+    cells: dict[str, Any] = {}
+    for prereg, art in grids:
+        data = load_json(rel(ctx, art))
+        need(data.get("prereg") == prereg, f"{art} cites {data.get('prereg')}, not {prereg}")
+        check_prereg_link(ctx, prereg, art)
+        block = prereg_block(ctx, prereg, "e0-grid")
+        need(isinstance(block, list) and bool(block), f"e0-grid in {prereg} is empty")
+        mine = {str(c["cell"]): c for c in block}
+        need(len(mine) == len(block), f"cell ids repeat in {prereg}")
+        need(not set(mine) & set(planned), "cell ids repeat across the frozen grids")
+        got = {str(c["cell"]): c for c in data.get("cells", [])}
+        need(set(got) == set(mine), f"{art} cells differ from the frozen grid of {prereg}")
+        planned.update(mine)
+        cells.update(got)
     failing: list[str] = []
     for cid, cell in cells.items():
         plan = planned[cid]
@@ -571,10 +622,12 @@ def g5(ctx: Ctx) -> str:
         ok, _, _ = coverage_rule(covered, reps, float(cell["nominal"]))
         if not ok:
             failing.append(cid)
+    headline = frozen_headline_cells(ctx, grids)
     head = load_json(rel(ctx, "artifacts/headline_cells.json"))
-    headline = {str(c) for c in head.get("cells", [])}
+    declared = {str(c) for c in head.get("cells", [])}
     need(bool(headline), "no headline cells declared")
-    need(headline <= set(cells), "a headline cell is not in the E0 grid")
+    need(headline <= declared, "artifacts/headline_cells.json lacks a frozen headline cell")
+    need(headline <= set(cells), "a headline cell is not in the E0 grids")
     bad_head = sorted(headline & set(failing))
     need(not bad_head, f"headline cells fail coverage: {', '.join(bad_head[:3])}")
     need_setup(ctx)

@@ -132,32 +132,51 @@ def lower_priority(autogroup: Path = Path("/proc/self/autogroup")) -> None:
 _lower_priority = lower_priority
 
 
-def bank(preregs: Sequence[Path], root: Path = E0_DIR) -> dict[str, Any]:
-    """Summarize every cell of the base grid (first path) and its amendments."""
-    cells: list[Cell] = []
-    for path in preregs:
-        cells.extend(grid_from_prereg(path))
-    ids = [c.cell for c in cells]
+def coverage_name(index: int, prereg: Path) -> str:
+    """Artifact name for one grid: ``coverage.json`` for the base, else ``coverage-NNNN.json``.
+
+    Each grid gets its own artifact citing its own preregistration, so every amendment's data
+    is first committed after that amendment (prereg-verify check (d), gate G5).
+    """
+    return "coverage.json" if index == 0 else f"coverage-{prereg.name[:4]}.json"
+
+
+def bank(preregs: Sequence[Path], root: Path = E0_DIR) -> dict[str, dict[str, Any]]:
+    """Summarize each grid's cells into its own coverage artifact; returns them by name.
+
+    The first path is the base grid; each later path is an amendment of it.
+    """
+    grids = [(path, grid_from_prereg(path)) for path in preregs]
+    ids = [c.cell for _, cells in grids for c in cells]
     if len(set(ids)) != len(ids):
         raise ValueError("cell ids repeat across grids")
-    summaries = []
-    for cell in cells:
-        reps = read_raw(cell, root)
-        ordered = [reps[i] for i in sorted(reps) if i < cell.replicates]
-        summaries.append(summarize(cell, ordered))
-    artifact = {
-        "prereg": str(preregs[0].resolve().relative_to(REPO)),
-        "amendments": [str(p.resolve().relative_to(REPO)) for p in preregs[1:]],
-        "confirmatory": True,
-        "generator": "python -m noisefloor.e0_run bank "
-        + " ".join(str(p.resolve().relative_to(REPO)) for p in preregs),
-        "raw": "artifacts/e0/raw/<cell>.jsonl",
-        "cells": summaries,
-    }
-    (root / "coverage.json").write_text(
-        json.dumps(_clean(artifact), indent=1, sort_keys=True, allow_nan=False) + "\n"
-    )
-    return artifact
+    base = str(preregs[0].resolve().relative_to(REPO))
+    out: dict[str, dict[str, Any]] = {}
+    for index, (path, cells) in enumerate(grids):
+        summaries = []
+        for cell in cells:
+            reps = read_raw(cell, root)
+            ordered = [reps[i] for i in sorted(reps) if i < cell.replicates]
+            summaries.append(summarize(cell, ordered))
+        rel = str(path.resolve().relative_to(REPO))
+        artifact: dict[str, Any] = {
+            "prereg": rel,
+            "confirmatory": True,
+            "generator": "python -m noisefloor.e0_run bank "
+            + " ".join(str(p.resolve().relative_to(REPO)) for p in preregs),
+            "raw": "artifacts/e0/raw/<cell>.jsonl",
+            "cells": summaries,
+        }
+        if index == 0:
+            artifact["amendments"] = []  # each amendment has its own artifact (D-026)
+        else:
+            artifact["amends"] = base
+        name = coverage_name(index, path)
+        (root / name).write_text(
+            json.dumps(_clean(artifact), indent=1, sort_keys=True, allow_nan=False) + "\n"
+        )
+        out[name] = artifact
+    return out
 
 
 def _clean(value: Any) -> Any:
@@ -192,8 +211,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 continue
             run_cell(cell, args.workers, log=lambda m: print(m, flush=True))
         return 0
-    artifact = bank(args.preregs)
-    print(f"banked {len(artifact['cells'])} cells in artifacts/e0/coverage.json")
+    artifacts = bank(args.preregs)
+    for name, artifact in artifacts.items():
+        print(f"banked {len(artifact['cells'])} cells in artifacts/e0/{name}")
     return 0
 
 

@@ -36,11 +36,12 @@ dead proxies (evidence says `env-only`), plus `UV_OFFLINE=1`, `NOISEFLOOR_OFFLIN
 `tests/golden/demo.txt`.
 
 ## G5 Library validity (E0)
-- `artifacts/e0/coverage.json`: `{"prereg": "prereg/NNNN-....md", "amendments": [...],
-  "cells": [{"cell", "method", "interval_type", "nominal", "replicates", "covered"}]}`.
-- The prereg and each amendment (which must say `amends: NNNN` of that prereg) hold a
-  ` ```json e0-grid ` block; the union lists the same cells (`cell`, `method`, `interval_type`,
-  `nominal`, `replicates`), and each file is committed strictly before the artifact (D-017).
+- Every preregistration in `prereg/CHAIN.jsonl` with a ` ```json e0-grid ` block is checked: one
+  base grid, and amendments of it (front matter `amends: NNNN`). The base grid's cells are banked
+  in `artifacts/e0/coverage.json`, each amendment's in its own `artifacts/e0/coverage-NNNN.json`
+  (D-026): `{"prereg": "prereg/NNNN-....md", "cells": [{"cell", "method", "interval_type",
+  "nominal", "replicates", "covered"}]}`. Each artifact cites its own grid, lists exactly that
+  grid's cells, and its first commit comes strictly after the grid's (D-017).
 - `artifacts/e0/raw/<cell>.jsonl` holds one line per replicate (`i`, `truth`, `lo`, `hi`,
   `estimate`, `hit`); G5 recounts each cell's coverage from it and requires the banked count to
   match. A replicate with a missing bound counts as not covered.
@@ -48,9 +49,11 @@ dead proxies (evidence says `env-only`), plus `UV_OFFLINE=1`, `NOISEFLOOR_OFFLIN
   `bca`, `bootstrap_max_t`, `parametric_bootstrap`) or GLMM (`glmm`, `glmm_profile`,
   `profile_glmm`) type.
 - Rule: coverage >= nominal - 0.015 - 2 * sqrt(c(1 - c)/R), with c the observed coverage.
-- `artifacts/headline_cells.json`: `{"cells": [...]}` naming every cell used by an E1 or E2
-  headline interval; all must pass. Every failing cell must be in
-  `evalstats.validity.UNSUPPORTED_CELLS` (the library warns on those).
+- Headline cells come from the frozen preregistrations: the base grid's "Headline cells (...)"
+  list and every amendment's ` ```json headline ` block. All must pass, and all must appear in
+  `artifacts/headline_cells.json` (`{"cells": [...]}`, written by `python -m
+  noisefloor.e0_validity`). Every failing cell must be in `evalstats.validity.UNSUPPORTED_CELLS`
+  (the library warns on those).
 - `artifacts/e0/crosscheck.json`: `{"checks": [{"name", "value", "reference", "tolerance",
   "reference_impl"}]}`, at least one against statsmodels, each within its stated tolerance.
 - Property-based suite: `pytest -m property` runs at least one test and all pass.

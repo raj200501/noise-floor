@@ -371,3 +371,15 @@ exploratory and banked in `artifacts/method_pilots/` (synthetic data, seeds from
   the run in flight at the stop was discarded. The other 16 planned phi runs were not run.
 - With 3 local models the local arm is 3 x 30 tasks x 16 runs = 1,440 runs; with the Claude
   slice's 180, E1 plans 1,620 runs (G7 needs at least 1,000, at least 150 on Claude tiers).
+
+## D-026 2026-11-04 Each E0 grid banks its own coverage artifact; G5 reads the chain
+- Problem (prereg review, before E0 part 2 is frozen): `e0_run bank` wrote every grid into
+  `artifacts/e0/coverage.json`, whose first commit is the part 1 bank, so listing amendment 0005
+  there could never satisfy "the preregistration predates the artifact" (G5 and prereg-verify).
+  And G5 took the grids to check, and the headline cells, from that artifact's own fields, so an
+  artifact that left 0005 out would have skipped the E1 cells entirely.
+- Change: each grid gets its own artifact citing its own preregistration
+  (`coverage.json` for 0003, `coverage-NNNN.json` for each amendment), so every amendment's data
+  is first committed after it. G5 now finds the grids in `prereg/CHAIN.jsonl` (every frozen file
+  with an e0-grid block) and the headline cells in the frozen texts (0003's list and each
+  amendment's headline block), and requires every one of them. D-017's rule is unchanged.

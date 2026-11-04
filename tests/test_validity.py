@@ -81,3 +81,16 @@ def test_amendment_headlines(tmp_path: Path) -> None:
     found = e0_validity.amendment_headlines(coverage, tmp_path)
     assert found == {"e1 task variance": "G-e1-task"}
     assert e0_validity.amendment_headlines({}, tmp_path) == {}
+
+
+def test_load_coverage_merges_amendment_artifacts(tmp_path: Path) -> None:
+    import json
+
+    base = {"prereg": "prereg/0003-x.md", "amendments": [], "cells": [{"cell": "A"}]}
+    part = {"prereg": "prereg/0005-y.md", "amends": "prereg/0003-x.md", "cells": [{"cell": "B"}]}
+    (tmp_path / "coverage.json").write_text(json.dumps(base))
+    (tmp_path / "coverage-0005.json").write_text(json.dumps(part))
+    merged = e0_validity.load_coverage(tmp_path)
+    assert merged["prereg"] == "prereg/0003-x.md"
+    assert merged["amendments"] == ["prereg/0005-y.md"]
+    assert [c["cell"] for c in merged["cells"]] == ["A", "B"]

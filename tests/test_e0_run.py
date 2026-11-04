@@ -52,13 +52,18 @@ def test_run_bank_and_resume(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         tmp_path / "0004-more.md", [{**GRID[0], "cell": "T-b", "replicates": 2}], "amends: 0003\n"
     )
     e0_run.run_cell(e0_run.grid_from_prereg(amend)[0], 1, root, log=lambda m: None)
-    art = e0_run.bank([prereg, amend], root)
-    assert art["prereg"] == "0003-grid.md" and art["amendments"] == ["0004-more.md"]
-    by_id = {c["cell"]: c for c in art["cells"]}
-    assert by_id["T-a"]["replicates"] == 6 and by_id["T-b"]["replicates"] == 2
+    arts = e0_run.bank([prereg, amend], root)
+    assert sorted(arts) == ["coverage-0004.json", "coverage.json"]
+    base, part = arts["coverage.json"], arts["coverage-0004.json"]
+    assert base["prereg"] == "0003-grid.md" and base["amendments"] == []
+    assert part["prereg"] == "0004-more.md" and part["amends"] == "0003-grid.md"
+    by_id = {c["cell"]: c for c in base["cells"]}
+    assert set(by_id) == {"T-a", "T-r"} and [c["cell"] for c in part["cells"]] == ["T-b"]
+    assert by_id["T-a"]["replicates"] == 6 and part["cells"][0]["replicates"] == 2
     assert 0 <= by_id["T-r"]["covered"] <= 3
     text = (root / "coverage.json").read_text()
     assert "NaN" not in text and json.loads(text)["confirmatory"] is True
+    assert json.loads((root / "coverage-0004.json").read_text())["prereg"] == "0004-more.md"
     with pytest.raises(ValueError, match="repeat"):
         e0_run.bank([prereg, prereg], root)
 
@@ -98,9 +103,9 @@ def test_grid_errors_and_cli(
         "G-x: skipped; run it with python -m noisefloor.recovery e0-run" in capsys.readouterr().out
     )
     assert not (tmp_path / "e0" / "raw" / "G-x.jsonl").exists()
-    monkeypatch.setattr(e0_run, "bank", lambda paths, root=None: {"cells": [1]})
+    monkeypatch.setattr(e0_run, "bank", lambda paths, root=None: {"coverage.json": {"cells": [1]}})
     assert e0_run.main(["bank", str(prereg)]) == 0
-    assert "banked 1 cells" in capsys.readouterr().out
+    assert "banked 1 cells in artifacts/e0/coverage.json" in capsys.readouterr().out
     assert e0_run._clean({"x": [float("nan"), 1.0]}) == {"x": [None, 1.0]}
 
 
