@@ -338,3 +338,18 @@ exploratory and banked in `artifacts/method_pilots/` (synthetic data, seeds from
   runs per task, the Claude slice's shape. E0 part 2 adds score cells across success levels
   for both arms, and a paired cell with 1 run against 4 for the Claude-versus-local
   comparisons.
+
+## D-024 2026-11-04 CPU priority on this machine: autogroups, and s3's timing caveat
+- Finding: the kernel's scheduler autogroups are on (`/proc/sys/kernel/sched_autogroup_enabled`
+  is 1), and every detached job (`setsid`) gets its own autogroup, inside which `nice` applies;
+  between autogroups `nice` has no effect. So the exploratory method pilots (launched with
+  `nice`), timing checks, and test runs competed with the screening runs at equal weight. At
+  08:50 UTC llama-server held about half the CPU it needs while two pilot processes ran.
+- Consequence: screening s3 (exploratory) ran under varying CPU contention from 07:11 UTC on,
+  so its wall-clock times are upper bounds and some of its timeouts may come from contention;
+  phi-4-mini's first batch ran under the heaviest load. s3 serves only to choose E1's models
+  by success rate, and its records are banked as they are, with this caveat.
+- Rule from now on: a CPU job that runs beside model runs sets its autogroup to the lowest
+  priority (`echo 19 > /proc/<pid>/autogroup`) as soon as it starts; with that, llama-server
+  got its three threads back at once. While the E1 local arm runs, nothing CPU-heavy runs at all
+  (docs/PLAN.md), whatever its priority.
