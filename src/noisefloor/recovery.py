@@ -21,6 +21,7 @@ under the design's level shares (for a balanced two-level factor with effect ``b
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import itertools
 import json
 import math
@@ -198,6 +199,7 @@ class AnalysisSettings:
     nagq: int = 0
     boot_interval: str = "basic"
     level: float = 0.95
+    random: tuple[str, ...] = RANDOM_TERMS
 
 
 def analyze(data: pd.DataFrame, settings: AnalysisSettings, seed: int) -> Decomposition:
@@ -205,7 +207,7 @@ def analyze(data: pd.DataFrame, settings: AnalysisSettings, seed: int) -> Decomp
     fixed = tuple(name for name in FIXED_TERMS if data[name].nunique() > 1)
     return decompose(
         EvalResults(data),
-        random=RANDOM_TERMS,
+        random=settings.random,
         fixed=fixed,
         level=settings.level,
         backend="lme4",
@@ -337,6 +339,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("first", type=int)
     parser.add_argument("count", type=int)
     parser.add_argument("--n-boot", type=int, default=100)
+    parser.add_argument(
+        "--no-batch", action="store_true", help="plant no batch variance and fit no batch term"
+    )
     args = parser.parse_args(list(argv) if argv is not None else None)
     seeds = [s for s in range(args.first, args.first + args.count)]
     if any(s not in PILOT_SEEDS for s in seeds):
@@ -345,11 +350,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.out.exists():
         done = {json.loads(ln)["seed"] for ln in args.out.read_text().splitlines() if ln.strip()}
     settings = AnalysisSettings(n_boot=args.n_boot)
+    planted = Planted()
+    if args.no_batch:
+        settings = AnalysisSettings(n_boot=args.n_boot, random=("task", "model:task"))
+        planted = dataclasses.replace(planted, batch_var=0.0)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     for seed in seeds:
         if seed in done:
             continue
-        row = pilot_row(Design(), Planted(), settings, seed)
+        row = pilot_row(Design(), planted, settings, seed)
         with args.out.open("a") as fh:
             fh.write(dumps(row) + "\n")
     rows = [json.loads(ln) for ln in args.out.read_text().splitlines() if ln.strip()]

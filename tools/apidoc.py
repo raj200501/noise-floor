@@ -57,8 +57,6 @@ def render() -> str:
         module = importlib.import_module(mod_name)
         lines += [f"## `{mod_name}`", "", inspect.getdoc(module) or "", ""]
         for name in getattr(module, "__all__", []):
-            if name.startswith("__"):
-                continue
             lines += describe(name, getattr(module, name))
     return "\n".join(lines).rstrip() + "\n"
 

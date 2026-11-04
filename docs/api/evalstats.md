@@ -27,7 +27,7 @@ Bounds on ``higher - lower`` over all ways of scoring the ambiguous runs.
 A model's score under each policy, its worst-case bounds, and their interval.
 
 
-### class `Decomposition(backend: 'str', formula: 'str', n_obs: 'int', level: 'float', components: 'tuple[VarianceComponent, ...]', fixed_effects: 'dict[str, float]', converged: 'bool', messages: 'tuple[str, ...]' = ()) -> None`
+### class `Decomposition(backend: 'str', formula: 'str', n_obs: 'int', level: 'float', components: 'tuple[VarianceComponent, ...]', fixed_effects: 'dict[str, float]', converged: 'bool', messages: 'tuple[str, ...]' = (), replicates: 'dict[str, tuple[float, ...]]' = <factory>) -> None`
 
 Variance decomposition of eval outcomes on the logit scale.
 
@@ -112,10 +112,17 @@ Raised when results do not fit the long-format schema.
 A model's benchmark score with its interval.
 
 
-### class `VarianceComponent(name: 'str', kind: 'str', variance: 'float', share: 'float', lo: 'float | None', hi: 'float | None', interval_method: 'str') -> None`
+### class `VarianceComponent(name: 'str', kind: 'str', variance: 'float', share: 'float', lo: 'float | None', hi: 'float | None', interval_method: 'str', share_lo: 'float | None' = None, share_hi: 'float | None' = None) -> None`
 
 One latent-scale variance component with its interval (None if not available).
 
+``share_lo`` and ``share_hi`` bound the component's share of the total latent
+variance (bootstrap intervals only).
+
+
+### `__version__`
+
+Value: `'0.0.1'`
 
 ### `bca_interval(values: 'npt.ArrayLike', level: 'float' = 0.95, n_boot: 'int' = 10000, seed: 'int | None' = None) -> 'Interval'`
 
@@ -131,13 +138,16 @@ Returns the interval (t with G - 1 degrees of freedom, G clusters) and the
 standard error. Every observation weighs the same, so tasks with more runs
 weigh more; use :func:`t_interval` on task means for equal task weights.
 
-### `decompose(results: 'EvalResults', *, random: 'Sequence[str]' = ('task', 'model', 'model:task'), fixed: 'Sequence[str]' = (), level: 'float' = 0.95, intervals: 'bool' = True, backend: 'str' = 'auto', seed: 'int' = 0) -> 'Decomposition'`
+### `decompose(results: 'EvalResults', *, random: 'Sequence[str]' = ('task', 'model', 'model:task'), fixed: 'Sequence[str]' = (), level: 'float' = 0.95, intervals: 'bool' = True, backend: 'str' = 'auto', seed: 'int' = 0, method: 'str' = 'profile', n_boot: 'int' = 200, nagq: 'int' = 1, boot_interval: 'str' = 'percentile') -> 'Decomposition'`
 
 Fit a logit GLMM and partition the latent variance.
 
 ``random`` lists grouping columns (``a:b`` for crossed combinations) given
 random intercepts; ``fixed`` lists categorical covariates entered as fixed
-effects. Outcomes must be binary.
+effects. Outcomes must be binary. ``method`` picks the lme4 intervals:
+``profile`` (profile likelihood) or ``parametric_bootstrap`` (``n_boot``
+replicates, refits with ``nagq`` = 1 for Laplace or 0 for the faster
+approximation, random variances with ``boot_interval``; see the module docstring).
 
 ### `design_from_results(results: 'EvalResults', model_a: 'str', model_b: 'str') -> 'PairedDesign'`
 

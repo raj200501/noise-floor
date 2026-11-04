@@ -45,3 +45,28 @@ days) and the Claude arm is rate-capped per day.
 - Local model runs: the bulk of E1 cells (several hundred to a few thousand short agent runs),
   bounded by CPU time rather than any cap.
 - Cash: 0.
+
+## Claude arm on Raj's machine (G7)
+
+The Claude tiers of E1 run through headless Claude Code on a machine where the billing guard is
+clean (D-004, D-019). This hosted session cannot run them by design. Steps for Raj:
+
+1. Clone the repository at the commit named in the E1 preregistration, then `make setup` and
+   `make doctor`. Its `billing guard` row must read `clean`: no `ANTHROPIC_API_KEY`,
+   `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_USE_*`, or `apiKeyHelper` in any
+   user, project, or managed settings file. The `claude` CLI must be logged in to the Max plan
+   (check with `/status` inside `claude`). Turn off paid extra usage in the plan settings for the
+   duration of the arm; the client stops at once and refuses further runs if the CLI reports
+   extra usage in use or a refused plan limit.
+2. Smoke check (one exploratory run, counts as one `agent_run`):
+   `uv run python -m noisefloor.claude_arm smoke --tier claude-haiku`. It must end with
+   `SMOKE: PASS`, which means the child reported the plan login (`apiKeySource none`), only the
+   file tools Read, Glob, Grep, Write, and Edit, no MCP servers, and no memory files. Anything
+   else prints `SMOKE: CHECK <what>`: stop and report it.
+3. Run the arm with the command the E1 preregistration names. It is resumable: rerun the same
+   command each day. Daily caps come from budget.toml times `CAP_SHARE`; at `CAP_SHARE = 0.2`
+   that is 6 runs a day (about 25 days for 150 runs), at `CAP_SHARE = 1` it is 30 a day (about 5
+   days). The turn cap per run is `claude_agent_max_turns` times `CAP_SHARE` (8 at 0.2).
+4. Commit `artifacts/e1/claude.jsonl` and `artifacts/usage/ledger.jsonl` (the ledger logs tokens
+   and `plan_equivalent_usd`, an API-price estimate, never cash), and push to the session branch
+   or send the files back.

@@ -121,8 +121,9 @@ class GateError(Exception):
 @dataclass
 class Result:
     code: int
-    out: str
+    out: str  # stdout then stderr, for logs and messages
     seconds: float
+    stdout: str = ""  # stdout alone, for parsing (tools may warn on stderr)
 
 
 @dataclass
@@ -175,7 +176,9 @@ def run(
             timeout=timeout,
             check=False,
         )
-        res = Result(proc.returncode, proc.stdout + proc.stderr, time.monotonic() - start)
+        res = Result(
+            proc.returncode, proc.stdout + proc.stderr, time.monotonic() - start, proc.stdout
+        )
         stdout = proc.stdout
     except subprocess.TimeoutExpired as exc:
         out = (exc.stdout or b"").decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")
@@ -304,7 +307,9 @@ def finite_interval(
 
 def check_manifest_hashes(ctx: Ctx, manifest: dict[str, Any], label: str) -> None:
     files = manifest.get("files")
-    need(isinstance(files, dict) and bool(files), f"{label} manifest lists no files")
+    if not isinstance(files, dict) or not files:
+        need(False, f"{label} manifest lists no files")
+        return
     for path, digest in files.items():
         p = rel(ctx, path)
         need(p.exists(), f"{label}: {path} missing")
@@ -584,7 +589,7 @@ def g5(ctx: Ctx) -> str:
         ],
     )
     need(res.code == 0, f"evalstats.validity.UNSUPPORTED_CELLS: {tail(res.out)}")
-    unsupported = set(json.loads(res.out.strip().splitlines()[-1]))
+    unsupported = set(json.loads(res.stdout.strip().splitlines()[-1]))
     missing = sorted(set(failing) - unsupported)
     need(not missing, f"failing cells not marked unsupported: {', '.join(missing[:3])}")
     cross = load_json(rel(ctx, "artifacts/e0/crosscheck.json")).get("checks", [])
@@ -772,7 +777,7 @@ def g9(ctx: Ctx) -> str:
         cwd=ctx.tmp,
     )
     need(res.code == 0, f"import from wheel: {tail(res.out)}")
-    public = json.loads(res.out.strip().splitlines()[-1])
+    public = json.loads(res.stdout.strip().splitlines()[-1])
     res = run(ctx, "wheel-cli", [str(venv / "bin" / "evalstats"), "--help"], cwd=ctx.tmp)
     need(res.code == 0, f"evalstats --help from wheel: {tail(res.out)}")
     examples = sorted(rel(ctx, "docs/examples").glob("*.py"))

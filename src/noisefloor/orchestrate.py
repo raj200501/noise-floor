@@ -113,14 +113,17 @@ def base_provenance() -> dict[str, Any]:
 def make_batches(specs: Sequence[RunSpec], prefix: str, max_size: int = 10) -> list[Batch]:
     """Group consecutive runs that share a server configuration, at most ``max_size`` each.
 
-    Order is kept. Batch IDs include a hash of their run IDs, so a resumed plan never
-    reuses the workspace of a different batch.
+    Order is kept, and a change of ``block`` (E1 plans name each planned batch there)
+    always starts a new batch. Batch IDs include a hash of their run IDs, so a resumed
+    plan never reuses the workspace of a different batch.
     """
     if max_size < 1:
         raise ValueError("max_size must be positive")
     groups: list[list[RunSpec]] = []
     for spec in specs:
-        if groups and batch_key(groups[-1][-1]) == batch_key(spec) and len(groups[-1]) < max_size:
+        last = groups[-1][-1] if groups else None
+        same = last is not None and batch_key(last) == batch_key(spec) and last.block == spec.block
+        if same and len(groups[-1]) < max_size:
             groups[-1].append(spec)
         else:
             groups.append([spec])

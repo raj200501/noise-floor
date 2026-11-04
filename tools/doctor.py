@@ -33,6 +33,8 @@ CLAUDE_SETTINGS_FILES = (
     Path.home() / ".claude" / "settings.local.json",
     REPO / ".claude" / "settings.json",
     REPO / ".claude" / "settings.local.json",
+    Path("/etc/claude-code/managed-settings.json"),
+    Path("/Library/Application Support/ClaudeCode/managed-settings.json"),
 )
 
 
