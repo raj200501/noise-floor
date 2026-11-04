@@ -144,3 +144,16 @@ def test_summary_and_grid_helpers() -> None:
     cells = cells_from_grid(grid)
     assert cells[0].cell == "a" and cells[0].params == {"n_tasks": 5}
     assert e0.canonical({"b": 1, "a": 2}) == '{"a":2,"b":1}'
+
+
+def test_paired_cells_with_unequal_runs() -> None:
+    kw = {"n_tasks": 5, "runs": 2, "intercept": 0.0, "task_sd": 1.0, "model_task_sd": 0.5}
+    same = e0._draw(np.random.default_rng(4), [0.1, -0.1], **kw)
+    explicit = e0._draw(np.random.default_rng(4), [0.1, -0.1], runs_per_model=(2, 2), **kw)
+    assert same.equals(explicit)  # equal runs draw exactly as before
+    mixed = e0._draw(np.random.default_rng(4), [0.1, -0.1], runs_per_model=(1, 4), **kw)
+    counts = mixed.groupby("model")["run"].nunique().to_dict()
+    assert counts == {"m0": 1, "m1": 4} and len(mixed) == 5 * (1 + 4)
+    c = cell("paired_difference", effect_a=0.4, effect_b=0.0, model_task_sd=0.7, runs=1, runs_b=4)
+    rep = run_replicate(c, 0)
+    assert rep.lo <= rep.estimate <= rep.hi and rep.truth > 0

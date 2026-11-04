@@ -27,7 +27,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -100,19 +100,25 @@ def _draw(
     task_sd: float,
     model_task_sd: float,
     factor_beta: float | None = None,
+    runs_per_model: Sequence[int] | None = None,
 ) -> pd.DataFrame:
-    """Logit-normal draws; with ``factor_beta`` a two-level factor alternates over runs."""
+    """Logit-normal draws; with ``factor_beta`` a two-level factor alternates over runs.
+
+    ``runs_per_model`` gives each model its own number of runs per task (default:
+    ``runs`` for every model); the draws for equal runs are the same either way.
+    """
     task = rng.normal(0.0, task_sd, n_tasks)
     inter = rng.normal(0.0, model_task_sd, (len(model_effects), n_tasks))
-    level = np.arange(runs) % 2
-    shift = (factor_beta or 0.0) * level
+    counts = list(runs_per_model) if runs_per_model else [runs] * len(model_effects)
     rows = []
     for m, effect in enumerate(model_effects):
+        level = np.arange(counts[m]) % 2
+        shift = (factor_beta or 0.0) * level
         eta = intercept + effect + task + inter[m]
         prob = 1.0 / (1.0 + np.exp(-(eta[:, None] + shift[None, :])))
-        draws = rng.random((n_tasks, runs)) < prob
+        draws = rng.random((n_tasks, counts[m])) < prob
         for t in range(n_tasks):
-            for r in range(runs):
+            for r in range(counts[m]):
                 row: tuple[Any, ...] = (f"m{m}", f"t{t}", str(r), float(draws[t, r]))
                 if factor_beta is not None:
                     row = (*row, "ab"[level[r]])
@@ -159,14 +165,16 @@ def _sim_score(cell: Cell, rng: np.random.Generator, seed: int) -> Replicate:
 def _sim_paired(cell: Cell, rng: np.random.Generator, seed: int) -> Replicate:
     p = cell.params
     effects = [float(p["effect_a"]), float(p["effect_b"])]
+    runs = int(p["runs"])
     frame = _draw(
         rng,
         effects,
         n_tasks=int(p["n_tasks"]),
-        runs=int(p["runs"]),
+        runs=runs,
         intercept=float(p.get("intercept", 0.0)),
         task_sd=float(p["task_sd"]),
         model_task_sd=float(p.get("model_task_sd", 0.0)),
+        runs_per_model=(runs, int(p.get("runs_b", runs))),
     )
     res = EvalResults.from_frame(frame)
     d = paired_difference(
