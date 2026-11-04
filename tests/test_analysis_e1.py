@@ -102,6 +102,10 @@ def test_time_block_and_runs_table() -> None:
     assert {r["family"] for r in local} == {"qwen3", "granite", "phi"}
     with pytest.raises(ValueError, match="no confirmatory"):
         a.analysis_frame([], ["infra_error"])
+    with pytest.raises(ValueError, match="banked more than once"):
+        a.runs_table(
+            [*recs, recs[0]], prereg="p.md", planned=planned, block_hours=[[0, 12], [12, 24]]
+        )
 
 
 @needs_r

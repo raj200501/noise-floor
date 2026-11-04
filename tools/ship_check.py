@@ -749,6 +749,11 @@ def g7(ctx: Ctx) -> str:
     models = {str(m["id"]): m for m in design["models"]}
     need(len(factors) >= 4, f"design has {len(factors)} non-model factors < 4")
     rows = [json.loads(ln) for ln in runs_path.read_text().splitlines() if ln.strip()]
+    seen: dict[str, int] = {}
+    for r in rows:
+        seen[str(r.get("run_id"))] = seen.get(str(r.get("run_id")), 0) + 1
+    dups = sorted(k for k, n in seen.items() if n > 1)
+    need(not dups, f"{len(dups)} run ids banked more than once (first {dups[:1]})")
     conf = [r for r in rows if r.get("confirmatory") is True]
     entry = next(
         (
@@ -773,8 +778,8 @@ def g7(ctx: Ctx) -> str:
                 f"run {rid} factor {name}={level} not in design",
             )
         need(r.get("outcome") in (0, 1, True, False), f"run {rid} outcome not binary")
-    # A task run counts once it ran: a planned run the runner never started is banked as an
-    # infrastructure error and does not count toward the floors (prereg 0004).
+    # A task run counts once it ran: runs with status infra_error do not count toward the
+    # floors (prereg 0004), and a planned run the runner never started is never banked.
     ran = [r for r in conf if r.get("status") != "infra_error"]
     need(len(ran) >= E1_MIN_RUNS, f"{len(ran)} confirmatory task runs < {E1_MIN_RUNS}")
     claude = sum(1 for r in ran if models[str(r["model_id"])].get("backend") == "claude")

@@ -4,6 +4,7 @@ import importlib.util
 import sys
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 import pytest
 
@@ -164,3 +165,102 @@ def test_utc_time() -> None:
     b = ship_check.utc_time("2026-11-05T01:00:00+01:00")
     c = ship_check.utc_time("2026-11-05T00:00:01")
     assert a == b and c > a
+
+
+def _g7_repo(root: Path, rows: list[dict[str, Any]]) -> None:
+    """A git repo with a frozen E1 preregistration, then E1 artifacts built from ``rows``."""
+    import hashlib
+    import json
+    import subprocess
+
+    def git(*args: str) -> None:
+        env = {
+            "GIT_AUTHOR_NAME": "t",
+            "GIT_AUTHOR_EMAIL": "t@example.invalid",
+            "GIT_COMMITTER_NAME": "t",
+            "GIT_COMMITTER_EMAIL": "t@example.invalid",
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "PATH": "/usr/bin:/bin",
+        }
+        subprocess.run(["git", *args], cwd=root, check=True, capture_output=True, env=env)
+
+    design = {
+        "factors": {f: ["0", "1"] for f in ("harness", "timeout", "steps", "temperature")},
+        "models": [
+            {"id": "m1", "family": "a", "backend": "local"},
+            {"id": "m2", "family": "b", "backend": "local"},
+            {"id": "c1", "family": "claude", "backend": "claude"},
+        ],
+    }
+    (root / "prereg").mkdir(parents=True)
+    prereg = root / "prereg" / "0004-e1.md"
+    prereg.write_text("# E1\n\n```json e1-design\n" + json.dumps(design) + "\n```\n")
+    sha = hashlib.sha256(prereg.read_bytes()).hexdigest()
+    entry = {"file": "prereg/0004-e1.md", "sha256": sha, "frozen_at": "2026-11-05T00:00:00Z"}
+    (root / "prereg" / "CHAIN.jsonl").write_text(json.dumps(entry) + "\n")
+    git("init", "-q")
+    git("add", "-A")
+    git("commit", "-q", "-m", "freeze")
+    e1 = root / "artifacts" / "e1"
+    e1.mkdir(parents=True)
+    for row in rows:
+        row.update(prereg="prereg/0004-e1.md", prereg_sha256=sha)
+    (e1 / "runs.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    interval = {"estimate": 0.1, "lo": 0.05, "hi": 0.2, "share": 0.1, "share_lo": 0.0}
+    vc = {"components": [{**interval, "name": "task", "share_hi": 0.3}]}
+    (e1 / "variance_components.json").write_text(json.dumps(vc))
+    (e1 / "mde.json").write_text(json.dumps({"rows": [{"mde": 0.1, "lo": 0.05, "hi": 0.2}]}))
+    files = {
+        f"artifacts/e1/{n}": hashlib.sha256((e1 / n).read_bytes()).hexdigest()
+        for n in ("runs.jsonl", "variance_components.json", "mde.json")
+    }
+    manifest = {"prereg": "prereg/0004-e1.md", "files": files}
+    (e1 / "manifest.json").write_text(json.dumps(manifest))
+    git("add", "-A")
+    git("commit", "-q", "-m", "bank")
+
+
+def _g7_rows(local: int, claude: int, status: str = "ok") -> list[dict[str, Any]]:
+    rows = []
+    for i in range(local + claude):
+        model = ("m1", "m2")[i % 2] if i < local else "c1"
+        rows.append(
+            {
+                "run_id": f"r{i}",
+                "confirmatory": True,
+                "started_at": "2026-11-06T01:00:00+00:00",
+                "model_id": model,
+                "factors": {"harness": "0", "timeout": "1"},
+                "outcome": i % 2,
+                "status": status,
+                "day": f"2026-11-0{6 + i % 3}",
+            }
+        )
+    return rows
+
+
+def test_g7_counts_runs_that_ran_and_rejects_duplicates(tmp_path: Path) -> None:
+    ok = tmp_path / "ok"
+    _g7_repo(ok, _g7_rows(900, 160))
+    assert ship_check.g7(_ctx(ok)).startswith("1060 runs (160 Claude), 3 models, 3 days")
+    # Padding with infra_error rows (runs that did not run the task) cannot pass the floors.
+    padded = tmp_path / "padded"
+    rows = _g7_rows(800, 160) + [
+        {**r, "run_id": f"x{i}"} for i, r in enumerate(_g7_rows(200, 0, "infra_error"))
+    ]
+    _g7_repo(padded, rows)
+    with pytest.raises(ship_check.GateError, match="960 confirmatory task runs < 1000"):
+        ship_check.g7(_ctx(padded))
+    claude_short = tmp_path / "claude"
+    rows = _g7_rows(1000, 140) + [
+        {**r, "run_id": f"y{i}"} for i, r in enumerate(_g7_rows(0, 20, "infra_error"))
+    ]
+    _g7_repo(claude_short, rows)
+    with pytest.raises(ship_check.GateError, match="140 Claude-tier runs < 150"):
+        ship_check.g7(_ctx(claude_short))
+    dup = tmp_path / "dup"
+    rows = _g7_rows(900, 160)
+    _g7_repo(dup, [*rows, dict(rows[0])])
+    with pytest.raises(ship_check.GateError, match="banked more than once"):
+        ship_check.g7(_ctx(dup))

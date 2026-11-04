@@ -63,7 +63,22 @@ on the CPU while E1 runs, because its runs have wall-clock limits.
   simulations, and anything else CPU-heavy in this session: CPU contention would lengthen runs
   and could turn some into timeouts, an effect outside the design.
 - Check-ins keep the session awake while the arm runs; each one checks the process, the log,
-  and the banked count, and relaunches the runner if it died.
+  and the banked count, and relaunches the runner if it died. The log names banked and
+  infra_error counts and infra_error end reasons only, never outcomes, and
+  `artifacts/e1/local.jsonl` is read only by the runner until the arm ends.
+- One runner at a time: each arm holds an exclusive lock (`artifacts/e1/.local.lock`,
+  git-ignored); a second runner exits with code 4.
+- Stops (prereg 0004): a batch that fails as a whole (the model file fails its hash check, the
+  server does not start or fails its health check after a run, three infra_error runs in a row,
+  or the runner exits before every run is recorded) banks only the runs the failure did not
+  touch; the others run again later under their planned run ids. The arm then stops, as it
+  does when more than 5 percent (and at least 5) of the runs banked since its start or last
+  resume are infra_error, and when a batch would start after day 7. Each stop is a line in
+  `artifacts/e1/stops-local.jsonl` (reported as a deviation), and the runner exits with code 3
+  until `python -m noisefloor.e1 resume local --note "<repair>"` records the repair. A defect
+  found during the arm is recorded with `python -m noisefloor.e1 stop local --reason "..."`
+  (it takes effect at the next batch) and resumes only with `--amendment` naming a frozen
+  amendment that says how the affected runs are handled. The day-7 stop does not resume.
 
 ## Claude arm on Raj's machine (G7)
 

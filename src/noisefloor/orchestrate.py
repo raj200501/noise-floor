@@ -9,7 +9,10 @@ record, with provenance, to a JSON Lines artifact, and the batch's ledger lines 
 usage ledger. Runs whose ``run_id`` is already in the artifact are skipped, so an
 interrupted plan resumes where it stopped and a banked run is never re-run. When a
 batch reports a refused model call (``refused.json``), ``execute`` banks what finished
-and stops; the rest of the plan runs on a later call.
+and stops; the rest of the plan runs on a later call. When a batch fails as a whole
+(``aborted.json``, or a runner that stopped before every run was recorded), ``execute``
+banks the runs the failure did not touch and raises :class:`BatchFailedError`; the
+other runs stay unbanked and run again, under their planned run ids, after a repair.
 """
 
 from __future__ import annotations
@@ -26,10 +29,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from noisefloor import sandbox
+from noisefloor import jsonl, sandbox
 from noisefloor.client import claude_child_env
 from noisefloor.models import CLAUDE_TIERS, MODELS, RUNTIME, is_claude, server_binary
-from noisefloor.runner import RunSpec, batch_key
+from noisefloor.runner import RunSpec, abort, batch_key
 
 REPO = Path(__file__).resolve().parents[2]
 DEFAULT_WORK = Path.home() / ".cache" / "noisefloor" / "work"
@@ -41,6 +44,17 @@ class Batch:
 
     batch_id: str
     runs: tuple[RunSpec, ...]
+
+
+class BatchFailedError(RuntimeError):
+    """A batch failed as a whole; its unbanked runs run again after a repair."""
+
+    def __init__(self, batch_id: str, reason: str, banked: int) -> None:
+        """``banked`` counts the runs the failing ``execute`` call banked in total."""
+        super().__init__(f"{batch_id}: {reason}")
+        self.batch_id = batch_id
+        self.reason = reason
+        self.banked = banked
 
 
 def git_state(repo: Path = REPO) -> dict[str, Any]:
@@ -135,10 +149,8 @@ def make_batches(specs: Sequence[RunSpec], prefix: str, max_size: int = 10) -> l
 
 
 def banked_ids(artifact: Path) -> set[str]:
-    """Run IDs already in an artifact."""
-    if not artifact.exists():
-        return set()
-    return {json.loads(ln)["run_id"] for ln in artifact.read_text().splitlines() if ln.strip()}
+    """Run IDs already in an artifact (a record cut by a kill is not banked)."""
+    return {str(row["run_id"]) for row in jsonl.read(artifact, tail_ok=True)}
 
 
 Executor = Callable[[Batch, Path], list[dict[str, Any]]]
@@ -165,32 +177,24 @@ def _prepare(batch: Batch, workspace: Path, **extra: str) -> Path:
 
 
 def _rows(batch: Batch, out: Path, returncode: int | None) -> list[dict[str, Any]]:
-    """The batch's run records, with a harness error for each run that has none.
+    """The batch's run records; a run without one stays unbanked.
 
-    After a refusal (``refused.json``), runs without a record are left out instead, so
-    they stay unbanked and run again later.
+    When runs lack a record and the runner wrote neither ``refused.json`` nor
+    ``aborted.json`` (it crashed, was killed, or ran out of time), this writes an
+    ``aborted.json`` naming the exit code, so the batch counts as failed.
     """
-    results = out / "results.jsonl"
-    rows = (
-        [json.loads(ln) for ln in results.read_text().splitlines() if ln.strip()]
-        if results.exists()
-        else []
-    )
-    if (out / "refused.json").exists():
-        return rows
-    done = {r["run_id"] for r in rows}
-    for spec in batch.runs:
-        if spec.run_id not in done:
-            rows.append(
-                {
-                    **spec.to_json(),
-                    "end_reason": "harness_error",
-                    "status": "infra_error",
-                    "outcome": 0.0,
-                    "error": f"runner exited {returncode} before this run",
-                }
-            )
+    rows = jsonl.read(out / "results.jsonl", tail_ok=True)
+    done = {str(r["run_id"]) for r in rows}
+    missing = sum(1 for spec in batch.runs if spec.run_id not in done)
+    if missing and not (out / "refused.json").exists() and not (out / "aborted.json").exists():
+        abort(out, f"runner exited {returncode} before {missing} of its runs were recorded")
     return rows
+
+
+def _note(out: Path, name: str) -> dict[str, Any] | None:
+    """A runner note (``refused.json`` or ``aborted.json``), if the batch wrote one."""
+    path = out / name
+    return dict(json.loads(path.read_text())) if path.exists() else None
 
 
 def host_executor(ledger: Path, timeout_per_run: float = 900.0) -> Executor:
@@ -276,38 +280,47 @@ def _bank(
     salvaged: bool,
     stamp: Mapping[str, Any] | None = None,
 ) -> None:
-    """Append records with provenance, merge the batch ledger, and mark the workspace."""
+    """Append records with provenance, merge the batch ledger, and mark the workspace.
+
+    Every record is one write (:func:`noisefloor.jsonl.append`), so a kill cuts at most the
+    last one, which :func:`execute` removes before the next append.
+    """
     by_id = {s.run_id: s for s in batch.runs}
-    with artifact.open("a") as fh:
-        for row in rows:
-            record = {
-                **row,
-                **(stamp or {}),
-                "provenance": provenance(by_id[row["run_id"]], batch, base),
-                "batch_started_at": started,
-            }
-            if salvaged:
-                record["salvaged"] = True
-            fh.write(json.dumps(record, sort_keys=True) + "\n")
-    batch_ledger = workspace / "out" / "ledger.jsonl"
-    if batch_ledger.exists():
-        ledger.parent.mkdir(parents=True, exist_ok=True)
-        with ledger.open("a") as fh:
-            fh.write(batch_ledger.read_text())
+    records = []
+    for row in rows:
+        record = {
+            **row,
+            **(stamp or {}),
+            "provenance": provenance(by_id[row["run_id"]], batch, base),
+            "batch_started_at": started,
+        }
+        if salvaged:
+            record["salvaged"] = True
+        records.append(record)
+    jsonl.append(artifact, records)
+    jsonl.append(ledger, jsonl.read(workspace / "out" / "ledger.jsonl", tail_ok=True))
     (workspace / ".banked").write_text(started + "\n")
 
 
 def salvage(
     root: Path, prefix: str, specs: Mapping[str, RunSpec], done: set[str]
 ) -> list[tuple[Path, list[dict[str, Any]]]]:
-    """Completed but unbanked runs left in workspaces of an interrupted plan."""
+    """Completed but unbanked runs left in workspaces of an interrupted plan.
+
+    Runs that an ``aborted.json`` names are not completed runs and stay unbanked.
+    """
     found = []
     for workspace in sorted(root.glob(f"{prefix}-b*")):
         results = workspace / "out" / "results.jsonl"
         if (workspace / ".banked").exists() or not results.exists():
             continue
-        rows = [json.loads(ln) for ln in results.read_text().splitlines() if ln.strip()]
-        rows = [r for r in rows if r.get("run_id") in specs and r["run_id"] not in done]
+        failed = _note(workspace / "out", "aborted.json")
+        drop = set(failed["drop"]) if failed else set()
+        rows = [
+            r
+            for r in jsonl.read(results, tail_ok=True)
+            if r.get("run_id") in specs and r["run_id"] not in done and r["run_id"] not in drop
+        ]
         if rows:
             found.append((workspace, rows))
     return found
@@ -330,7 +343,14 @@ def execute(
     Runs that an interrupted earlier call completed but did not bank are salvaged from
     their workspaces first (marked ``"salvaged": true``) and never re-run. ``stamp``
     fields (such as the preregistration a confirmatory run follows) go on every record.
+    A refusal stops the plan; a batch-level failure raises :class:`BatchFailedError`
+    after banking the runs it did not touch. The log names banked and infra_error counts
+    only, never outcomes.
     """
+    for path in (artifact, ledger):
+        cut = jsonl.repair_tail(path)
+        if cut is not None:
+            log(f"{path.name}: removed a record cut by an interrupted write ({len(cut)} chars)")
     spec_list = list(specs)
     by_id = {s.run_id: s for s in spec_list}
     done = banked_ids(artifact)
@@ -369,6 +389,14 @@ def execute(
         workspace.mkdir(parents=True, exist_ok=True)
         (workspace / ".started").write_text(started + "\n")
         rows = run_batch(batch, workspace)
+        out = workspace / "out"
+        refused, failed = _note(out, "refused.json"), _note(out, "aborted.json")
+        recorded = {str(r["run_id"]) for r in rows}
+        if failed is None and refused is None and any(s.run_id not in recorded for s in batch.runs):
+            abort(out, "the runner stopped before every run was recorded")
+            failed = _note(out, "aborted.json")
+        drop = set(failed["drop"]) if failed else set()
+        rows = [r for r in rows if str(r["run_id"]) not in drop]
         _bank(
             rows,
             batch,
@@ -381,11 +409,24 @@ def execute(
             stamp=stamp,
         )
         banked += len(rows)
-        ok = sum(r.get("status") == "ok" for r in rows)
-        log(f"{batch.batch_id}: {len(rows)} runs banked ({ok} ok)")
-        refused = workspace / "out" / "refused.json"
-        if refused.exists():
-            note = json.loads(refused.read_text())
-            log(f"{batch.batch_id}: model calls refused ({note.get('reason')}); stopping")
+        log(f"{batch.batch_id}: {len(rows)} runs banked, {_infra_summary(rows)}")
+        if failed is not None:
+            left = len(batch.runs) - len(rows)
+            log(f"{batch.batch_id}: batch failed ({failed['reason']}); {left} runs not banked")
+            raise BatchFailedError(batch.batch_id, str(failed["reason"]), banked)
+        if refused is not None:
+            log(f"{batch.batch_id}: model calls refused ({refused.get('reason')}); stopping")
             break
     return banked
+
+
+def _infra_summary(rows: Sequence[Mapping[str, Any]]) -> str:
+    """``K infra_error`` plus their end reasons (no outcome information)."""
+    reasons: dict[str, int] = {}
+    for row in rows:
+        if row.get("status") == "infra_error":
+            key = str(row.get("end_reason") or "unknown")
+            reasons[key] = reasons.get(key, 0) + 1
+    total = sum(reasons.values())
+    detail = ", ".join(f"{k} {v}" for k, v in sorted(reasons.items()))
+    return f"{total} infra_error" + (f" ({detail})" if detail else "")

@@ -24,7 +24,10 @@ status (``ok``, ``timeout``, ``infra_error``), the end reason, steps, tool calls
 tokens, wall time, and UTC start and end times. When a model call is refused (billing
 guard, daily cap, plan limit, kill switch), the runner records nothing for that run,
 writes the reason to ``OUT_DIR/refused.json``, and starts no further runs; unrecorded
-runs stay unbanked and run again later.
+runs stay unbanked and run again later. A batch-level failure (the model file fails its
+hash check, the server does not start or stops answering its health check, or three
+infra_error runs in a row) writes ``OUT_DIR/aborted.json``, which names the recorded runs
+the orchestrator must not bank, and starts no further runs.
 """
 
 from __future__ import annotations
@@ -36,17 +39,19 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from noisefloor import jsonl
 from noisefloor.claude_arm import run_claude_code, turn_cap
 from noisefloor.client import REPO, Client, Ledger, ModelCallRefusedError, effective_caps
 from noisefloor.minimal_agent import AgentConfig, run_episode
-from noisefloor.models import CLAUDE_TIERS, MODELS, is_claude, serve
+from noisefloor.models import CLAUDE_TIERS, MODELS, is_claude, serve, wait_ready
 from noisefloor.proxy import serve_proxy
 from noisefloor.suite import Grade, ToolEnv, episode_status, generate
 
@@ -229,9 +234,64 @@ class _Recorder:
             "batch_id": self.batch_id,
             "sandboxed": os.environ.get("NOISEFLOOR_SANDBOXED") == "1",
         }
-        with self.lock, self.path.open("a") as fh:
-            fh.write(json.dumps(row, sort_keys=True) + "\n")
+        with self.lock:
+            jsonl.append(self.path, [row])
             self.count += 1
+
+
+ABORT_STREAK = 3
+HEALTH_WAIT_S = 30.0
+
+
+def abort(out_dir: Path, reason: str, drop: Sequence[str] = ()) -> None:
+    """Mark the batch as failed as a whole (``OUT_DIR/aborted.json``).
+
+    ``drop`` names recorded runs the orchestrator must not bank. Those runs and the runs
+    that never started stay unbanked and run again, under their planned run ids, once the
+    fault is repaired.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    note = {"reason": reason, "drop": list(drop), "at": _now()}
+    (out_dir / "aborted.json").write_text(json.dumps(note, sort_keys=True))
+
+
+class _Watch:
+    """Batch-level failure detection over a batch's recorded runs (thread-safe).
+
+    The batch aborts on :data:`ABORT_STREAK` infra_error runs in a row, or when a run ends
+    other than ``ok`` and the server then fails its health check (a crashed or hung
+    server). The failing runs are dropped, and so is every later run that ends other than
+    ``ok`` (runs already in flight when the batch aborted).
+    """
+
+    def __init__(self, out_dir: Path, healthy: Callable[[], bool] | None) -> None:
+        """Watch the batch writing to ``out_dir``; ``healthy`` probes its server."""
+        self.out_dir = out_dir
+        self.healthy = healthy
+        self.streak: list[str] = []
+        self.drop: list[str] | None = None
+        self.reason = ""
+        self.lock = threading.Lock()
+
+    def settle(self, run_id: str, status: str) -> bool:
+        """Account for one recorded run; True once the batch has aborted."""
+        server_ok = status == "ok" or self.healthy is None or self.healthy()
+        with self.lock:
+            if self.drop is not None:
+                if status != "ok":
+                    self.drop.append(run_id)
+                    abort(self.out_dir, self.reason, self.drop)
+                return True
+            self.streak = [*self.streak, run_id] if status == "infra_error" else []
+            if len(self.streak) >= ABORT_STREAK:
+                self.reason = f"{ABORT_STREAK} infra_error runs in a row"
+            elif not server_ok:
+                self.reason = "the model server failed its health check after a run"
+            else:
+                return False
+            self.drop = list(dict.fromkeys([*self.streak, run_id]))
+            abort(self.out_dir, self.reason, self.drop)
+            return True
 
 
 def _run_all(
@@ -242,12 +302,19 @@ def _run_all(
     *,
     proxy_url: str = "",
     workers: int = 1,
+    healthy: Callable[[], bool] | None = None,
 ) -> int:
-    """Run the episodes; a refused model call stops the batch and records nothing more."""
-    refused = threading.Event()
+    """Run the episodes; a refusal or a batch-level failure stops the batch.
+
+    A refused model call records nothing for its run and writes ``refused.json``. A
+    batch-level failure (see :class:`_Watch`) writes ``aborted.json``. Either way no
+    further run starts, and the runs left out run again later.
+    """
+    stop = threading.Event()
+    watch = _Watch(out_dir, healthy)
 
     def one(spec: RunSpec) -> None:
-        if refused.is_set():
+        if stop.is_set():
             return
         started = _now()
         try:
@@ -258,7 +325,7 @@ def _run_all(
             else:
                 fields = run_inspect(spec, proxy_url, out_dir)
         except ModelCallRefusedError as exc:
-            refused.set()
+            stop.set()
             note = {
                 "reason": str(exc),
                 "resets_at": getattr(exc, "resets_at", None),
@@ -275,6 +342,8 @@ def _run_all(
                 "error": f"{type(exc).__name__}: {exc}"[:500],
             }
         record(spec, fields, started)
+        if watch.settle(spec.run_id, str(fields.get("status"))):
+            stop.set()
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         list(pool.map(one, specs))
@@ -282,7 +351,11 @@ def _run_all(
 
 
 def run_batch(batch: Mapping[str, Any], out_dir: Path) -> int:
-    """Run every spec in a batch; returns the number of runs recorded."""
+    """Run every spec in a batch; returns the number of runs recorded.
+
+    A local batch whose model file fails its hash check, or whose server does not start,
+    records no run and writes ``aborted.json``.
+    """
     specs = [RunSpec.from_json(s) for s in batch["runs"]]
     if not specs:
         return 0
@@ -302,22 +375,17 @@ def run_batch(batch: Mapping[str, Any], out_dir: Path) -> int:
         return _run_all(specs, client, record, out_dir)
     model = MODELS[model_key]
     if not model.verify():
-        for spec in specs:
-            record(
-                spec,
-                {
-                    "end_reason": "harness_error",
-                    "status": "infra_error",
-                    "outcome": 0.0,
-                    "error": "model file missing or hash mismatch",
-                },
-                _now(),
-            )
-        return record.count
+        abort(out_dir, "model file missing or hash mismatch")
+        return 0
     port = free_port()
-    with serve(
-        model, port, threads, parallel=concurrency, log_path=out_dir / "server.log"
-    ) as server_cmd:
+    with ExitStack() as stack:
+        try:
+            server_cmd = stack.enter_context(
+                serve(model, port, threads, parallel=concurrency, log_path=out_dir / "server.log")
+            )
+        except Exception as exc:  # no run started, so nothing is recorded
+            abort(out_dir, f"server did not start: {type(exc).__name__}: {exc}"[:500])
+            return 0
         (out_dir / "server_command.json").write_text(json.dumps(server_cmd))
         client = Client(
             ledger=Ledger(out_dir / "ledger.jsonl"),
@@ -328,7 +396,13 @@ def run_batch(batch: Mapping[str, Any], out_dir: Path) -> int:
         )
         with serve_proxy(client) as proxy_url:
             return _run_all(
-                specs, client, record, out_dir, proxy_url=proxy_url, workers=concurrency
+                specs,
+                client,
+                record,
+                out_dir,
+                proxy_url=proxy_url,
+                workers=concurrency,
+                healthy=lambda: wait_ready(port, timeout=HEALTH_WAIT_S),
             )
 
 

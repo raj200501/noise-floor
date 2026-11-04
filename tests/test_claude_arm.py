@@ -462,7 +462,11 @@ def test_prepare_keeps_old_output_of_a_banked_workspace(tmp_path: Path) -> None:
     (out / "refused.json").write_text("{}")
     assert orchestrate._rows(batch, out, 0) == []
     (out / "refused.json").unlink()
-    assert orchestrate._rows(batch, out, 3)[0]["error"] == "runner exited 3 before this run"
+    # Without a refusal, a run without a record makes the batch a failed one; nothing is
+    # made up for the missing run.
+    assert orchestrate._rows(batch, out, 3) == []
+    note = json.loads((out / "aborted.json").read_text())
+    assert note["reason"] == "runner exited 3 before 1 of its runs were recorded"
 
 
 def test_host_executor_timeout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -475,7 +479,8 @@ def test_host_executor_timeout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     rows = orchestrate.host_executor(tmp_path / "l.jsonl")(
         orchestrate.Batch("b", (spec(),)), tmp_path / "ws"
     )
-    assert rows[0]["status"] == "infra_error" and "None" in rows[0]["error"]
+    note = json.loads((tmp_path / "ws" / "out" / "aborted.json").read_text())
+    assert rows == [] and "exited None" in note["reason"]
 
 
 def test_smoke_report_and_main(tmp_path: Path) -> None:

@@ -449,3 +449,29 @@ the method decisions, written before acting and before any pilot 6 coverage was 
    after the freeze, whichever comes first, nothing about its outcomes is read before that, its
    plan runs complete (tier, task) pairs back to back, and a run whose turn cap would be below 8
    is refused. A dry run on pilot seeds at the E1 server settings precedes the arm.
+
+## D-029 2026-11-04 Pilot 7 and the operational stop rules (before freezing)
+1. Exploratory pilot 7 (banked in `artifacts/method_pilots/`, pools `pilot7a-jackknife` and
+   `pilot7b-jackknife` of `summary.json`) scored only the task-jackknife boxes of D-028 item 1,
+   at the E1 shape of D-025 (3 models, 30 tasks, task variance 4.0), without (7a) and with (7b)
+   planted task-by-harness, task-by-steps, and task-by-timeout variation. Under the D-028
+   headline rule the fixed kind passes in both, so the jackknife is the fixed-factor rule that
+   E0 part 2 validates and E1 uses; the bootstrap box of pilot 6 stays an exploratory
+   alternative. Pilot 7 ran 2 bootstrap replicates per dataset to save CPU, so its bootstrap
+   columns are not interval estimates and are not read.
+2. D-028 item 7 in detail, as the code now does it. A batch fails as a whole when the model
+   file fails its hash check, the server does not start, the server fails its health check
+   after a run that did not end `ok`, three runs in a row end `infra_error`, or the runner
+   exits before every run is recorded. The runs the failure did not touch are banked; the
+   failing runs and the runs that never started are not banked and run again later under their
+   planned run ids. Any such failure stops the arm (stricter than "a batch that banks
+   nothing"). The infra_error stop counts runs banked since the arm started or last resumed and
+   needs at least 5 infra_error runs as well as more than 5 percent, because a single isolated
+   error early in the arm would otherwise stop it with nothing to repair. Each stop is a line in
+   the arm's stop log (`artifacts/e1/stops-local.jsonl`, `stops-claude.jsonl`), reported as a
+   deviation; the arm starts nothing until `python -m noisefloor.e1 resume` records the repair.
+   A defect found during the arm (`python -m noisefloor.e1 stop`) resumes only under a frozen
+   amendment, and the day-7 stop of the local arm does not resume. One runner per arm holds a
+   lock. During the arm the log names banked and infra_error counts and infra_error end reasons
+   only. Records are appended one write each, a cut final record is removed before the next
+   append, and a run id banked twice fails the analysis and G7.

@@ -247,18 +247,176 @@ def test_run_local_stops_when_nothing_is_banked(tmp_path) -> None:
     design = e1.E1Design(models=MODELS[:2], families=("config",), tasks_per_family=3)
     prereg = plan_prereg(tmp_path, design)
     morning = datetime(2026, 11, 5, 3, 0, tzinfo=UTC)
-    assert (
-        e1.run_local(
+    calls: list = []
+
+    def nothing(*a, **k):
+        calls.append(1)
+        return 0
+
+    def go():
+        return e1.run_local(
             prereg,
             artifact=tmp_path / "a.jsonl",
             ledger=tmp_path / "l",
             now=lambda: morning,
             sleep=never_sleep,
             log=lambda m: None,
-            execute=lambda *a, **k: 0,
+            execute=nothing,
         )
-        == 0
-    )
+
+    assert go() == 0 and len(calls) == 1
+    stop = e1.open_stop(tmp_path / "stops-a.jsonl")
+    assert stop is not None and stop["kind"] == "batch_failure"
+    assert go() == 0 and len(calls) == 1  # a stopped arm starts nothing
+
+
+def local_runner(tmp_path, prereg, clock, execute, messages=None):
+    def go():
+        return e1.run_local(
+            prereg,
+            artifact=tmp_path / "local.jsonl",
+            ledger=tmp_path / "l",
+            now=lambda: clock[0],
+            sleep=never_sleep,
+            log=(messages.append if messages is not None else lambda m: None),
+            wait=False,
+            execute=execute,
+        )
+
+    return go
+
+
+@pytest.mark.usefixtures("unfrozen_ok")
+def test_a_failed_batch_stops_the_arm_until_a_resume(tmp_path) -> None:
+    from datetime import UTC, datetime
+
+    from noisefloor.orchestrate import BatchFailedError, banked_ids
+
+    design = e1.E1Design(models=MODELS[:2], families=("config",), tasks_per_family=3, batch_size=2)
+    prereg = plan_prereg(tmp_path, design)
+    clock = [datetime(2026, 11, 5, 3, 0, tzinfo=UTC)]
+    calls: list = []
+    healthy = fake_execute(calls, clock)
+    fail = [True]
+
+    def flaky(specs, **kw):
+        done = banked_ids(kw["artifact"])  # like execute, never re-run a banked run
+        specs = [s for s in specs if s.run_id not in done]
+        if fail[0]:
+            healthy(specs[:1], **kw)  # one run banked, then the server dies
+            raise BatchFailedError("b-x", "3 infra_error runs in a row", 1)
+        return healthy(specs, **kw)
+
+    messages: list = []
+    go = local_runner(tmp_path, prereg, clock, flaky, messages)
+    assert go() == 1
+    stops = tmp_path / "stops-local.jsonl"
+    stop = e1.open_stop(stops)
+    assert stop["kind"] == "batch_failure" and stop["reason"] == "3 infra_error runs in a row"
+    assert stop["batch"].startswith("day1-b1/") and "stopped for repair" in messages[-1]
+    assert go() == 0 and len(calls) == 1
+    with pytest.raises(ValueError, match="not stopped"):
+        e1.resume(tmp_path / "stops-none.jsonl", "x", clock[0])
+    fail[0] = False
+    e1.resume(stops, "restarted the sandbox", clock[0])
+    assert e1.open_stop(stops) is None
+    assert go() == slot_runs(design)["day1-b1"] - 1  # the unbanked runs ran again
+
+
+@pytest.mark.usefixtures("unfrozen_ok")
+def test_infra_error_share_stops_the_arm(tmp_path) -> None:
+    import json
+    from datetime import UTC, datetime
+
+    design = e1.E1Design(models=MODELS[:2], families=("config",), tasks_per_family=3, batch_size=2)
+    prereg = plan_prereg(tmp_path, design)
+    artifact = tmp_path / "local.jsonl"
+    start = "2026-11-05T01:00:00+00:00"
+    rows = [
+        {"run_id": f"old{i}", "started_at": start, "batch_started_at": start, "status": status}
+        for i, status in enumerate(["infra_error"] * 5 + ["ok"] * 15)
+    ]
+    artifact.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    clock = [datetime(2026, 11, 5, 3, 0, tzinfo=UTC)]
+    calls: list = []
+    go = local_runner(tmp_path, prereg, clock, fake_execute(calls, clock))
+    assert e1.infra_counts(artifact, tmp_path / "stops-local.jsonl") == (20, 5)
+    assert go() == 0 and calls == []
+    stop = e1.open_stop(tmp_path / "stops-local.jsonl")
+    assert stop["kind"] == "infra_share" and stop["infra_error"] == 5 and stop["runs"] == 20
+    # After a resume only runs banked since then count.
+    e1.resume(tmp_path / "stops-local.jsonl", "fixed the proxy", clock[0])
+    assert e1.infra_counts(artifact, tmp_path / "stops-local.jsonl") == (0, 0)
+    assert go() > 0
+    # Four infra_error runs, or five at no more than 5 percent, do not stop an arm.
+    other = tmp_path / "other.jsonl"
+    other.write_text("".join(json.dumps(r) + "\n" for r in rows[1:]))
+    assert not e1._infra_stop(other, tmp_path / "s1.jsonl", clock[0], lambda m: None)
+    many = rows + [{**rows[-1], "run_id": f"more{i}"} for i in range(80)]
+    other.write_text("".join(json.dumps(r) + "\n" for r in many))
+    assert not e1._infra_stop(other, tmp_path / "s2.jsonl", clock[0], lambda m: None)
+
+
+@pytest.mark.usefixtures("unfrozen_ok")
+def test_no_batch_starts_after_day_seven(tmp_path) -> None:
+    import json
+    from datetime import UTC, datetime
+
+    design = e1.E1Design(models=MODELS[:2], families=("config",), tasks_per_family=3, batch_size=2)
+    prereg = plan_prereg(tmp_path, design)
+    first = "2026-11-01T01:00:00+00:00"
+    row = {"run_id": "x", "started_at": first, "batch_started_at": first, "status": "ok"}
+    (tmp_path / "local.jsonl").write_text(json.dumps(row) + "\n")
+    clock = [datetime(2026, 11, 8, 3, 0, tzinfo=UTC)]  # day 8 of the arm
+    calls: list = []
+    assert local_runner(tmp_path, prereg, clock, fake_execute(calls, clock))() == 0
+    stops = tmp_path / "stops-local.jsonl"
+    stop = e1.open_stop(stops)
+    assert calls == [] and stop["kind"] == "day_limit"
+    assert stop["unbanked"] == len(e1.local_plan(design))
+    with pytest.raises(ValueError, match="7-day limit"):
+        e1.resume(stops, "more time", clock[0])
+
+
+@pytest.mark.usefixtures("unfrozen_ok")
+def test_one_runner_at_a_time(tmp_path) -> None:
+    from datetime import UTC, datetime
+
+    design = e1.E1Design(models=MODELS[:2], families=("config",), tasks_per_family=3, batch_size=2)
+    prereg = plan_prereg(tmp_path, design)
+    clock = [datetime(2026, 11, 5, 3, 0, tzinfo=UTC)]
+    go = local_runner(tmp_path, prereg, clock, fake_execute([], clock))
+    with e1.arm_lock(tmp_path / "local.jsonl"), pytest.raises(e1.ArmBusyError):
+        go()
+    assert go() > 0  # the lock is released with its holder
+
+
+@pytest.mark.usefixtures("unfrozen_ok")
+def test_stop_and_resume_commands(tmp_path, monkeypatch, capsys) -> None:
+    from noisefloor import preregs
+
+    design = e1.E1Design(models=MODELS[:1], families=("config",), tasks_per_family=2)
+    prereg = plan_prereg(tmp_path, design)
+    monkeypatch.setattr(e1, "ARTIFACTS", tmp_path)
+    assert e1.main(["stop", "local", "--reason", "grader rejects valid answers"]) == 0
+    stop = e1.open_stop(tmp_path / "stops-local.jsonl")
+    assert stop["kind"] == "defect" and "grader" in stop["reason"]
+    assert e1.main(["local", str(prereg), "--no-wait"]) == 3  # stopped
+    with pytest.raises(ValueError, match="frozen amendment"):
+        e1.main(["resume", "local", "--note", "fixed"])
+    seen: list = []
+    entry = {"sha256": "0" * 64}
+    monkeypatch.setattr(preregs, "require_frozen", lambda p, *a, **k: seen.append(p) or entry)
+    amendment = tmp_path / "0009-fix.md"
+    assert e1.main(["resume", "local", "--note", "fixed", "--amendment", str(amendment)]) == 0
+    resumed = e1.jsonl.read(tmp_path / "stops-local.jsonl")[-1]
+    assert seen == [amendment] and resumed["kind"] == "resume" and resumed["after"] == stop["at"]
+    assert resumed["amendment"] == str(amendment)
+    with e1.arm_lock(tmp_path / "claude.jsonl"):
+        assert e1.main(["claude", str(prereg)]) == 4
+    assert "another runner" in capsys.readouterr().err
+    with pytest.raises(ValueError, match="unknown stop kind"):
+        e1.record_stop(tmp_path / "s.jsonl", "whim", "x", e1.datetime.now(e1.UTC))
 
 
 @pytest.mark.usefixtures("unfrozen_ok")

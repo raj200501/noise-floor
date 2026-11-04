@@ -5,7 +5,9 @@ components (``noisefloor.recovery pilot``, seeds from ``PILOT_SEEDS``, never use
 E0) and scored every candidate interval rule on each one. The raw rows are banked in
 ``artifacts/method_pilots/<label>.jsonl`` and ``manifest.json`` records each pilot's
 command and the code it ran. ``python -m noisefloor.method_pilots`` recomputes
-``summary.json`` from them; ``--check`` exits 1 if the banked summary differs.
+``summary.json`` from them; ``--check`` exits 1 if the banked summary differs. A pool
+either chooses a rule per kind (``choose``, D-023) or scores a rule fixed in advance
+(``check``, as pilot 7 does for the task jackknife of D-028).
 
 Coverage counts a missing interval as a miss, as G6 does.
 """
@@ -173,6 +175,23 @@ def choose_rule(rows: Sequence[Mapping[str, Any]], kind: str) -> dict[str, Any]:
         return total
 
     rule = min(tied, key=lambda r: (width(r), r))
+    status = rule_status(rows, kind, rule)
+    return {
+        **status,
+        "min_coverage_by_rule": minimum,
+        "tied": tied,
+    }
+
+
+def rule_status(rows: Sequence[Mapping[str, Any]], kind: str, rule: str) -> dict[str, Any]:
+    """Coverage of one fixed rule over a kind's components, and the D-028 headline test.
+
+    A kind is headline when its coverage pooled over components and datasets is at least
+    ``POOLED_FLOOR`` and every component's is at least ``FLOOR``.
+    """
+    names = sorted({n for row in rows for n in row["components"]})
+    members = kind_members(names, kind)
+    coverage = {m: component_summary(rows, m)["coverage"][rule] for m in members}
     hits = total = 0
     for m in members:
         for row in rows:
@@ -181,15 +200,15 @@ def choose_rule(rows: Sequence[Mapping[str, Any]], kind: str) -> dict[str, Any]:
                 total += 1
                 hits += _covers(comp.get(rule), comp["planted"])
     pooled = hits / total if total else 0.0
+    minimum = min(coverage.values())
     return {
         "kind": kind,
         "components": members,
         "rule": rule,
-        "min_coverage": minimum[rule],
+        "coverage": coverage,
+        "min_coverage": minimum,
         "pooled_coverage": pooled,
-        "min_coverage_by_rule": minimum,
-        "tied": tied,
-        "headline": minimum[rule] >= FLOOR and pooled >= POOLED_FLOOR,
+        "headline": minimum >= FLOOR and pooled >= POOLED_FLOOR,
     }
 
 
@@ -273,6 +292,8 @@ def build(directory: Path = DIR) -> dict[str, Any]:
         entry = {"pilots": pool["pilots"], **summarize(joined)}
         if pool.get("choose"):
             entry["choice"] = choices(joined, pool["choose"])
+        if pool.get("check"):
+            entry["check"] = {k: rule_status(joined, k, r) for k, r in pool["check"].items()}
         out["pools"][pool["label"]] = entry
     return out
 

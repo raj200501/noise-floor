@@ -21,18 +21,20 @@ All tasks are procedurally generated mock tasks (nf-tools suite version 2).
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 import json
 import random
 import sys
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from noisefloor import preregs
+from noisefloor import jsonl, preregs
 from noisefloor.models import CLAUDE_TIERS, MODELS
 from noisefloor.preregs import REPO, prereg_block, repo_path
 from noisefloor.recovery import TWO_LEVEL, cell_runs, half_fraction_blocks
@@ -341,12 +343,10 @@ def slot_day(label: str) -> int:
 
 def arm_start(artifact: Path) -> date | None:
     """UTC date on which the earliest banked run started (the arm's day 1), if any."""
-    if not artifact.exists():
-        return None
     days = [
         date.fromisoformat(str(started)[:10])
-        for ln in artifact.read_text().splitlines()
-        if ln.strip() and (started := json.loads(ln).get("started_at"))
+        for row in jsonl.read(artifact, tail_ok=True)
+        if (started := row.get("started_at"))
     ]
     return min(days) if days else None
 
@@ -369,6 +369,95 @@ def planned_batches(plan: Sequence[RunSpec]) -> dict[str, list[RunSpec]]:
     return batches
 
 
+ARM_DAYS = 7  # the local arm starts no batch after day 7 of the arm
+INFRA_STOP_SHARE = 0.05  # an arm stops for repair above this share of infra_error runs ...
+INFRA_STOP_MIN = 5  # ... once at least this many are banked since its start or last resume
+STOP_KINDS = ("batch_failure", "infra_share", "day_limit", "defect")
+
+
+class ArmBusyError(RuntimeError):
+    """Another runner holds the arm's lock."""
+
+
+def stops_path(artifact: Path) -> Path:
+    """The arm's stop log, next to its artifact (``stops-local.jsonl``, ``stops-claude.jsonl``)."""
+    return artifact.with_name(f"stops-{artifact.stem}.jsonl")
+
+
+@contextmanager
+def arm_lock(artifact: Path) -> Iterator[None]:
+    """Hold the arm's exclusive lock (a git-ignored ``.<arm>.lock`` beside its artifact)."""
+    path = artifact.with_name(f".{artifact.stem}.lock")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as fh:
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise ArmBusyError(f"another runner holds {path}") from exc
+        yield
+
+
+def open_stop(stops: Path) -> dict[str, Any] | None:
+    """The arm's latest stop, unless a resume follows it."""
+    rows = jsonl.read(stops)
+    return rows[-1] if rows and rows[-1]["kind"] != "resume" else None
+
+
+def record_stop(stops: Path, kind: str, reason: str, at: datetime, **fields: Any) -> None:
+    """Append a stop of ``kind`` (one of :data:`STOP_KINDS`) to the arm's stop log."""
+    if kind not in STOP_KINDS:
+        raise ValueError(f"unknown stop kind {kind!r}")
+    row = {"at": at.isoformat(timespec="seconds"), "kind": kind, "reason": reason, **fields}
+    jsonl.append(stops, [row])
+
+
+def resume(stops: Path, note: str, at: datetime, amendment: Path | None = None) -> None:
+    """Record that the arm resumes after its open stop was repaired.
+
+    A day-limit stop never resumes. A defect stop resumes only under a frozen amendment
+    (``amendment``) that says how the affected runs are handled.
+    """
+    stop = open_stop(stops)
+    if stop is None:
+        raise ValueError(f"{stops.name}: the arm is not stopped")
+    if stop["kind"] == "day_limit":
+        raise ValueError(f"the arm reached its {ARM_DAYS}-day limit and does not resume")
+    row: dict[str, Any] = {"at": at.isoformat(timespec="seconds"), "kind": "resume", "note": note}
+    if stop["kind"] == "defect":
+        if amendment is None:
+            raise ValueError("a defect stop resumes only under a frozen amendment")
+        preregs.require_frozen(amendment)
+        row["amendment"] = repo_path(amendment)
+    jsonl.append(stops, [{**row, "after": stop["at"]}])
+
+
+def infra_counts(artifact: Path, stops: Path) -> tuple[int, int]:
+    """(runs, infra_error runs) banked since the arm started or last resumed.
+
+    A run counts by its batch's start; a record without a start time always counts.
+    """
+    resumes = [r["at"] for r in jsonl.read(stops) if r["kind"] == "resume"]
+    since = datetime.fromisoformat(resumes[-1]) if resumes else None
+
+    def counts(row: Mapping[str, Any]) -> bool:
+        started = row.get("batch_started_at") or row.get("started_at")
+        return since is None or not started or datetime.fromisoformat(str(started)) >= since
+
+    rows = [r for r in jsonl.read(artifact, tail_ok=True) if counts(r)]
+    return len(rows), sum(1 for r in rows if r.get("status") == "infra_error")
+
+
+def _infra_stop(artifact: Path, stops: Path, at: datetime, log: Callable[[str], None]) -> bool:
+    """Stop the arm (and say so) if its infra_error share is over the limit."""
+    runs, infra = infra_counts(artifact, stops)
+    if infra < INFRA_STOP_MIN or infra <= INFRA_STOP_SHARE * runs:
+        return False
+    reason = f"{infra} of {runs} runs banked since the arm started or resumed are infra_error"
+    record_stop(stops, "infra_share", reason, at, runs=runs, infra_error=infra)
+    log(f"e1: stopped for repair: {reason}")
+    return True
+
+
 def run_local(
     prereg: Path,
     *,
@@ -388,48 +477,91 @@ def run_local(
     (:func:`eligible_batches`); the earliest unfinished eligible batch runs next, so a slot
     that overruns its block continues in the same block of the next day. Without ``wait``,
     the call returns when no batch is eligible instead of sleeping. Resumable.
+
+    The arm stops, and records why in its stop log (:func:`stops_path`), when a batch
+    fails as a whole, when its infra_error share is over the limit (:func:`_infra_stop`),
+    or when a batch would start after day :data:`ARM_DAYS`. A stopped arm starts nothing
+    until :func:`resume` records a repair. One runner at a time holds the arm's lock.
     """
-    from noisefloor.orchestrate import banked_ids  # noqa: PLC0415 - orchestrate imports runner
+    from noisefloor.orchestrate import BatchFailedError  # noqa: PLC0415
     from noisefloor.orchestrate import execute as default_execute  # noqa: PLC0415
 
     run = execute or default_execute
     design = E1Design.from_json(prereg_block(prereg, "e1-plan"))
     stamp = _stamp(prereg, design)
     batches = planned_batches(local_plan(design))
+    stops = stops_path(artifact)
     banked = 0
-    while True:
-        done = banked_ids(artifact)
-        pending = [k for k, specs in batches.items() if any(s.run_id not in done for s in specs)]
-        if not pending:
-            log("e1 local arm: every planned run is banked")
-            return banked
-        clock = now()
-        start = arm_start(artifact)
-        day = 1 if start is None else (clock.date() - start).days + 1
-        block = current_block(clock)
-        eligible = eligible_batches(pending, block, day)
-        if start is None and block != 1:
-            eligible = []  # the arm starts at the beginning of a day's first block
-        if not eligible:
-            if not wait:
+    with arm_lock(artifact):
+        while True:
+            step = _local_next(batches, artifact, stops, now(), log)
+            if step is None:
                 return banked
-            pause = seconds_to_next_block(clock)
-            log(f"e1 local arm: nothing eligible in block b{block}, day {day}; wait {pause:.0f} s")
-            sleep(min(pause, 600.0))
-            continue
-        label = eligible[0]
-        added = run(
-            batches[label],
-            artifact=artifact,
-            ledger=ledger,
-            prefix="e1-" + label.replace("/", "-"),
-            stamp=stamp,
-            log=log,
-        )
-        banked += added
-        if added == 0:
-            log(f"e1 local arm: batch {label} banked nothing (refused or failed); stopping")
-            return banked
+            if isinstance(step, float):
+                if not wait:
+                    return banked
+                sleep(min(step, 600.0))
+                continue
+            try:
+                added = run(
+                    batches[step],
+                    artifact=artifact,
+                    ledger=ledger,
+                    prefix="e1-" + step.replace("/", "-"),
+                    stamp=stamp,
+                    log=log,
+                )
+            except BatchFailedError as exc:
+                banked += exc.banked
+                record_stop(stops, "batch_failure", exc.reason, now(), batch=step)
+                log(f"e1 local arm: batch {step} failed ({exc.reason}); stopped for repair")
+                return banked
+            banked += added
+            if added == 0:
+                reason = "a batch banked nothing (a refused model call)"
+                record_stop(stops, "batch_failure", reason, now(), batch=step)
+                log(f"e1 local arm: batch {step} banked nothing; stopped for repair")
+                return banked
+
+
+def _local_next(
+    batches: Mapping[str, Sequence[RunSpec]],
+    artifact: Path,
+    stops: Path,
+    clock: datetime,
+    log: Callable[[str], None],
+) -> str | float | None:
+    """The next local batch (its label), seconds to wait for one, or None: stop now."""
+    from noisefloor.orchestrate import banked_ids  # noqa: PLC0415 - orchestrate imports runner
+
+    stop = open_stop(stops)
+    if stop is not None:
+        log(f"e1 local arm: stopped ({stop['kind']}: {stop['reason']}); see {stops.name}")
+        return None
+    done = banked_ids(artifact)
+    pending = [k for k, specs in batches.items() if any(s.run_id not in done for s in specs)]
+    if not pending:
+        log("e1 local arm: every planned run is banked")
+        return None
+    start = arm_start(artifact)
+    day = 1 if start is None else (clock.date() - start).days + 1
+    if day > ARM_DAYS:
+        left = sum(1 for k in pending for s in batches[k] if s.run_id not in done)
+        reason = f"day {day} of the arm; no batch starts after day {ARM_DAYS}"
+        record_stop(stops, "day_limit", reason, clock, unbanked=left)
+        log(f"e1 local arm: {reason}; {left} planned runs not banked")
+        return None
+    if _infra_stop(artifact, stops, clock, log):
+        return None
+    block = current_block(clock)
+    eligible = eligible_batches(pending, block, day)
+    if start is None and block != 1:
+        eligible = []  # the arm starts at the beginning of a day's first block
+    if eligible:
+        return eligible[0]
+    pause = seconds_to_next_block(clock)
+    log(f"e1 local arm: nothing eligible in block b{block}, day {day}; next block in {pause:.0f} s")
+    return pause
 
 
 def run_claude(
@@ -437,34 +569,76 @@ def run_claude(
     *,
     artifact: Path = ARTIFACTS / "claude.jsonl",
     ledger: Path = LEDGER,
+    now: Callable[[], datetime] = lambda: datetime.now(UTC),
     log: Callable[[str], None] = print,
     execute: Callable[..., int] | None = None,
 ) -> int:
-    """Run the Claude slice until it is done or a cap, the guard, or a plan limit stops it."""
+    """Run the Claude slice until it is done or a cap, the guard, or a plan limit stops it.
+
+    A batch-level failure or an infra_error share over the limit stops the slice, as in
+    :func:`run_local`, until :func:`resume` records a repair.
+    """
+    from noisefloor.orchestrate import BatchFailedError  # noqa: PLC0415
     from noisefloor.orchestrate import execute as default_execute  # noqa: PLC0415
 
     run = execute or default_execute
     design = E1Design.from_json(prereg_block(prereg, "e1-plan"))
     stamp = _stamp(prereg, design)
-    return int(
-        run(
-            claude_plan(design),
-            artifact=artifact,
-            ledger=ledger,
-            prefix="e1c",
-            stamp=stamp,
-            log=log,
-        )
-    )
+    stops = stops_path(artifact)
+    with arm_lock(artifact):
+        stop = open_stop(stops)
+        if stop is not None:
+            log(f"e1 Claude slice: stopped ({stop['kind']}: {stop['reason']}); see {stops.name}")
+            return 0
+        if _infra_stop(artifact, stops, now(), log):
+            return 0
+        try:
+            return int(
+                run(
+                    claude_plan(design),
+                    artifact=artifact,
+                    ledger=ledger,
+                    prefix="e1c",
+                    stamp=stamp,
+                    log=log,
+                )
+            )
+        except BatchFailedError as exc:
+            record_stop(stops, "batch_failure", exc.reason, now(), batch=exc.batch_id)
+            log(f"e1 Claude slice: batch {exc.batch_id} failed ({exc.reason}); stopped for repair")
+            return exc.banked
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """``python -m noisefloor.e1 plan|local|claude PREREG [--no-wait]``."""
+    """``python -m noisefloor.e1 plan|local|claude PREREG`` or ``stop|resume ARM``.
+
+    Exit codes: 0 done or waiting, 3 the arm is stopped (``resume`` after a repair), 4
+    another runner holds the arm's lock.
+    """
     parser = argparse.ArgumentParser(description="E1 factorial study")
-    parser.add_argument("command", choices=["plan", "local", "claude"])
-    parser.add_argument("prereg", type=Path)
-    parser.add_argument("--no-wait", action="store_true", help="local: do not wait for a block")
+    sub = parser.add_subparsers(dest="command", required=True)
+    for name in ("plan", "local", "claude"):
+        cmd = sub.add_parser(name)
+        cmd.add_argument("prereg", type=Path)
+        if name == "local":
+            cmd.add_argument("--no-wait", action="store_true", help="do not wait for a block")
+    stop_cmd = sub.add_parser("stop", help="stop an arm for a defect found while it runs")
+    stop_cmd.add_argument("arm", choices=["local", "claude"])
+    stop_cmd.add_argument("--reason", required=True)
+    resume_cmd = sub.add_parser("resume", help="record a repair; the arm then runs again")
+    resume_cmd.add_argument("arm", choices=["local", "claude"])
+    resume_cmd.add_argument("--note", required=True, help="what was repaired")
+    resume_cmd.add_argument("--amendment", type=Path, help="frozen amendment (defect stops)")
     args = parser.parse_args(list(argv) if argv is not None else None)
+    if args.command in ("stop", "resume"):
+        stops = stops_path(ARTIFACTS / f"{args.arm}.jsonl")
+        at = datetime.now(UTC)
+        if args.command == "stop":
+            record_stop(stops, "defect", args.reason, at)
+        else:
+            resume(stops, args.note, at, args.amendment)
+        print(f"{stops.name}: {args.command} recorded")
+        return 0
     design = E1Design.from_json(prereg_block(args.prereg, "e1-plan"))
     if args.command == "plan":
         lp, cp = local_plan(design), claude_plan(design)
@@ -472,12 +646,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"task manifest {manifest(design)['sha256']}")
         print(f"plan sha256 {plan_sha256(design)}")
         return 0
-    if args.command == "local":
-        banked = run_local(args.prereg, wait=not args.no_wait, log=lambda m: print(m, flush=True))
-    else:
-        banked = run_claude(args.prereg, log=lambda m: print(m, flush=True))
+    artifact = ARTIFACTS / f"{args.command}.jsonl"
+    say = lambda m: print(m, flush=True)  # noqa: E731
+    try:
+        if args.command == "local":
+            banked = run_local(args.prereg, artifact=artifact, wait=not args.no_wait, log=say)
+        else:
+            banked = run_claude(args.prereg, artifact=artifact, log=say)
+    except ArmBusyError as exc:
+        print(f"e1: {exc}", file=sys.stderr)
+        return 4
     print(f"banked {banked} runs")
-    return 0
+    return 3 if open_stop(stops_path(artifact)) is not None else 0
 
 
 if __name__ == "__main__":

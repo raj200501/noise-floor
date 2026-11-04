@@ -43,6 +43,20 @@
    "command": "python -m noisefloor.recovery pilot runs/g6-pilot/method_pilot6.jsonl 990500 25 --n-boot 200 --no-batch --tasks 30 --runs-per-cell 16 --mde --nagq 1; the same with method_pilot6b.jsonl 990525 37 --workers 2 and method_pilot6c.jsonl 990562 38 --workers 2; the three files joined in seed order",
    "design": "as pilot4 (4 models, 30 tasks, the 16 runs of the half fraction per cell, no batch variance or batch term), Laplace fits, with shares scored",
    "code": "nAGQ = 1; bootstrap replicates are fresh fits (commits 3050b9d to 1073ad3; the row computation is the same throughout); batches assigned to slots by one global permutation"
+  },
+  {
+   "label": "pilot7a",
+   "file": "pilot7a.jsonl",
+   "command": "python -m noisefloor.recovery pilot runs/g6-pilot/method_pilot7a.jsonl 990600 60 --n-boot 2 --no-batch --tasks 30 --runs-per-cell 16 --nagq 1 --n-models 3 --task-var 4.0 --fixed-interval jackknife --workers 2",
+   "design": "the E1 shape of D-025 and D-028: 3 models, 30 tasks, the 16 runs of the half fraction per cell, task variance 4.0, no batch variance or batch term, no task-by-factor variation",
+   "code": "nAGQ = 1; commit 6474b4c (simulator batches like local_plan; interaction effects drawn after the batch effects); only the task-jackknife boxes are scored: 2 bootstrap replicates per dataset, so the bootstrap columns are not interval estimates"
+  },
+  {
+   "label": "pilot7b",
+   "file": "pilot7b.jsonl",
+   "command": "python -m noisefloor.recovery pilot runs/g6-pilot/method_pilot7b.jsonl 990800 60 --n-boot 2 --no-batch --tasks 30 --runs-per-cell 16 --nagq 1 --n-models 3 --task-var 4.0 --fixed-interval jackknife --workers 2 --interactions harness=0.25,steps=0.25,timeout=0.25",
+   "design": "as pilot7a, with planted task-by-harness, task-by-steps, and task-by-timeout variances of 0.25 each, outside the analysis model",
+   "code": "nAGQ = 1; commit 6474b4c (simulator batches like local_plan; interaction effects drawn after the batch effects); only the task-jackknife boxes are scored: 2 bootstrap replicates per dataset, so the bootstrap columns are not interval estimates"
   }
  ],
  "pools": [
@@ -64,6 +78,24 @@
     "share",
     "mde"
    ]
+  },
+  {
+   "label": "pilot7a-jackknife",
+   "pilots": [
+    "pilot7a"
+   ],
+   "check": {
+    "fixed": "jackknife"
+   }
+  },
+  {
+   "label": "pilot7b-jackknife",
+   "pilots": [
+    "pilot7b"
+   ],
+   "check": {
+    "fixed": "jackknife"
+   }
   }
  ]
 }

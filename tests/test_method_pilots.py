@@ -154,3 +154,32 @@ def test_headline_needs_pooled_and_component_floors() -> None:
     assert mp.choose_rule(rows_with([True] * 94 + [False] * 6), "random")["headline"]
     low = mp.choose_rule(rows_with([True] * 92 + [False] * 8), "random")
     assert low["pooled_coverage"] == 0.92 and not low["headline"]  # pooled below 0.935
+
+
+def test_check_pool_scores_a_rule_fixed_in_advance(tmp_path: Path) -> None:
+    rows = [
+        {
+            "seed": i,
+            "components": {
+                name: {
+                    "planted": 0.04,
+                    "estimate": 0.05,
+                    "jackknife": [0.0, 0.1] if i or name == "model" else [0.06, 0.1],
+                }
+                for name in ("model", "harness")
+            },
+        }
+        for i in range(10)
+    ]
+    status = mp.rule_status(rows, "fixed", "jackknife")
+    assert status["components"] == ["model", "harness"]
+    assert status["coverage"] == {"model": 1.0, "harness": 0.9}
+    assert status["min_coverage"] == 0.9 and status["pooled_coverage"] == 0.95
+    assert status["headline"]
+    (tmp_path / "j.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    manifest = {
+        "pilots": [{"label": "j", "file": "j.jsonl"}],
+        "pools": [{"label": "jk", "pilots": ["j"], "check": {"fixed": "jackknife"}}],
+    }
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest))
+    assert mp.build(tmp_path)["pools"]["jk"]["check"]["fixed"] == status

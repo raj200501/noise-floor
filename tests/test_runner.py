@@ -135,9 +135,81 @@ def test_run_batch_rejects_mixed_and_bad_models(
     assert run_batch({"batch_id": "e", "runs": []}, tmp_path / "e") == 0
     bad = LocalModel("bad", "f", 0.1, "x/y", "0" * 40, "fake.gguf", "0" * 64, "mit")
     monkeypatch.setitem(models.MODELS, "bad", bad)
-    assert run_batch({"batch_id": "c", "runs": [spec(model="bad").to_json()]}, tmp_path / "c") == 1
-    row = json.loads((tmp_path / "c" / "results.jsonl").read_text())
-    assert row["status"] == "infra_error" and "hash" in row["error"]
+    # A model that fails its hash check records no run: the batch fails as a whole.
+    assert run_batch({"batch_id": "c", "runs": [spec(model="bad").to_json()]}, tmp_path / "c") == 0
+    note = json.loads((tmp_path / "c" / "aborted.json").read_text())
+    assert "hash" in note["reason"] and note["drop"] == []
+    assert not (tmp_path / "c" / "results.jsonl").exists()
+
+
+def test_a_server_that_does_not_start_records_nothing(
+    tmp_path: Path, fake_model: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from contextlib import contextmanager
+
+    @contextmanager
+    def no_server(*args: object, **kwargs: object) -> Any:
+        raise RuntimeError("llama-server did not become ready")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(runner, "serve", no_server)
+    batch = {"batch_id": "s", "runs": [spec(model=fake_model).to_json()]}
+    assert run_batch(batch, tmp_path / "s") == 0
+    note = json.loads((tmp_path / "s" / "aborted.json").read_text())
+    assert "did not start" in note["reason"] and "ready" in note["reason"]
+
+
+def scripted(statuses: dict[str, str]) -> Any:
+    def fake(s: RunSpec, client: object) -> dict[str, Any]:
+        return {"status": statuses[s.run_id], "end_reason": "x", "outcome": 0.0}
+
+    return fake
+
+
+def test_three_infra_errors_in_a_row_abort_the_batch(
+    tmp_path: Path, fake_model: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    order = ["a", "b", "c", "d", "e", "f", "g"]
+    statuses = dict(
+        zip(
+            order,
+            ["infra_error", "ok", "infra_error", "infra_error", "infra_error", "ok", "ok"],
+            strict=True,
+        )
+    )
+    monkeypatch.setattr(runner, "run_minimal", scripted(statuses))
+    batch = {"batch_id": "k", "runs": [spec(run_id=r, model=fake_model).to_json() for r in order]}
+    assert run_batch(batch, tmp_path / "k") == 5  # f and g never start
+    note = json.loads((tmp_path / "k" / "aborted.json").read_text())
+    # The isolated infra_error (a) stays bankable; the streak is dropped.
+    assert note["drop"] == ["c", "d", "e"] and "in a row" in note["reason"]
+
+
+def test_a_failed_health_check_aborts_and_drops_the_failing_run(
+    tmp_path: Path, fake_model: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    statuses = {"a": "ok", "b": "timeout", "c": "ok"}
+    monkeypatch.setattr(runner, "run_minimal", scripted(statuses))
+    probes: list[int] = []
+
+    def health(port: int, timeout: float) -> bool:
+        probes.append(port)
+        return False
+
+    monkeypatch.setattr(runner, "wait_ready", health)
+    batch = {"batch_id": "h", "runs": [spec(run_id=r, model=fake_model).to_json() for r in "abc"]}
+    assert run_batch(batch, tmp_path / "h") == 2
+    note = json.loads((tmp_path / "h" / "aborted.json").read_text())
+    assert note["drop"] == ["b"] and "health" in note["reason"] and len(probes) == 1
+
+
+def test_watch_drops_failures_that_finish_after_the_abort(tmp_path: Path) -> None:
+    watch = runner._Watch(tmp_path, healthy=None)
+    assert not watch.settle("a", "timeout")  # no probe without a server: a timeout is an outcome
+    assert [watch.settle(r, "infra_error") for r in "bcd"] == [False, False, True]
+    assert watch.settle("e", "ok") and watch.settle("f", "infra_error")
+    note = json.loads((tmp_path / "aborted.json").read_text())
+    assert note["drop"] == ["b", "c", "d", "f"]
 
 
 def test_inspect_child_failures(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

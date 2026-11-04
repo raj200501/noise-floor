@@ -82,7 +82,7 @@ def test_execute_banks_with_provenance_and_resumes(tmp_path: Path) -> None:
     assert banked_ids(tmp_path / "none.jsonl") == set()
 
 
-def test_sandboxed_executor_fills_missing_runs(
+def test_sandboxed_executor_leaves_missing_runs_unbanked(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import subprocess
@@ -92,16 +92,88 @@ def test_sandboxed_executor_fills_missing_runs(
     ) -> subprocess.CompletedProcess[str]:
         out = Path(workspace) / "out"
         out.mkdir(parents=True, exist_ok=True)
-        (out / "results.jsonl").write_text(json.dumps({"run_id": "a", "status": "ok"}) + "\n")
+        (out / "results.jsonl").write_text(
+            json.dumps({"run_id": "a", "status": "ok"}) + '\n{"run_id": "b", "sta'
+        )
         assert "noisefloor.runner" in cmd and kwargs["env"]["NOISEFLOOR_MODELS"]
         return subprocess.CompletedProcess(cmd, 1, "", "killed")
 
     monkeypatch.setattr(orchestrate.sandbox, "run", fake_run)
     rows = orchestrate.sandboxed_executor()(Batch("x", (spec("a"), spec("b"))), tmp_path / "w")
-    by_id = {r["run_id"]: r for r in rows}
-    assert by_id["a"]["status"] == "ok" and by_id["b"]["status"] == "infra_error"
-    assert "exited 1" in by_id["b"]["error"]
+    assert [r["run_id"] for r in rows] == ["a"]  # b's record was cut: b stays unbanked
+    note = json.loads((tmp_path / "w" / "out" / "aborted.json").read_text())
+    assert "exited 1" in note["reason"] and note["drop"] == []
     assert (tmp_path / "w" / "runner.stderr").read_text() == "killed"
+
+
+def failing_executor(drop: list[str], skip: set[str]) -> orchestrate.Executor:
+    def run(batch: Batch, workspace: Path) -> list[dict[str, Any]]:
+        out = workspace / "out"
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "ledger.jsonl").write_text('{"kind": "local"}\n{"kind": "local"}\n')
+        if drop:
+            note = {"reason": "3 infra_error runs in a row", "drop": drop, "at": "t"}
+            (out / "aborted.json").write_text(json.dumps(note))
+        rows = [
+            {**s.to_json(), "status": "infra_error" if s.run_id in drop else "ok"}
+            for s in batch.runs
+            if s.run_id not in skip
+        ]
+        return rows
+
+    return run
+
+
+def test_a_failed_batch_banks_only_untouched_runs_and_raises(tmp_path: Path) -> None:
+    artifact = tmp_path / "runs.jsonl"
+    ledger = tmp_path / "ledger.jsonl"
+    messages: list[str] = []
+    specs = [spec(r) for r in "abcde"]
+    with pytest.raises(orchestrate.BatchFailedError, match="in a row") as info:
+        execute(
+            specs,
+            artifact=artifact,
+            ledger=ledger,
+            prefix="f",
+            executor=failing_executor(["b", "c", "d"], skip={"e"}),
+            work_root=tmp_path / "work",
+            log=messages.append,
+        )
+    assert info.value.banked == 1 and banked_ids(artifact) == {"a"}
+    assert len(ledger.read_text().splitlines()) == 2  # usage of every call is kept
+    assert "1 runs banked, 0 infra_error" in messages[0] and "4 runs not banked" in messages[1]
+    assert not any("ok" in m.split() for m in messages)  # no outcome counts in the log
+    # A runner that stops early without a note is a failed batch too.
+    with pytest.raises(orchestrate.BatchFailedError, match="before every run"):
+        execute(
+            specs,
+            artifact=artifact,
+            ledger=ledger,
+            prefix="g",
+            executor=failing_executor([], skip={"e"}),
+            work_root=tmp_path / "work",
+            log=messages.append,
+        )
+    assert banked_ids(artifact) == {"a", "b", "c", "d"}
+
+
+def test_execute_cuts_a_partial_record_before_appending(tmp_path: Path) -> None:
+    artifact = tmp_path / "runs.jsonl"
+    artifact.write_text(json.dumps({"run_id": "z"}) + '\n{"run_id": "a", "pro')
+    messages: list[str] = []
+    calls: list[str] = []
+    n = execute(
+        [spec("a")],
+        artifact=artifact,
+        ledger=tmp_path / "ledger.jsonl",
+        prefix="p",
+        executor=fake_executor(calls),
+        work_root=tmp_path / "work",
+        log=messages.append,
+    )
+    assert n == 1 and banked_ids(artifact) == {"z", "a"}
+    assert "cut by an interrupted write" in messages[0]
+    assert all(json.loads(ln) for ln in artifact.read_text().splitlines())
 
 
 def test_salvage_banks_completed_runs_of_an_interrupted_batch(tmp_path: Path) -> None:
@@ -118,6 +190,10 @@ def test_salvage_banks_completed_runs_of_an_interrupted_batch(tmp_path: Path) ->
     )
     (old / "ledger.jsonl").write_text('{"kind": "local"}\n')
     (old.parent / ".started").write_text("2026-11-05T03:00:00+00:00\n")
+    dropped = tmp_path / "work" / "s-b0001-cafecafe" / "out"
+    dropped.mkdir(parents=True)
+    (dropped / "results.jsonl").write_text(json.dumps({**spec("b").to_json(), "status": "x"}))
+    (dropped / "aborted.json").write_text(json.dumps({"reason": "r", "drop": ["b"], "at": "t"}))
     calls: list[str] = []
     n = execute(
         [a, spec("b")],
@@ -133,9 +209,11 @@ def test_salvage_banks_completed_runs_of_an_interrupted_batch(tmp_path: Path) ->
     assert "salvaged" not in rows["b"] and len(calls) == 1
     # A salvaged run keeps its batch's recorded start; a new batch records its own.
     assert rows["a"]["batch_started_at"] == "2026-11-05T03:00:00+00:00"
-    new_ws = [w for w in (tmp_path / "work").iterdir() if w.name != "s-b0000-deadbeef"]
-    assert len(new_ws) == 1 and (new_ws[0] / ".started").read_text().strip() == (
-        rows["b"]["batch_started_at"]
+    old_ws = {"s-b0000-deadbeef", "s-b0001-cafecafe"}
+    new_ws = [w for w in (tmp_path / "work").iterdir() if w.name not in old_ws]
+    assert (
+        len(new_ws) == 1
+        and (new_ws[0] / ".started").read_text().strip() == (rows["b"]["batch_started_at"])
     )
     assert (old.parent / ".banked").exists()
     again = execute(

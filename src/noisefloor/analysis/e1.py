@@ -82,11 +82,18 @@ def runs_table(
 
     A run is confirmatory when its id and phase are planned, its record cites ``prereg``,
     and it started no earlier than ``frozen_at`` (the preregistration's freeze time; not
-    checked when None). A record without ``started_at`` (a planned run the runner never
-    started, banked as a harness error) takes its batch's start, flagged
-    ``start_from_batch``. Day and block are those of the batch's start
-    (``batch_started_at``), so every run of a batch shares them, as planned.
+    checked when None). A record without ``started_at`` takes its batch's start, flagged
+    ``start_from_batch`` (the runner records a start for every run it starts and banks no
+    run it did not start, so this marks a malformed record). Day and block are those of
+    the batch's start (``batch_started_at``), so every run of a batch shares them, as
+    planned. A run id banked more than once raises ``ValueError``.
     """
+    counts: dict[str, int] = {}
+    for rec in records:
+        counts[str(rec["run_id"])] = counts.get(str(rec["run_id"]), 0) + 1
+    dups = sorted(k for k, n in counts.items() if n > 1)
+    if dups:
+        raise ValueError(f"{len(dups)} run ids banked more than once, first {dups[0]}")
     rows = []
     for rec in sorted(records, key=lambda r: str(r["run_id"])):
         started = str(rec.get("started_at") or rec.get("batch_started_at") or "")

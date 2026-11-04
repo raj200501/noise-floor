@@ -28,3 +28,5 @@ dist/
 *.bin
 *.pt
 models/
+# E1 arm locks (noisefloor.e1.arm_lock)
+artifacts/e1/.*.lock

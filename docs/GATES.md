@@ -74,7 +74,7 @@ reported bias equals the recomputed mean of estimate minus planted.
   than that entry's `frozen_at`. Counted task runs are the confirmatory runs that ran (status
   other than `infra_error`): at least 1,000, at least 150 with a `backend: claude` model, at
   least 3 models over at least 2 families, local-arm runs on at least 3 days, all factor levels
-  inside the design.
+  inside the design. A run id that appears more than once fails the gate.
 - `artifacts/e1/variance_components.json` (`components`: `estimate`, `lo`, `hi`, `share`,
   `share_lo`, `share_hi`) and `artifacts/e1/mde.json` (`rows`: `mde`, `lo`, `hi`), all finite
   with lo <= estimate <= hi.
