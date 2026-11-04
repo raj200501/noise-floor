@@ -22,10 +22,15 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import hashlib
 import itertools
 import json
 import math
-from collections.abc import Mapping, Sequence
+import multiprocessing as mp
+import os
+import re
+import sys
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -326,6 +331,187 @@ def pilot_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]
     return out
 
 
+# ---------------------------------------------------------------------------
+# confirmatory runs, configured only by frozen preregistration blocks
+
+REPO = Path(__file__).resolve().parents[2]
+CONFIG_BLOCK = "recovery-config"  # design, planted values, and analysis settings
+E0_DIR = REPO / "artifacts" / "e0"
+G6_DIR = REPO / "artifacts" / "g6"
+
+
+def prereg_block(path: Path, name: str) -> Any:
+    """The JSON of the ```json <name>``` block of a preregistration file."""
+    match = re.search(rf"```json[ \t]+{re.escape(name)}[ \t]*\n(.*?)\n```", path.read_text(), re.S)
+    if match is None:
+        raise ValueError(f"{path}: no ```json {name}``` block")
+    return json.loads(match.group(1))
+
+
+def config_from(block: Mapping[str, Any]) -> tuple[Design, Planted, AnalysisSettings]:
+    """Design, planted values, and settings from a ``recovery-config`` block."""
+    p = block["planted"]
+    planted = Planted(
+        intercept=float(p["intercept"]),
+        model=tuple(float(v) for v in p["model"]),
+        factors={str(k): float(v) for k, v in p["factors"].items()},
+        day=tuple(float(v) for v in p["day"]),
+        block=tuple(float(v) for v in p["block"]),
+        task_var=float(p["task_var"]),
+        model_task_var=float(p["model_task_var"]),
+        batch_var=float(p["batch_var"]),
+    )
+    st = block["settings"]
+    settings = AnalysisSettings(
+        n_boot=int(st["n_boot"]),
+        nagq=int(st["nagq"]),
+        boot_interval=str(st["boot_interval"]),
+        level=float(st["level"]),
+        random=tuple(str(r) for r in st["random"]),
+    )
+    return Design(**block["design"]), planted, settings
+
+
+def _recover_job(job: tuple[dict[str, Any], int]) -> dict[str, Any]:
+    block, seed = job
+    design, planted, settings = config_from(block)
+    return recover(design, planted, settings, seed)
+
+
+def _pool_map(jobs: list[Any], func: Any, workers: int) -> Iterator[Any]:
+    if workers <= 1:
+        yield from map(func, jobs)
+        return
+    with mp.get_context("spawn").Pool(workers, initializer=os.nice, initargs=(10,)) as pool:
+        yield from pool.imap_unordered(func, jobs)
+
+
+def run_g6(prereg: Path, raw: Path, workers: int = 1, log: Any = print) -> int:
+    """Append a recovery row for every preregistered seed not yet in ``raw`` (resumable)."""
+    block = prereg_block(prereg, CONFIG_BLOCK)
+    seeds = [int(s) for s in prereg_block(prereg, "g6-seeds")]
+    done = set()
+    if raw.exists():
+        done = {json.loads(ln)["seed"] for ln in raw.read_text().splitlines() if ln.strip()}
+    jobs = [(block, s) for s in seeds if s not in done]
+    raw.parent.mkdir(parents=True, exist_ok=True)
+    added = 0
+    with raw.open("a") as fh:
+        for row in _pool_map(jobs, _recover_job, workers):
+            fh.write(dumps(row) + "\n")
+            fh.flush()
+            added += 1
+            if added % 10 == 0:
+                log(f"g6: {len(done) + added}/{len(seeds)} datasets")
+    return added
+
+
+def bank_g6(prereg: Path, raw: Path, out: Path) -> dict[str, Any]:
+    """Write the G6 artifact from the raw rows of every preregistered seed."""
+    block = prereg_block(prereg, CONFIG_BLOCK)
+    seeds = [int(s) for s in prereg_block(prereg, "g6-seeds")]
+    rows = {}
+    for line in raw.read_text().splitlines():
+        if line.strip():
+            row = json.loads(line)
+            rows[int(row["seed"])] = row
+    missing = [s for s in seeds if s not in rows]
+    if missing:
+        raise ValueError(f"{len(missing)} preregistered datasets are not run yet")
+    datasets = [
+        {"seed": s, "components": rows[s]["components"], "converged": rows[s].get("converged")}
+        for s in seeds
+    ]
+    names = sorted({n for d in datasets for n in d["components"]})
+    bias = {
+        n: float(
+            np.mean(
+                [d["components"][n]["estimate"] - d["components"][n]["planted"] for d in datasets]
+            )
+        )
+        for n in names
+    }
+    nominal = float(block["settings"]["level"])
+    artifact = {
+        "prereg": prereg.relative_to(REPO).as_posix()
+        if prereg.is_relative_to(REPO)
+        else str(prereg),
+        "synthetic": True,
+        "confirmatory": True,
+        "nominal": nominal,
+        "config": block,
+        "datasets": datasets,
+        "bias": bias,
+        "coverage": coverage_summary(datasets),
+        "generator": "python -m noisefloor.recovery g6-bank " + prereg.name,
+    }
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(dumps(artifact) + "\n")
+    return artifact
+
+
+def _repo_path(path: Path) -> str:
+    absolute = path.resolve()
+    return absolute.relative_to(REPO).as_posix() if absolute.is_relative_to(REPO) else str(path)
+
+
+def e0_glmm_seed(group: str, replicate: int) -> int:
+    """Dataset seed of one replicate of a group of E0 GLMM cells (all components share it)."""
+    digest = hashlib.sha256(f"e0-glmm:{group}:{replicate}".encode()).hexdigest()
+    return int(digest[:12], 16)
+
+
+def run_e0_glmm(amendment: Path, workers: int = 1, root: Path = E0_DIR, log: Any = print) -> int:
+    """Fill the raw files of the amendment's ``glmm_component`` cells (resumable).
+
+    Each replicate index is one simulated dataset shared by every component cell of its
+    group (seed :func:`e0_glmm_seed`); a cell's raw line holds that component's planted
+    value as ``truth``, its estimate, and its interval.
+    """
+    grid = prereg_block(amendment, "e0-grid")
+    block = prereg_block(amendment, CONFIG_BLOCK)
+    cells = [c for c in grid if c["method"] == "glmm_component"]
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for c in cells:
+        groups.setdefault(str(c["params"]["group"]), []).append(c)
+    added = 0
+    for group, members in groups.items():
+        reps = max(int(c["replicates"]) for c in members)
+        paths = {
+            str(c["params"]["component"]): root / "raw" / f"{c['cell']}.jsonl" for c in members
+        }
+        done = None
+        for path in paths.values():
+            have = set()
+            if path.exists():
+                have = {json.loads(ln)["i"] for ln in path.read_text().splitlines() if ln.strip()}
+            done = have if done is None else done & have
+        todo = [i for i in range(reps) if i not in (done or set())]
+        jobs = [(block, e0_glmm_seed(group, i)) for i in todo]
+        index = {e0_glmm_seed(group, i): i for i in todo}
+        for path in paths.values():
+            path.parent.mkdir(parents=True, exist_ok=True)
+        for row in _pool_map(jobs, _recover_job, workers):
+            i = index[int(row["seed"])]
+            for component, path in paths.items():
+                comp = row["components"].get(component)
+                line = {
+                    "i": i,
+                    "seed": row["seed"],
+                    "truth": None if comp is None else comp["planted"],
+                    "estimate": None if comp is None else comp["estimate"],
+                    "lo": None if comp is None else comp["lo"],
+                    "hi": None if comp is None else comp["hi"],
+                    "hit": None,
+                }
+                with path.open("a") as fh:
+                    fh.write(dumps(line) + "\n")
+            added += 1
+            if added % 10 == 0:
+                log(f"e0 {group}: {added}/{len(todo)} datasets")
+    return added
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """``python -m noisefloor.recovery pilot OUT.jsonl FIRST COUNT [--n-boot B]``.
 
@@ -333,6 +519,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     default design and planted values, appending one JSON line per dataset (resumable),
     then prints the coverage summary.
     """
+    args_list = list(argv) if argv is not None else sys.argv[1:]
+    if args_list and args_list[0] in ("g6-run", "g6-bank", "e0-run"):
+        return _confirmatory_main(args_list)
     parser = argparse.ArgumentParser(description="planted-component recovery (synthetic)")
     parser.add_argument("command", choices=["pilot"])
     parser.add_argument("out", type=Path)
@@ -342,7 +531,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--no-batch", action="store_true", help="plant no batch variance and fit no batch term"
     )
-    args = parser.parse_args(list(argv) if argv is not None else None)
+    args = parser.parse_args(args_list)
     seeds = [s for s in range(args.first, args.first + args.count)]
     if any(s not in PILOT_SEEDS for s in seeds):
         raise SystemExit("pilot seeds must come from PILOT_SEEDS")
@@ -363,6 +552,24 @@ def main(argv: Sequence[str] | None = None) -> int:
             fh.write(dumps(row) + "\n")
     rows = [json.loads(ln) for ln in args.out.read_text().splitlines() if ln.strip()]
     print(json.dumps(pilot_summary(rows), indent=1, sort_keys=True))
+    return 0
+
+
+def _confirmatory_main(argv: list[str]) -> int:
+    """``g6-run PREREG [--workers N]``, ``g6-bank PREREG``, ``e0-run AMENDMENT [--workers N]``."""
+    parser = argparse.ArgumentParser(description="confirmatory recovery runs from a prereg")
+    parser.add_argument("command", choices=["g6-run", "g6-bank", "e0-run"])
+    parser.add_argument("prereg", type=Path)
+    parser.add_argument("--workers", type=int, default=1)
+    args = parser.parse_args(argv)
+    raw = G6_DIR / "raw.jsonl"
+    if args.command == "g6-run":
+        print(f"added {run_g6(args.prereg, raw, args.workers)} datasets")
+    elif args.command == "g6-bank":
+        artifact = bank_g6(args.prereg, raw, G6_DIR / "recovery.json")
+        print(json.dumps(artifact["coverage"], indent=1, sort_keys=True))
+    else:
+        print(f"added {run_e0_glmm(args.prereg, args.workers)} datasets")
     return 0
 
 

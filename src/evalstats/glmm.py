@@ -298,7 +298,8 @@ def _fit_lme4_bootstrap(
     try:
         with localconverter(ro.default_converter + pandas2ri.converter):
             rdf = ro.conversion.get_conversion().py2rpy(data)
-        out = ro.r(_R_BOOT)(rdf, formula, factors, nagq, n_boot, seed)
+        # R's set.seed takes a 32-bit integer.
+        out = ro.r(_R_BOOT)(rdf, formula, factors, nagq, n_boot, int(seed) % 2_147_483_647)
     finally:
         callbacks.consolewrite_warnerror = saved
     get = dict(zip(out.names, list(out), strict=True))

@@ -115,3 +115,86 @@ def test_pilot_command(
     assert len(out.read_text().splitlines()) == 1
     with pytest.raises(SystemExit, match="PILOT_SEEDS"):
         rc.main(["pilot", str(out), "5", "1"])
+
+
+def small_config() -> dict:
+    planted = rc.Planted(model=(0.3, -0.3), day=(0.0, 0.1), block=(0.0,)).to_json()
+    return {
+        "design": {"n_models": 2, "n_tasks": 6, "batch_size": 4, "days": 2, "blocks_per_day": 1},
+        "planted": planted,
+        "settings": {
+            "n_boot": 3,
+            "nagq": 0,
+            "boot_interval": "percentile",
+            "level": 0.95,
+            "random": ["task", "model:task"],
+        },
+    }
+
+
+def write_prereg(path: Path, **blocks: object) -> Path:
+    parts = ["# test prereg", ""]
+    for name, value in blocks.items():
+        parts += [f"```json {name.replace('_', '-')}", json.dumps(value), "```", ""]
+    path.write_text("\n".join(parts))
+    return path
+
+
+def test_config_and_blocks(tmp_path: Path) -> None:
+    prereg = write_prereg(tmp_path / "p.md", recovery_config=small_config(), g6_seeds=[1, 2])
+    design, planted, settings = rc.config_from(rc.prereg_block(prereg, rc.CONFIG_BLOCK))
+    assert design.n_tasks == 6 and planted.model == (0.3, -0.3)
+    assert settings.random == ("task", "model:task") and settings.n_boot == 3
+    with pytest.raises(ValueError, match="no ```json missing``` block"):
+        rc.prereg_block(prereg, "missing")
+    assert rc.e0_glmm_seed("g", 1) == rc.e0_glmm_seed("g", 1) != rc.e0_glmm_seed("g", 2)
+
+
+@needs_r
+def test_g6_run_and_bank(tmp_path: Path) -> None:
+    prereg = write_prereg(tmp_path / "p.md", recovery_config=small_config(), g6_seeds=[11, 12])
+    raw = tmp_path / "raw.jsonl"
+    assert rc.run_g6(prereg, raw, log=lambda m: None) == 2
+    assert rc.run_g6(prereg, raw, log=lambda m: None) == 0  # resumes
+    artifact = rc.bank_g6(prereg, raw, tmp_path / "recovery.json")
+    assert [d["seed"] for d in artifact["datasets"]] == [11, 12]
+    comps = artifact["datasets"][0]["components"]
+    assert set(comps) >= {"task", "model:task", "model", "harness"} and "batch" not in comps
+    name = "task"
+    expected = np.mean(
+        [
+            d["components"][name]["estimate"] - d["components"][name]["planted"]
+            for d in artifact["datasets"]
+        ]
+    )
+    assert artifact["bias"][name] == pytest.approx(expected)
+    assert artifact["synthetic"] and artifact["nominal"] == 0.95
+    stored = json.loads((tmp_path / "recovery.json").read_text())
+    assert stored["prereg"] == str(prereg)
+    prereg2 = write_prereg(tmp_path / "q.md", recovery_config=small_config(), g6_seeds=[11, 99])
+    with pytest.raises(ValueError, match="not run yet"):
+        rc.bank_g6(prereg2, raw, tmp_path / "x.json")
+
+
+@needs_r
+def test_e0_glmm_cells(tmp_path: Path) -> None:
+    grid = [
+        {
+            "cell": f"G-t-{comp}",
+            "method": "glmm_component",
+            "interval_type": "parametric_bootstrap",
+            "nominal": 0.95,
+            "replicates": 2,
+            "params": {"group": "t", "component": comp, "n_tasks": 6},
+        }
+        for comp in ("task", "harness", "batch")
+    ]
+    prereg = write_prereg(tmp_path / "a.md", e0_grid=grid, recovery_config=small_config())
+    assert rc.run_e0_glmm(prereg, root=tmp_path, log=lambda m: None) == 2
+    assert rc.run_e0_glmm(prereg, root=tmp_path, log=lambda m: None) == 0
+    rows = [json.loads(ln) for ln in (tmp_path / "raw" / "G-t-task.jsonl").read_text().splitlines()]
+    assert [r["i"] for r in rows] == [0, 1] and rows[0]["truth"] == 2.0
+    batch = [
+        json.loads(ln) for ln in (tmp_path / "raw" / "G-t-batch.jsonl").read_text().splitlines()
+    ]
+    assert all(r["lo"] is None and r["truth"] is None for r in batch)  # not fitted
