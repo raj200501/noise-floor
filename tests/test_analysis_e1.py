@@ -572,7 +572,7 @@ def test_mde_rows_follow_the_failed_replicate_rule(monkeypatch: pytest.MonkeyPat
             "block": ["b1"] * 8,
         }
     )
-    out = a.mde_tables(Decomp(), data, SETTINGS)  # type: ignore[arg-type]
+    out = a.mde_tables(Decomp(), data, SETTINGS)  # type: ignore[arg-type]  # a stand-in fit
     first, second = out["rows"]
     assert first["lo"] is None and first["hi"] is None  # more than 10 percent failed
     assert second["lo"] is not None and second["hi"] is not None

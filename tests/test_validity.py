@@ -1,4 +1,5 @@
 import warnings
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -117,10 +118,10 @@ def test_every_e0_function_warns_on_a_matching_failing_cell(
     from evalstats import EvalResults, contrast_difference, policy_bounds, rank_confidence
     from evalstats.intervals import cluster_robust_mean
 
-    def expect(function: str, method: str, call: object) -> None:
+    def expect(function: str, method: str, call: Callable[[], object]) -> None:
         monkeypatch.setattr(validity, "_DATA", {"unsupported": {"X": _rule(function, method)}})
         with pytest.warns(validity.UnsupportedDesignWarning, match="E0 cell X"):
-            call()  # type: ignore[operator]
+            call()
 
     data = make_results(n_tasks=12, models=("a", "b", "c"), p=(0.6, 0.5, 0.4))
     expect("score_interval", "cluster_t", lambda: score_interval(data, "a"))
