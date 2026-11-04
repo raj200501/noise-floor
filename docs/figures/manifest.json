@@ -1,0 +1,18 @@
+{
+ "figures": {
+  "e2-epoch-swebench-scores.svg": {
+   "sha256": "4917b458ccd29000b0f873d0ef055face0b79ebfd2c8037212cfb52a775dfdf9",
+   "sources": {
+    "artifacts/e2/epoch-swebench/results.json": "771d9fc17d53ebde3058f642c6d65bf2ddf0562f9229ff69f6ca4770edf0eb58"
+   }
+  },
+  "e2-tb2-scores.svg": {
+   "sha256": "0039af3f2bd00a549f2d6e744f64236dd41f92f0b34aa04085dc19149f283d4b",
+   "sources": {
+    "artifacts/e2/tb2/results.json": "cc017618654307cf1989b78d162402f255f791923e736a642de57fbf095193f0"
+   }
+  }
+ },
+ "generator": "python -m noisefloor.report",
+ "skipped": []
+}

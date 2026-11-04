@@ -56,7 +56,7 @@ review:
 	$(TOOL) tools/review.py
 
 report:
-	$(TODO) report G13
+	$(RUN) python -m noisefloor.report
 
 reproduce:
 	$(TODO) reproduce G13
