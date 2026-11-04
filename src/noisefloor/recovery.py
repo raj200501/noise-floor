@@ -311,10 +311,26 @@ def analyze(data: pd.DataFrame, settings: AnalysisSettings, seed: int) -> Decomp
 def recover(
     design: Design, planted: Planted, settings: AnalysisSettings, seed: int
 ) -> dict[str, Any]:
-    """Simulate one dataset, analyze it, and return each component's row for G6."""
+    """Simulate one dataset, analyze it, and return each component's row for G6.
+
+    A fit that fails is recorded, not dropped: every component keeps its planted value
+    with no estimate and no interval, and ``error`` says what failed.
+    """
     data = simulate(design, planted, seed)
     truth = planted_values(design, planted, data)
-    decomp = analyze(data, settings, seed)
+    try:
+        decomp = analyze(data, settings, seed)
+    except Exception as exc:  # recorded as a dataset without intervals (prereg 0006)
+        names = [n for n in FIXED_TERMS if data[n].nunique() > 1]
+        empty = {"estimate": None, "lo": None, "hi": None}
+        failed: dict[str, dict[str, Any]] = {
+            n: {"planted": truth[n], **empty} for n in [*settings.random, *names]
+        }
+        if settings.mde_designs:
+            for (t, k), value in planted_mde(design, planted, data, settings.mde_designs).items():
+                failed[f"mde:T{t}:k{k}"] = {"planted": value, **empty}
+        error = f"{type(exc).__name__}: {exc}"[:300]
+        return {"seed": seed, "components": failed, "converged": False, "error": error}
     components = {}
     for comp in decomp.components:
         if comp.kind == "residual":
@@ -358,11 +374,12 @@ def coverage_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, f
         comps = [row["components"][name] for row in rows if name in row["components"]]
         ok = [c for c in comps if c["lo"] is not None and c["hi"] is not None]
         covered = sum(1 for c in ok if c["lo"] <= c["planted"] <= c["hi"])
+        errors = [c["estimate"] - c["planted"] for c in comps if c["estimate"] is not None]
         out[name] = {
             "n": len(comps),
             "with_interval": len(ok),
-            "coverage": covered / len(ok) if ok else math.nan,
-            "bias": float(np.mean([c["estimate"] - c["planted"] for c in comps])),
+            "coverage": covered / len(comps) if comps else math.nan,  # a missing bound misses
+            "bias": float(np.mean(errors)) if errors else math.nan,
             "mean_width": float(np.mean([c["hi"] - c["lo"] for c in ok])) if ok else math.nan,
         }
     return out
@@ -545,14 +562,13 @@ def bank_g6(prereg: Path, raw: Path, out: Path) -> dict[str, Any]:
         for s in seeds
     ]
     names = sorted({n for d in datasets for n in d["components"]})
-    bias = {
-        n: float(
-            np.mean(
-                [d["components"][n]["estimate"] - d["components"][n]["planted"] for d in datasets]
-            )
-        )
-        for n in names
-    }
+
+    def mean_error(name: str) -> float:
+        comps = [d["components"][name] for d in datasets]
+        errors = [c["estimate"] - c["planted"] for c in comps if c["estimate"] is not None]
+        return float(np.mean(errors)) if errors else math.nan
+
+    bias = {n: mean_error(n) for n in names}
     nominal = float(block["settings"]["level"])
     artifact = {
         "prereg": prereg.relative_to(REPO).as_posix()

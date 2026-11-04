@@ -631,6 +631,13 @@ def g5(ctx: Ctx) -> str:
     )
 
 
+def g6_hit(row: dict[str, Any]) -> bool:
+    """True if a G6 component's interval covers its planted value (a missing bound never does)."""
+    if row.get("lo") is None or row.get("hi") is None:
+        return False
+    return float(row["lo"]) <= float(row["planted"]) <= float(row["hi"])
+
+
 def g6(ctx: Ctx) -> str:
     art = "artifacts/g6/recovery.json"
     data = load_json(rel(ctx, art))
@@ -649,12 +656,16 @@ def g6(ctx: Ctx) -> str:
     reported_bias = data.get("bias", {})
     parts = []
     for name in names:
-        rows = [d["components"][name] for d in datasets]
-        need(len(rows) == len(datasets), f"component {name} missing in some datasets")
-        covered = sum(1 for r in rows if float(r["lo"]) <= float(r["planted"]) <= float(r["hi"]))
+        rows = [d["components"].get(name) for d in datasets]
+        need(all(r is not None for r in rows), f"component {name} missing in some datasets")
+        covered = sum(1 for r in rows if g6_hit(r))
         ok, cov, thr = coverage_rule(covered, len(rows), nominal)
         need(ok, f"{name} coverage {cov:.3f} < {thr:.3f}")
-        bias = sum(float(r["estimate"]) - float(r["planted"]) for r in rows) / len(rows)
+        errors = [
+            float(r["estimate"]) - float(r["planted"]) for r in rows if r["estimate"] is not None
+        ]
+        need(bool(errors), f"no estimates for {name}")
+        bias = sum(errors) / len(errors)
         need(name in reported_bias, f"bias for {name} not reported")
         need(
             math.isclose(float(reported_bias[name]), bias, rel_tol=1e-9, abs_tol=1e-12),

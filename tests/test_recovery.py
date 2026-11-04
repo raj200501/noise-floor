@@ -87,7 +87,9 @@ def test_summaries() -> None:
         {"components": {"a": {"planted": 1.0, "estimate": 1.0, "lo": None, "hi": None}}},
     ]
     summary = rc.coverage_summary(rows)["a"]
-    assert summary["coverage"] == 0.5 and summary["with_interval"] == 2 and summary["n"] == 3
+    # the dataset without an interval counts as a miss (prereg 0006)
+    assert summary["coverage"] == pytest.approx(1 / 3) and summary["with_interval"] == 2
+    assert summary["n"] == 3
     assert summary["bias"] == pytest.approx(0.0)
     empty = rc.coverage_summary(
         [{"components": {"b": {"planted": 1, "estimate": 1, "lo": None, "hi": None}}}]
@@ -206,3 +208,15 @@ def test_e0_glmm_cells(tmp_path: Path) -> None:
         json.loads(ln) for ln in (tmp_path / "raw" / "G-t-batch.jsonl").read_text().splitlines()
     ]
     assert all(r["lo"] is None and r["truth"] is None for r in batch)  # not fitted
+
+
+def test_failed_fit_is_recorded(monkeypatch: pytest.MonkeyPatch) -> None:
+    def boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("lme4 refused")
+
+    monkeypatch.setattr(rc, "analyze", boom)
+    settings = rc.AnalysisSettings(n_boot=3, random=("task", "model:task"), mde_designs=((40, 1),))
+    row = rc.recover(SMALL, SMALL_PLANTED, settings, 3)
+    assert row["converged"] is False and "lme4 refused" in row["error"]
+    assert row["components"]["task"] == {"planted": 2.0, "estimate": None, "lo": None, "hi": None}
+    assert "mde:T40:k1" in row["components"] and "harness" in row["components"]
