@@ -99,8 +99,9 @@ def is_tb20(datasets: str) -> bool:
     return not any(marker in low for marker in ("2-1", "2.1"))
 
 
-def build_tb2(raw_dir: Path, out_dir: Path = TB2_SNAPSHOT) -> dict[str, Any]:
+def build_tb2(raw_dir: Path, out_dir: Path | None = None) -> dict[str, Any]:
     """Write the TB2 snapshot (trials, jobs) and its manifest from a raw fetch."""
+    out_dir = out_dir or TB2_SNAPSHOT
     fetch_manifest = json.loads((raw_dir / "fetch_manifest.json").read_text())
     submissions = fetch_manifest.get("submissions") or tb2.list_submissions(
         str(fetch_manifest["revision"])
@@ -145,8 +146,9 @@ def build_tb2(raw_dir: Path, out_dir: Path = TB2_SNAPSHOT) -> dict[str, Any]:
     return manifest
 
 
-def build_epoch(raw_dir: Path, out_dir: Path = EPOCH_SNAPSHOT) -> dict[str, Any]:
+def build_epoch(raw_dir: Path, out_dir: Path | None = None) -> dict[str, Any]:
     """Write the Epoch snapshot (samples, logs) and its manifest from a raw fetch."""
+    out_dir = out_dir or EPOCH_SNAPSHOT
     fetch_manifest = json.loads((raw_dir / "fetch_manifest.json").read_text())
     samples = epoch.load_samples(raw_dir)
     rows = epoch.read_rows(raw_dir / "benchmark_data.zip")
@@ -211,8 +213,9 @@ def read_gz_csv(path: Path) -> pd.DataFrame:
         )
 
 
-def tb2_tables(snapshot: Path = TB2_SNAPSHOT) -> tuple[pd.DataFrame, pd.DataFrame]:
+def tb2_tables(snapshot: Path | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
     """TB2 trials and jobs from the committed snapshot."""
+    snapshot = snapshot or TB2_SNAPSHOT
     return read_gz_csv(snapshot / "trials.csv.gz"), read_gz_csv(snapshot / "jobs.csv.gz")
 
 
@@ -381,7 +384,7 @@ def board_analysis(
     return result
 
 
-def analyze_tb2(snapshot: Path = TB2_SNAPSHOT) -> dict[str, Any]:
+def analyze_tb2(snapshot: Path | None = None) -> dict[str, Any]:
     """Results for the TB2 board (primary and secondary analysis sets)."""
     trials, jobs = tb2_tables(snapshot)
     manifest = json.loads((ARTIFACTS / "e2" / "tb2" / "manifest.json").read_text())
@@ -410,9 +413,9 @@ def analyze_tb2(snapshot: Path = TB2_SNAPSHOT) -> dict[str, Any]:
     }
 
 
-def analyze_epoch(snapshot: Path = EPOCH_SNAPSHOT) -> dict[str, Any]:
+def analyze_epoch(snapshot: Path | None = None) -> dict[str, Any]:
     """Results for the Epoch SWE-bench Verified board (reference rule of prereg/0002)."""
-    samples = read_gz_csv(snapshot / "samples.csv.gz")
+    samples = read_gz_csv((snapshot or EPOCH_SNAPSHOT) / "samples.csv.gz")
     frame = epoch_frame(samples)
     full = EvalResults.from_frame(frame)
     reference = EvalResults.from_frame(frame.loc[frame["status"] != "infra_error"])
