@@ -46,6 +46,23 @@ days) and the Claude arm is rate-capped per day.
   bounded by CPU time rather than any cap.
 - Cash: 0.
 
+## E1 schedule and operations (this hosted session)
+
+Order: freeze preregistrations 0004 (E1), 0005 (E0 part 2), and 0006 (G6) in one commit; run
+G6 and E0 part 2 (synthetic, CPU only, Laplace bootstrap: roughly 3 to 4 core-minutes per
+dataset, 700 datasets, so most of a day on 4 cores); then the E1 local arm. Nothing else runs
+on the CPU while E1 runs, because its runs have wall-clock limits.
+
+- The local arm runs as `python -m noisefloor.e1 local prereg/0004-e1-factorial.md`, detached
+  (`setsid nohup`, PID file and log under `runs/e1/`), with a watcher. It is resumable: a
+  restart banks completed runs from the work directories and starts unfinished ones again.
+- A batch of slot day k, block b starts only in block b of the arm's day k or later, so the arm
+  takes at least three UTC days; slots that overrun move to the same block of the next day.
+- Banked runs are committed locally after each check-in. Pushes (after `make prepush`, which
+  needs the CPU) happen only while the arm waits between blocks.
+- Check-ins keep the session awake while the arm runs; each one checks the process, the log,
+  and the banked count, and relaunches the runner if it died.
+
 ## Claude arm on Raj's machine (G7)
 
 The Claude tiers of E1 run through headless Claude Code on a machine where the billing guard is
