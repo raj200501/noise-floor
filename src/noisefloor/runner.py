@@ -48,7 +48,7 @@ from noisefloor.client import REPO, Client, Ledger, ModelCallRefusedError, effec
 from noisefloor.minimal_agent import AgentConfig, run_episode
 from noisefloor.models import CLAUDE_TIERS, MODELS, is_claude, serve
 from noisefloor.proxy import serve_proxy
-from noisefloor.suite import episode_status, generate
+from noisefloor.suite import Grade, ToolEnv, episode_status, generate
 
 HARNESSES = ("minimal", "inspect", "claude_code")
 
@@ -130,12 +130,7 @@ def run_minimal(spec: RunSpec, client: Client) -> dict[str, Any]:
         call_kind="agent_step" if claude else "local",
     )
     episode = run_episode(env, client, config)
-    if episode.status == "infra_error":
-        reason = "backend_error"
-    elif env.end_reason is not None:
-        reason = env.end_reason
-    else:
-        reason = "wall_clock" if episode.wall_s >= spec.timeout_s else "step_limit"
+    reason = episode.end_reason or "step_limit"
     grade = task.grade_env(env)
     extra = {"max_steps_used": max_steps, "model_ids": episode.model_ids} if claude else {}
     return {
@@ -143,16 +138,28 @@ def run_minimal(spec: RunSpec, client: Client) -> dict[str, Any]:
         "end_reason": reason,
         "status": episode_status(reason),
         "outcome": 1.0 if grade.passed else 0.0,
+        "outcome_strict": strict_outcome(grade),
         "grade_reason": grade.reason,
         "answer": env.answer,
         "steps": episode.steps,
-        "tool_calls": env.calls,
+        "tool_calls": tool_calls(env),
+        "rejected_calls": episode.rejected_calls,
         "parse_errors": episode.parse_errors,
         "input_tokens": episode.input_tokens,
         "output_tokens": episode.output_tokens,
         "wall_s": round(episode.wall_s, 3),
         "error": episode.error,
     }
+
+
+def strict_outcome(grade: Grade) -> float:
+    """The outcome under the strict comparison (D-021); file grades have only one."""
+    return float(grade.score if grade.strict is None else grade.strict)
+
+
+def tool_calls(env: ToolEnv) -> int:
+    """Tool calls that reached the episode's tools, not counting ``submit`` (all harnesses)."""
+    return sum(1 for entry in env.trace if entry.tool != "submit")
 
 
 def run_inspect(spec: RunSpec, proxy_url: str, out_dir: Path) -> dict[str, Any]:

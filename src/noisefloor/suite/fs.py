@@ -89,14 +89,14 @@ class FileView:
         if norm in self._files:
             return self._files[norm]
         if self.is_dir(norm):
-            raise FsError(f"is a directory: {norm}")
+            raise FsError(f"is a directory: {norm} (use list_dir to see its entries)")
         raise FsError(f"no such file: {norm}")
 
     def list_dir(self, path: str) -> list[str]:
         """Sorted names of the entries of a directory; subdirectory names end with ``/``."""
         norm = normalize_path(path)
         if norm in self._files:
-            raise FsError(f"not a directory: {norm}")
+            raise FsError(f"not a directory: {norm} (it is a file; use read_file)")
         if not self.is_dir(norm):
             raise FsError(f"no such directory: {norm}")
         prefix = ROOT if norm == ROOT else norm + "/"
@@ -173,10 +173,10 @@ class WorkingCopy(FileView):
         if norm == ROOT:
             raise FsError("cannot write to the root directory")
         if self.is_dir(norm):
-            raise FsError(f"is a directory: {norm}")
+            raise FsError(f"is a directory: {norm} (give a file path to write)")
         for parent in _ancestors(norm):
             if parent in self._files:
-                raise FsError(f"not a directory: {parent}")
+                raise FsError(f"not a directory: {parent} (it is a file)")
         self._files[norm] = content
         return norm
 

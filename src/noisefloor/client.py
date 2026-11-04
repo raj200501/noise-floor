@@ -78,6 +78,8 @@ CHILD_SWITCHES = {
     "GIT_CONFIG_GLOBAL": "/dev/null",
 }
 LIMIT_TEXT = re.compile(r"usage limit|limit reached|extra usage|credit balance", re.IGNORECASE)
+# llama-server's error when a request does not fit the context ("exceed_context_size_error").
+_CONTEXT_TEXT = re.compile(r"exceed_context_size|exceeds the available context", re.IGNORECASE)
 CLAUDE_MODELS = ("haiku", "sonnet", "opus")
 UNCAPPED_KINDS = frozenset({"agent_step"})  # steps of a run already counted as an agent_run
 KIND_CAPS = {
@@ -105,6 +107,14 @@ class UsageLimitError(ModelCallRefusedError):
 
 class BackendError(RuntimeError):
     """The backend failed (connection, HTTP, or malformed response)."""
+
+
+class BackendTimeoutError(BackendError):
+    """A model call ran out of time (the episode's wall clock, not the infrastructure)."""
+
+
+class ContextLimitError(BackendError):
+    """The conversation no longer fits the model's context window (caused by the episode)."""
 
 
 @dataclass(frozen=True)
@@ -382,13 +392,8 @@ class Client:
             data=json.dumps(body).encode(),
             headers={"Content-Type": "application/json"},
         )
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         start = time.monotonic()
-        try:
-            with opener.open(req, timeout=timeout) as resp:
-                data = json.loads(resp.read())
-        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
-            raise BackendError(f"local backend failed: {exc}") from exc
+        data = _post_json(req, timeout)
         wall = time.monotonic() - start
         try:
             choice = data["choices"][0]
@@ -500,8 +505,47 @@ class Client:
             run = run_claude_stream(cmd, prompt, cwd=Path(work), timeout=timeout)
         raise_for_stop(run.ended, run.stream)
         if run.ended == "wall_clock":
-            raise BackendError(f"claude did not finish within {timeout:.0f} s")
+            raise BackendTimeoutError(f"claude did not finish within {timeout:.0f} s")
         return run.stream.response(run.wall_s, run.returncode or 0, run.stderr)
+
+
+def _post_json(req: urllib.request.Request, timeout: float) -> Any:
+    """POST to a loopback server (no proxy) and decode the JSON reply.
+
+    Raises :class:`ContextLimitError` for llama-server's context-size error,
+    :class:`BackendTimeoutError` when the call runs out of time, and
+    :class:`BackendError` for any other failure.
+    """
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(req, timeout=timeout) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        detail = _error_text(exc)
+        if exc.code == 400 and _CONTEXT_TEXT.search(detail):
+            raise ContextLimitError(f"context limit: {detail[:200]}") from exc
+        raise BackendError(f"local backend failed: {exc} {detail[:200]}".strip()) from exc
+    except TimeoutError as exc:
+        raise BackendTimeoutError(f"local backend timed out after {timeout:.0f} s") from exc
+    except urllib.error.URLError as exc:
+        if isinstance(exc.reason, TimeoutError):
+            raise BackendTimeoutError(f"local backend timed out after {timeout:.0f} s") from exc
+        raise BackendError(f"local backend failed: {exc}") from exc
+    except (OSError, ValueError) as exc:
+        raise BackendError(f"local backend failed: {exc}") from exc
+
+
+def _error_text(exc: urllib.error.HTTPError) -> str:
+    """The error body's message (or raw text) of an HTTP error, for classification."""
+    try:
+        raw = exc.read().decode("utf-8", errors="replace")
+    except (OSError, ValueError):
+        return ""
+    try:
+        error = json.loads(raw).get("error", {})
+        return f"{error.get('type', '')}: {error.get('message', '')}"
+    except (ValueError, AttributeError):
+        return raw[:300]
 
 
 def claude_prompt(messages: Sequence[Mapping[str, Any]]) -> tuple[str, str]:

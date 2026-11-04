@@ -2,7 +2,10 @@
 
 A task's expectation is data, not code, so it serializes into the suite manifest:
 
-* :class:`AnswerSpec` grades the submitted answer. Mode ``text`` compares after
+* :class:`AnswerSpec` grades the submitted answer. The answer is first taken out of
+  common wrappers by :func:`extract_answer` (the same rule in every harness), and the
+  grade records both the result (``score``) and the strict comparison without that
+  step (``strict``), for a sensitivity analysis. Mode ``text`` compares after
   normalization (surrounding whitespace, wrapping quotes or backticks, trailing
   periods, and whitespace runs); ``casefold`` also ignores case; ``numeric``
   parses both sides as numbers (``"1,234.50"`` is 1234.5) and accepts a
@@ -21,6 +24,7 @@ episode ended to the ``status`` covariate that evalstats uses for policy bounds.
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from dataclasses import dataclass
@@ -35,19 +39,38 @@ NUMERIC_ABS_TOL = 1e-6
 
 Status = Literal["ok", "timeout", "infra_error"]
 EndReason = Literal[
-    "submitted", "stopped", "step_limit", "wall_clock", "backend_error", "harness_error"
+    "submitted",
+    "stopped",
+    "step_limit",
+    "wall_clock",
+    "context_limit",
+    "backend_error",
+    "harness_error",
 ]
 _STATUS: dict[str, Status] = {
     "submitted": "ok",
     "stopped": "ok",
     "step_limit": "timeout",
     "wall_clock": "timeout",
+    "context_limit": "timeout",
     "backend_error": "infra_error",
     "harness_error": "infra_error",
 }
 END_REASONS: tuple[str, ...] = tuple(_STATUS)
 
 _QUOTES = "\"'`"
+_WRAP_QUOTES = (("\u201c", "\u201d"), ("\u2018", "\u2019"))  # curly double and single quotes
+_EMPHASIS = ("**", "__", "*", "_")
+_FENCE = re.compile(r"^```[A-Za-z0-9_+-]*\s*(.*?)\s*```$", re.DOTALL)
+_LEAD = re.compile(
+    r"^(?:the\s+)?(?:final\s+)?(?:answer|value|total|sum|result|code|id)(?:\s+is)?\s*[:=]?\s+",
+    re.IGNORECASE,
+)
+_LABEL = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,30}\s*[:=]\s*")  # one word, no spaces
+_NOTE = re.compile(r"\s+\([^()]*\)$")
+_TRAILING = ".,;:!"
+_CURRENCY = "$\u20ac\u00a3\u00a5"
+_UNIT = re.compile(r"^(\S+)\s+[A-Za-z%]+\.?$")
 _GROUPED = re.compile(r"[+-]?[0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]+)?")
 _PLAIN = re.compile(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
 _COMMA = re.compile(r"\s*,\s*")
@@ -55,10 +78,15 @@ _COMMA = re.compile(r"\s*,\s*")
 
 @dataclass(frozen=True)
 class Grade:
-    """A 0 or 1 score and a short reason."""
+    """A 0 or 1 score and a short reason.
+
+    ``strict`` is the score of the strict comparison, without :func:`extract_answer`
+    (None for file grades, where both are the same).
+    """
 
     score: int
     reason: str
+    strict: int | None = None
 
     @property
     def passed(self) -> bool:
@@ -126,6 +154,53 @@ def normalize_text(text: str, *, casefold: bool = False) -> str:
     return text.casefold() if casefold else text
 
 
+def _unwrap_once(text: str, numeric: bool) -> str:
+    text = " ".join(text.split())
+    fence = _FENCE.match(text)
+    if fence:
+        return fence.group(1)
+    if text.startswith("{") and text.endswith("}"):
+        try:
+            data = json.loads(text)
+        except ValueError:
+            data = None
+        if isinstance(data, dict) and len(data) == 1:
+            (value,) = data.values()
+            if isinstance(value, str | int | float) and not isinstance(value, bool):
+                return str(value)
+    for left, right in (*((q, q) for q in _QUOTES), *_WRAP_QUOTES, *((e, e) for e in _EMPHASIS)):
+        if len(text) > len(left) + len(right) and text.startswith(left) and text.endswith(right):
+            return text[len(left) : -len(right)]
+    for pattern in (_LEAD, _LABEL):
+        stripped = pattern.sub("", text, count=1)
+        if stripped and stripped != text:
+            return stripped
+    text = _NOTE.sub("", text).rstrip(_TRAILING)
+    if numeric:
+        unit = _UNIT.match(text)
+        text = unit.group(1) if unit else text
+        sign = text[:1] if text[:1] in "+-" else ""
+        text = sign + text[len(sign) :].lstrip(_CURRENCY)
+    return text
+
+
+def extract_answer(text: str, *, numeric: bool = False) -> str:
+    """Take an answer out of common wrappers, applied until nothing changes.
+
+    Removes a code fence (with or without a language tag), a one-field JSON object
+    (``{"answer": "X"}``), wrapping straight or curly quotes, backticks, or markdown
+    emphasis, a leading phrase such as ``The answer is`` or ``Answer:``, a leading
+    label with ``=`` or ``:`` (``port = X``, ``id=X``), a trailing note in
+    parentheses, and trailing ``. , ; : !``. With ``numeric`` it also drops a
+    currency sign and a trailing unit word. No expected answer in the suite contains
+    any of these, so only a correct value can match after extraction.
+    """
+    previous = None
+    while text != previous:
+        previous, text = text, _unwrap_once(text, numeric)
+    return text
+
+
 def parse_number(text: str) -> float | None:
     """Parse a number given as text, or return None.
 
@@ -172,9 +247,21 @@ def _short(text: str, limit: int = 60) -> str:
 
 
 def grade_answer(spec: AnswerSpec, answer: str | None) -> Grade:
-    """Grade a submitted answer (None means nothing was submitted)."""
+    """Grade a submitted answer (None means nothing was submitted).
+
+    The score uses :func:`extract_answer`; ``strict`` records the comparison of the
+    answer as submitted.
+    """
     if answer is None:
-        return Grade(0, "no answer submitted")
+        return Grade(0, "no answer submitted", strict=0)
+    strict = _compare(spec, answer)
+    lenient = _compare(spec, extract_answer(answer, numeric=spec.mode == "numeric"))
+    if lenient.score and not strict.score:
+        lenient = Grade(1, lenient.reason + " after extraction")
+    return Grade(lenient.score, lenient.reason, strict=strict.score)
+
+
+def _compare(spec: AnswerSpec, answer: str) -> Grade:
     if spec.mode == "numeric":
         got = parse_number(answer)
         want = parse_number(spec.expected)

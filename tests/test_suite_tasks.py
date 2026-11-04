@@ -34,7 +34,7 @@ EM_DASH = chr(0x2014)  # a code point, so this file itself contains no em dash
 
 # Pinned so CI on Python 3.11 and 3.12 checks that generation is byte-identical. A
 # deliberate change to any generator changes this hash and needs a new SUITE_VERSION.
-GOLDEN_SHA256 = "e5be4e242752625a7bcd006efbe24172de1dc1b8850b49ffb8c4aa694a976130"
+GOLDEN_SHA256 = "6aad59b36ac1fd12af7a0289ebcf9917c425243bf7c3a6014e87d7ae843bb059"  # v2
 
 
 # ---------------------------------------------------------------------------
@@ -92,10 +92,14 @@ def solve_config(env: ToolEnv, text: str) -> str:
 
 
 def solve_csv_sum(env: ToolEnv, text: str) -> str:
+    """Search-first: every CSV under the base starts with a header naming `amount`."""
     base = first(r"under `([^`]+)` \(including", text)
     conditions = re.findall(r"`(\w+)` is `([^`]+)`", text)
+    hits = call(env, "search", pattern="amount", path=base).splitlines()
+    assert not any(hit.startswith("[") for hit in hits), hits  # nothing cut from the listing
+    paths = sorted({hit.split(":", 1)[0] for hit in hits})
     amounts = []
-    for path in walk(env, base):
+    for path in paths:
         if not path.endswith(".csv"):
             continue
         header, *lines = call(env, "read_file", path=path).splitlines()
@@ -195,8 +199,11 @@ SOLVERS = {
 }
 
 
+E1_BUDGET = 15  # tool calls per episode in E1 (local arms)
+
+
 def run_oracle(task):
-    env = task.start()
+    env = task.start(max_calls=E1_BUDGET)
     answer = SOLVERS[task.family](env, task.instruction)
     call(env, "submit", answer=answer)
     assert env.done and env.end_reason == "submitted"
@@ -219,7 +226,7 @@ def test_oracle_solves_every_family_and_difficulty(family, difficulty):
         task = generate(family, seed, difficulty)
         env = run_oracle(task)
         result = task.grade_env(env)
-        assert result == grading.Grade(1, result.reason), (task.id, result)
+        assert result.score == 1 and result.strict in (1, None), (task.id, result)
         assert not any(entry.error for entry in env.trace)
 
 
@@ -280,7 +287,7 @@ def test_distractor_answers_grade_zero(family, difficulty):
 def test_wrong_and_missing_answers_grade_zero(family, difficulty):
     task = generate(family, 3, difficulty)
     expected = task.expected.expected
-    assert task.grade(None, task.files) == grading.Grade(0, "no answer submitted")
+    assert task.grade(None, task.files) == grading.Grade(0, "no answer submitted", strict=0)
     assert task.grade("", task.files).score == 0
     assert task.grade(expected + "9", task.files).score == 0
     assert task.grade(expected, task.files).score == 1
@@ -412,7 +419,7 @@ def test_start_and_grade_env():
     assert env.instruction == task.instruction
     env.call("list_dir", {})
     assert env.done and env.end_reason == "step_limit"
-    assert task.grade_env(env) == grading.Grade(0, "no answer submitted")
+    assert task.grade_env(env) == grading.Grade(0, "no answer submitted", strict=0)
 
 
 # ---------------------------------------------------------------------------
@@ -538,3 +545,64 @@ def test_property_manifest_is_stable(seeds, families, difficulties, shuffler):
     assert suite_manifest(tasks) == manifest
     assert manifest["n_tasks"] == len(seeds) * len(families) * len(difficulties)
     assert manifest["seeds"] == sorted(seeds)
+
+
+# ---------------------------------------------------------------------------
+# suite v2 checks (D-021)
+
+
+def pointer_chain(files):
+    """The notes on the link chain from /start.txt, in order (the last holds the code)."""
+    chain, current = [], "/start.txt"
+    while True:
+        chain.append(current)
+        lines = files[current].splitlines()
+        if any(line.startswith("code: ") for line in lines):
+            return chain
+        link = next(line.removeprefix("next: ") for line in lines if line.startswith("next: "))
+        if not link.startswith("/"):
+            link = posixpath.normpath(posixpath.join(posixpath.dirname(current), link))
+        current = link
+
+
+@pytest.mark.parametrize("difficulty", DIFFICULTIES)
+def test_no_pointer_line_type_marks_the_chain(difficulty):
+    """A search for a distractor line type must not single out the chain or its end."""
+    for seed in SEEDS:
+        task = generate("pointer", seed, difficulty)
+        files = task.files.files
+        chain = pointer_chain(files)
+        for prefix in ("old: ", "previous code: "):
+            holders = {
+                path
+                for path, text in files.items()
+                if any(line.startswith(prefix) for line in text.splitlines())
+            }
+            if holders:
+                assert holders - set(chain), (task.id, prefix, "only chain notes carry it")
+                assert holders != {chain[-1]}, (task.id, prefix, "only the chain end carries it")
+
+
+@pytest.mark.parametrize("difficulty", [3, 4, 5])
+def test_derive_distractors_would_change_the_output(difficulty):
+    """Reading a distractor table by mistake would add at least one line to the output."""
+    for seed in SEEDS:
+        task = generate("derive", seed, difficulty)
+        category = first(r"`category` is `([^`]+)`", task.instruction)
+        below = re.search(r"is below (\d+)", task.instruction)
+        for path, text in task.files.files.items():
+            if not (path.startswith("/inventory/archive/") or path.endswith(".csv.bak")):
+                continue
+            rows = [line.split(",") for line in text.splitlines()[1:]]
+            extra = [
+                sku
+                for sku, _, kind, qty in rows
+                if kind == category and (below is None or int(qty) < int(below.group(1)))
+            ]
+            assert any(sku not in task.expected.expected for sku in extra), (task.id, path)
+
+
+def test_instructions_ask_for_values_and_files_plainly():
+    config = generate("config", 5, 3).instruction
+    assert "not the key name" in config
+    assert "Do not write a header line" in generate("derive", 5, 4).instruction

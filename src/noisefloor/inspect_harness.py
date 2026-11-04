@@ -6,9 +6,12 @@ model is reached through the project proxy (``openai-api/nf/<run id>``), so ever
 call is ledgered and cached like minimal-agent's. Grading uses the suite's grader on
 the submitted answer and the final mock file system, exactly as for minimal-agent.
 
-End reasons: ``submitted`` (the agent called submit), ``step_limit`` or
-``wall_clock`` (an Inspect message or time limit ended the sample), ``backend_error``
-(the model call failed), ``harness_error`` (any other sample error).
+End reasons: ``submitted`` (Inspect accepted a submit call), ``stopped`` (the agent
+stopped without an accepted submit; with ``max_attempts=1``, a submit that fails
+Inspect's argument validation also ends the sample, with no answer), ``step_limit`` or
+``wall_clock`` (an Inspect message or time limit ended the sample), ``context_limit``
+(the conversation outgrew the context window), ``backend_error`` (the model call
+failed), ``harness_error`` (any other sample error).
 """
 
 from __future__ import annotations
@@ -76,15 +79,45 @@ def _params(spec: ToolSpec) -> ToolParams:
     return ToolParams(properties=props, required=list(schema.get("required", [])))
 
 
-def submitted_answer(messages: list[Any]) -> str | None:
-    """The answer passed to the last ``submit`` tool call, or None if there was none."""
-    answer = None
+def _tool_results(messages: list[Any]) -> dict[str, Any]:
+    return {
+        str(m.tool_call_id): m
+        for m in messages
+        if getattr(m, "role", "") == "tool" and getattr(m, "tool_call_id", None)
+    }
+
+
+def submitted_answer(messages: list[Any]) -> tuple[str | None, bool]:
+    """The answer of the last submit call Inspect accepted, and whether one was rejected.
+
+    A submit call counts only if its tool result exists and carries no error (Inspect's
+    argument validation rejects, for example, a number or an extra argument). The
+    second value is True if the last submit call was rejected.
+    """
+    results = _tool_results(messages)
+    answer: str | None = None
+    rejected = False
     for message in messages:
         for call in getattr(message, "tool_calls", None) or []:
-            if getattr(call, "function", "") == "submit":
-                args = getattr(call, "arguments", {}) or {}
-                answer = str(args.get("answer", "")) if isinstance(args, Mapping) else str(args)
-    return answer
+            if getattr(call, "function", "") != "submit":
+                continue
+            result = results.get(str(getattr(call, "id", "")))
+            if result is None or getattr(result, "error", None) is not None:
+                answer, rejected = None, result is not None
+                continue
+            args = getattr(call, "arguments", {}) or {}
+            answer = str(args.get("answer", "")) if isinstance(args, Mapping) else str(args)
+            rejected = False
+    return answer, rejected
+
+
+def rejected_calls(messages: list[Any]) -> int:
+    """Tool calls that Inspect rejected before they reached a tool (validation errors)."""
+    return sum(
+        1
+        for m in messages
+        if getattr(m, "role", "") == "tool" and getattr(m, "error", None) is not None
+    )
 
 
 def end_reason(sample: Any, answer: str | None) -> str:
@@ -95,6 +128,8 @@ def end_reason(sample: Any, answer: str | None) -> str:
     limit = getattr(sample, "limit", None)
     if limit is not None:
         return "wall_clock" if getattr(limit, "type", "") in ("time", "working") else "step_limit"
+    if getattr(getattr(sample, "output", None), "stop_reason", "") == "model_length":
+        return "context_limit"
     return "submitted" if answer is not None else "stopped"
 
 
@@ -135,7 +170,8 @@ def run(task: Task, settings: InspectSettings) -> dict[str, Any]:
             "outcome": 0.0,
             "error": str(getattr(logs[0], "error", "no sample")) if logs else "no log",
         }
-    answer = submitted_answer(list(sample.messages))
+    messages = list(sample.messages)
+    answer, rejected = submitted_answer(messages)
     reason = end_reason(sample, answer)
     grade = task.grade(answer, env.files)
     usage = sample.model_usage or {}
@@ -143,10 +179,13 @@ def run(task: Task, settings: InspectSettings) -> dict[str, Any]:
         "end_reason": reason,
         "status": episode_status(reason),
         "outcome": 1.0 if grade.passed else 0.0,
+        "outcome_strict": float(grade.score if grade.strict is None else grade.strict),
         "grade_reason": grade.reason,
         "answer": answer,
-        "steps": sum(1 for m in sample.messages if getattr(m, "role", "") == "assistant"),
-        "tool_calls": env.calls,
+        "submit_rejected": rejected,
+        "steps": sum(1 for m in messages if getattr(m, "role", "") == "assistant"),
+        "tool_calls": sum(1 for entry in env.trace if entry.tool != "submit"),
+        "rejected_calls": rejected_calls(messages),
         "input_tokens": sum(int(u.input_tokens or 0) for u in usage.values()),
         "output_tokens": sum(int(u.output_tokens or 0) for u in usage.values()),
         "wall_s": float(sample.total_time or 0.0),

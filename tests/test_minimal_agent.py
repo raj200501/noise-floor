@@ -129,3 +129,38 @@ def test_parse_action_round_trip() -> None:
         assert parse_action(text) == (tool, args)
 
     check()
+
+
+TOOLS = {"list_dir", "read_file", "write_file", "search", "calc", "submit"}
+
+
+@pytest.mark.parametrize(
+    ("reply", "expected"),
+    [
+        ('{"tool": "read_file", "parameters": {"path": "/a"}}', ("read_file", {"path": "/a"})),
+        ('{"tool": "read_file", "path": "/a"}', ("read_file", {"path": "/a"})),
+        (
+            '{"name": "read_file", "arguments": "{\\"path\\": \\"/a\\"}"}',
+            ("read_file", {"path": "/a"}),
+        ),
+        (
+            '{"type": "function", "function": {"name": "read_file", "arguments": {"path": "/a"}}}',
+            ("read_file", {"path": "/a"}),
+        ),
+        ('{"tool": "submit", "input": {"answer": "7"}}', ("submit", {"answer": "7"})),
+        ('{"tool": "list_dir", "arguments": ""}', ("list_dir", {})),
+    ],
+)
+def test_parse_action_accepts_common_argument_shapes(reply, expected):
+    assert parse_action(reply, TOOLS) == expected
+
+
+def test_parse_action_prefers_a_known_tool_over_a_restated_row():
+    reply = (
+        'Row: {"name": "steel hinge", "sku": "SKU-1", "qty": 3}\n'
+        '{"tool": "write_file", "args": {"path": "/r.txt", "content": "SKU-1"}}'
+    )
+    assert parse_action(reply, TOOLS) == ("write_file", {"path": "/r.txt", "content": "SKU-1"})
+    assert parse_action(reply)[0] == "steel hinge"  # without the tool list: first action
+    assert parse_action('{"tool": "x", "args": "not json"}', TOOLS) is None
+    assert parse_action('{"tool": "x", "args": [1]}', TOOLS) is None

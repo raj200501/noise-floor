@@ -21,16 +21,38 @@ def call(fn: str, **args: object) -> SimpleNamespace:
     return SimpleNamespace(function=fn, arguments=args)
 
 
-def test_submitted_answer() -> None:
-    msgs = [
-        SimpleNamespace(role="assistant", tool_calls=[call("read_file", path="/a")]),
-        SimpleNamespace(role="tool", tool_calls=None),
-        SimpleNamespace(role="assistant", tool_calls=[call("submit", answer=42)]),
+def submit(call_id: str, args: object) -> SimpleNamespace:
+    return SimpleNamespace(function="submit", arguments=args, id=call_id)
+
+
+def result(call_id: str, error: object = None) -> SimpleNamespace:
+    return SimpleNamespace(role="tool", tool_call_id=call_id, error=error, tool_calls=None)
+
+
+def test_submitted_answer_counts_only_accepted_submits() -> None:
+    read = SimpleNamespace(function="read_file", arguments={"path": "/a"}, id="c0")
+    accepted = [
+        SimpleNamespace(role="assistant", tool_calls=[read]),
+        result("c0"),
+        SimpleNamespace(role="assistant", tool_calls=[submit("c1", {"answer": "42"})]),
+        result("c1"),
     ]
-    assert ih.submitted_answer(msgs) == "42"
-    assert ih.submitted_answer(msgs[:2]) is None
-    odd = [SimpleNamespace(tool_calls=[SimpleNamespace(function="submit", arguments="raw")])]
-    assert ih.submitted_answer(odd) == "raw"
+    assert ih.submitted_answer(accepted) == ("42", False)
+    assert ih.submitted_answer(accepted[:2]) == (None, False)
+    # Inspect rejected a numeric answer: no answer, and the rejection is recorded.
+    rejected = [
+        SimpleNamespace(role="assistant", tool_calls=[submit("c2", {"answer": 42})]),
+        result("c2", error=SimpleNamespace(message="answer: 42 is not of type 'string'")),
+    ]
+    assert ih.submitted_answer(rejected) == (None, True)
+    assert ih.submitted_answer(accepted + rejected) == (None, True)
+    assert ih.submitted_answer(rejected + accepted) == ("42", False)
+    # A submit call that never ran (no tool result) is not an answer either.
+    unrun = [SimpleNamespace(role="assistant", tool_calls=[submit("c3", {"answer": "7"})])]
+    assert ih.submitted_answer(unrun) == (None, False)
+    odd = [SimpleNamespace(role="assistant", tool_calls=[submit("c4", "raw")]), result("c4")]
+    assert ih.submitted_answer(odd) == ("raw", False)
+    assert ih.rejected_calls(accepted + rejected) == 1
 
 
 @pytest.mark.parametrize(
@@ -52,6 +74,13 @@ def test_submitted_answer() -> None:
         (SimpleNamespace(error=None, limit=SimpleNamespace(type="message")), None, "step_limit"),
         (SimpleNamespace(error=None, limit=None), "7", "submitted"),
         (SimpleNamespace(error=None, limit=None), None, "stopped"),
+        (
+            SimpleNamespace(
+                error=None, limit=None, output=SimpleNamespace(stop_reason="model_length")
+            ),
+            None,
+            "context_limit",
+        ),
     ],
 )
 def test_end_reason(sample: SimpleNamespace, answer: str | None, expected: str) -> None:

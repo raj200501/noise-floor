@@ -233,3 +233,44 @@ configuration per batch), so the E1 analysis will include a batch random effect.
   found defects that would bias E1 statuses and grading (D-021). The s2 screening was stopped
   after 11 runs (banked in `artifacts/pilot/s2.jsonl`, exploratory) so that screening and E1 use
   one suite version; a new screening plan runs on the fixed suite.
+
+## D-021 2026-11-04 nf-tools suite v2 and harness parity (before any E1 data)
+An adversarial review (D-020) found defects that would bias E1. Fixed before the E1
+preregistration; suite version 2 (new golden manifest hash). Pilot p1 and screening s2 ran on
+version 1: exploratory, never pooled with version 2 data.
+- Grading: answers go through one extraction rule in every harness (`extract_answer`): code
+  fences, a one-field JSON object, wrapping quotes, curly quotes, backticks, or markdown emphasis,
+  a leading `The answer is` or `Answer:`, a one-word label with `=` or `:` (`port = X`, `id=X`),
+  a trailing note in parentheses, trailing `. , ; : !`, and for numbers a currency sign or a
+  trailing unit word. No expected answer contains any of these, so extraction can only accept a
+  correct value. The strict comparison is kept as `outcome_strict` for a sensitivity analysis.
+- Instructions: config asks for "only the value, exactly as written in the file, not the key
+  name"; derive adds "Do not write a header line".
+- End reasons in both local harnesses: a wall-clock expiry during a model call is `wall_clock`
+  (status `timeout`), a context overflow is the new `context_limit` (status `timeout`: a limit of
+  the run, caused by the episode), and other server failures stay `backend_error`
+  (`infra_error`). The proxy returns llama-server's context error to Inspect as OpenAI's
+  `context_length_exceeded`. Regression tests run both harnesses on a scripted server.
+- Inspect: only submit calls that Inspect accepted count. With `max_attempts=1`, a submit that
+  fails Inspect's argument validation (for example a number) ends the sample with no answer
+  (`stopped`, `submit_rejected`); minimal-agent accepts numbers. This is a property of the
+  harness and stays part of the harness contrast.
+- Shared counts: `tool_calls` are calls that reached the episode's tools, without `submit`;
+  `rejected_calls` are actions a harness rejected before any tool ran (minimal-agent: parse
+  errors and unknown tools; Inspect: validation errors).
+- minimal-agent parser: an action that names a known tool wins over other JSON in the reply;
+  arguments may sit under `args`, `arguments`, `parameters`, or `input`, as a JSON string, in
+  the OpenAI function wrapper, or flat beside the tool name.
+- Tools: `read_file` and `write_file` reject a path ending in `/`; path arguments lose
+  surrounding whitespace, backticks, and quotes; error messages name the tool to use; `calc`
+  limits nesting, not the length of a flat sum; `ToolEnv.call` never raises.
+- pointer: `old:` lines go on every note (difficulty 3 to 5) and `previous code:` on every note
+  that holds a code (difficulty 5), so no line type marks the chain or its end. A search for
+  `next:` still lists every link; tracing the chain from that listing is legitimate and costs
+  reasoning rather than tool calls.
+- derive: each distractor table holds at least one new sku of the asked category that passes the
+  threshold, so reading it by mistake changes the output; the archive copy and the `.bak` are
+  drawn independently. Derive episodes are graded on the final file whatever the end reason; E1
+  will report how many timeout rows have outcome 1.
+- csv_sum difficulty 4 and 5 are unchanged: they fit the 15-call budget only with search-based
+  discovery (the test oracle now runs under that budget), which the E1 preregistration states.

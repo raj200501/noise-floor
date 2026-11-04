@@ -14,6 +14,7 @@ from noisefloor.suite.grading import (
     FileSpec,
     Grade,
     episode_status,
+    extract_answer,
     grade,
     grade_answer,
     grade_file,
@@ -137,12 +138,12 @@ def test_file_spec_validation_and_canonical():
 
 def test_grade_answer_text_modes():
     text = AnswerSpec("Tk-AbC", "text")
-    assert grade_answer(text, " `Tk-AbC`. ") == Grade(1, "answer matches")
+    assert grade_answer(text, " `Tk-AbC`. ") == Grade(1, "answer matches", strict=1)
     assert grade_answer(text, "tk-abc").score == 0
     folded = AnswerSpec("QX-1234", "casefold")
     assert grade_answer(folded, "qx-1234").passed
     assert not grade_answer(folded, "QX-1235").passed
-    assert grade_answer(folded, None) == Grade(0, "no answer submitted")
+    assert grade_answer(folded, None) == Grade(0, "no answer submitted", strict=0)
     assert grade_answer(folded, "").score == 0
 
 
@@ -153,11 +154,67 @@ def test_grade_answer_numeric():
     assert grade_answer(AnswerSpec("15.75", "numeric"), repr(12.5 + 3.25)).passed
     assert grade_answer(AnswerSpec("0.3", "numeric"), repr(0.1 + 0.2)).passed
     wrong = grade_answer(spec, "1234.51")
-    assert wrong == Grade(0, "expected 1234.50, got '1234.51'")
+    assert wrong == Grade(0, "expected 1234.50, got '1234.51'", strict=0)
     assert grade_answer(spec, "about 1234").reason == "answer is not a number: 'about 1234'"
     long = grade_answer(spec, "z" * 200)
     assert long.score == 0 and long.reason.endswith("...'")
     assert grade_answer(spec, None).score == 0
+
+
+@pytest.mark.parametrize(
+    ("submitted", "mode"),
+    [
+        ("port = 37667", "numeric"),
+        ("The answer is 37667", "numeric"),
+        ("Answer: 37667", "numeric"),
+        ("Final answer: 37667.", "numeric"),
+        ("**37667**", "numeric"),
+        ("```text\n37667\n```", "numeric"),
+        ('{"answer": 37667}', "numeric"),
+        ('{"value": "37667"}', "numeric"),
+        ("37667 (from local.cfg)", "numeric"),
+        ("$37,667", "numeric"),
+        ("37667 dollars", "numeric"),
+        ("\u201c37667\u201d", "numeric"),
+        ("37667!", "numeric"),
+        ("id=S-6666", "text"),
+        ("id: S-6666", "text"),
+        ("code: S-6666", "casefold"),
+        ("`S-6666`,", "text"),
+        ("_S-6666_", "text"),
+    ],
+)
+def test_wrapped_correct_answers_pass_after_extraction(submitted, mode):
+    expected = "S-6666" if mode != "numeric" else "37667"
+    grade = grade_answer(AnswerSpec(expected, mode), submitted)
+    assert grade.score == 1 and grade.strict == 0, (submitted, grade)
+    assert grade.reason.endswith("after extraction")
+
+
+@pytest.mark.parametrize(
+    ("submitted", "expected", "mode"),
+    [
+        ("port = 8080", "37667", "numeric"),
+        ("37667 or 8080", "37667", "numeric"),
+        ('{"answer": "37667", "note": "x"}', "37667", "numeric"),
+        ("S-6666 and S-1111", "S-6666", "text"),
+        ("not S-6666", "S-6666", "text"),
+        ('{"answer": true}', "true", "text"),
+    ],
+)
+def test_extraction_never_rescues_a_wrong_or_hedged_answer(submitted, expected, mode):
+    assert grade_answer(AnswerSpec(expected, mode), submitted).score == 0, submitted
+
+
+def test_extract_answer_is_a_fixed_point():
+    assert extract_answer("  The final answer is: **`tk-ab12`**.  ") == "tk-ab12"
+    assert extract_answer("$-12.50 USD", numeric=True) == "-12.50"
+    assert extract_answer("$-12.50 USD") == "$-12.50 USD"
+    assert extract_answer('{"answer": [1]}') == '{"answer": [1]}'
+    assert extract_answer("{not json}") == "{not json}"
+    for text in ("port = 1", "`x`", "a (b)", "**y**"):
+        once = extract_answer(text)
+        assert extract_answer(once) == once
 
 
 def test_numeric_tolerance_is_capped_by_expected_precision():

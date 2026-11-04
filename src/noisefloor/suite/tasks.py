@@ -404,7 +404,7 @@ def _build_config(rng: random.Random, level: _ConfigLevel) -> _Draft:
     ]
     if level.backup:
         parts.append("Files ending in `.bak` are stale backups.")
-    parts.append("Submit the value exactly as written in the file.")
+    parts.append("Submit only the value, exactly as written in the file, not the key name.")
     mode: grading.AnswerMode = "numeric" if key in _INT_RANGES else "text"
     return _Draft(" ".join(parts), files, AnswerSpec(plan.answer, mode))
 
@@ -600,16 +600,21 @@ def _build_pointer(rng: random.Random, level: _PointerLevel) -> _Draft:
         link = posixpath.relpath(dest, posixpath.dirname(source)) if relative else dest
         notes[source].append(f"next: {link}")
     notes[chain[-1]].append(f"code: {codes[0]}")
-    if level.previous_code:
-        notes[chain[-1]].append(f"previous code: {codes[1]}")
     for index, path in enumerate(decoys):
         if index + 1 < len(decoys) and rng.random() < 0.5:
             notes[path].append(f"next: {rng.choice(decoys[index + 1 :])}")
         else:
             notes[path].append(f"code: {codes[2 + index]}")
+    # Distractor lines go on every note that can carry them, chain or decoy, so that no
+    # line type tells the chain apart (a search for it must not shortcut the links).
+    if level.previous_code:
+        spare = [c for c in _unique(lambda: _code(rng), len(notes) + len(codes)) if c not in codes]
+        holders = [lines for lines in notes.values() if any(x.startswith("code: ") for x in lines)]
+        for lines, code in zip(holders, spare, strict=False):  # spare is never shorter
+            lines.append(f"previous code: {code}")
     if level.decoys:
-        for source in sources:
-            notes[source].append(f"old: {rng.choice(decoys)}")
+        for path, lines in notes.items():
+            lines.append(f"old: {rng.choice([d for d in decoys if d != path])}")
     files = _render_notes(rng, notes, level.filler)
 
     parts = [
@@ -689,6 +694,26 @@ def _stock(rng: random.Random, level: _DeriveLevel, category: str) -> list[Stock
     return [[(item, rng.randint(0, 40)) for item in pick] for pick in picks]
 
 
+def _side_table(
+    rng: random.Random,
+    level: _DeriveLevel,
+    category: str,
+    threshold: int | None,
+    taken: Mapping[str, int],
+) -> Stock:
+    """A distractor table that would add a line to the output if it were read.
+
+    It holds at least one new sku of the asked category that passes the threshold.
+    """
+    while True:
+        rows = _stock(rng, level, category)[0]
+        if any(
+            kind == category and sku not in taken and (threshold is None or qty < threshold)
+            for (sku, _, kind), qty in rows
+        ):
+            return rows
+
+
 def _render_stock(rows: Stock) -> str:
     lines = ["sku,name,category,qty", *(f"{s},{n},{c},{qty}" for (s, n, c), qty in rows)]
     return "\n".join(lines) + "\n"
@@ -721,10 +746,15 @@ def _build_derive(rng: random.Random, level: _DeriveLevel) -> _Draft:
     lines = [sku if level.output_fields == 1 else f"{sku},{values[sku]}" for sku in chosen]
 
     files = {f"{_INVENTORY}/{names[i]}.csv": _render_stock(t) for i, t in enumerate(tables)}
-    side = _stock(rng, level, category)[0]
     distractors = [
-        (f"{_INVENTORY}/archive/{names[-1]}.csv", _render_stock(side)),
-        (f"{_INVENTORY}/{names[-2]}.csv.bak", _render_stock(side[::-1])),
+        (
+            f"{_INVENTORY}/archive/{names[-1]}.csv",
+            _render_stock(_side_table(rng, level, category, threshold, totals)),
+        ),
+        (
+            f"{_INVENTORY}/{names[-2]}.csv.bak",
+            _render_stock(_side_table(rng, level, category, threshold, totals)),
+        ),
         (f"{_INVENTORY}/README.txt", "Stock counts are updated every night.\n"),
     ]
     files.update(distractors[: level.distractors])
@@ -754,7 +784,8 @@ def _build_derive(rng: random.Random, level: _DeriveLevel) -> _Draft:
         )
     parts.append(
         f"Write `{out}` with one line per {unit} whose `category` is `{category}`{below}, "
-        f"{fields_text}, {sort_text}. Then call `submit` with any answer; only the file is graded."
+        f"{fields_text}, {sort_text}. Do not write a header line. Then call `submit` with any "
+        "answer; only the file is graded."
     )
     return _Draft(" ".join(parts), files, FileSpec(out, "\n".join(lines) + "\n"))
 

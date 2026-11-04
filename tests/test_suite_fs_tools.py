@@ -181,7 +181,9 @@ def test_list_dir_tool():
     env = make_env()
     assert env.call("list_dir", {"path": "/data"}) == "a.txt\nsales-old/\nsub/"
     assert env.call("list_dir") == "data/\nnotes.md"
-    assert env.call("list_dir", {"path": "/notes.md"}) == "error: not a directory: /notes.md"
+    assert env.call("list_dir", {"path": "/notes.md"}) == (
+        "error: not a directory: /notes.md (it is a file; use read_file)"
+    )
     assert env.call("list_dir", {"path": "/zzz"}) == "error: no such directory: /zzz"
     assert ToolEnv(Snapshot()).call("list_dir", {}) == "(empty directory)"
 
@@ -190,7 +192,9 @@ def test_read_file_tool():
     env = make_env()
     assert env.call("read_file", {"path": "/data/a.txt"}) == FILES["/data/a.txt"]
     assert env.call("read_file", {"path": "/notes.md"}) == "(empty file)"
-    assert env.call("read_file", {"path": "/data"}) == "error: is a directory: /data"
+    assert env.call("read_file", {"path": "/data"}) == (
+        "error: is a directory: /data (use list_dir to see its entries)"
+    )
     assert env.call("read_file", {"path": "/x"}) == "error: no such file: /x"
 
 
@@ -214,9 +218,30 @@ def test_write_file_tool():
         "error: content is longer"
     )
     assert env.call("write_file", {"path": "/data", "content": "x"}) == (
-        "error: is a directory: /data"
+        "error: is a directory: /data (give a file path to write)"
     )
     assert env.files.get("/y") is None
+    # A trailing slash names a directory: it must not create a file that blocks the path.
+    for tool in ("write_file", "read_file"):
+        args = {"path": "/reports/", "content": ""} if tool == "write_file" else {"path": "/out/"}
+        assert env.call(tool, args).startswith("error: ") and "names a directory" in env.call(
+            tool, args
+        )
+    assert env.files.get("/reports") is None
+    assert env.call("write_file", {"path": "/reports/r.txt", "content": "z"}).startswith("wrote")
+
+
+def test_path_arguments_lose_quotes_and_whitespace():
+    env = make_env()
+    for path in ("`/notes.md`", " '/notes.md' ", '"/notes.md"\n', "` /notes.md `"):
+        assert env.call("read_file", {"path": path}) == env.call("read_file", {"path": "/notes.md"})
+    assert env.call("list_dir", {"path": "`/data`"}).startswith("a.txt")
+
+
+def test_tool_env_never_raises_on_huge_integers():
+    env = make_env()
+    huge = 10**5000
+    assert env.call("read_file", {"path": huge}).startswith("error: ")
 
 
 def test_search_tool():
@@ -320,6 +345,7 @@ def test_calc_evaluates_arithmetic(expression, want):
         ("1\x00", "could not parse"),
         ("(" * 300 + "1" + ")" * 300, "could not parse"),
         ("-" * 150 + "1", "nested too deeply"),
+        ("1+" * 30 + "(" * 0 + "-(" * 120 + "1" + ")" * 120, "nested too deeply"),
         ("1+" * CALC_MAX_CHARS + "1", "longer than"),
     ],
 )
@@ -441,3 +467,8 @@ def test_episodes_do_not_share_state():
     one.call("write_file", {"path": "/data/a.txt", "content": "mine"})
     assert two.call("read_file", {"path": "/data/a.txt"}) == FILES["/data/a.txt"]
     assert snap.read("/data/a.txt") == FILES["/data/a.txt"]
+
+
+def test_calc_long_flat_sums_are_not_nesting():
+    assert evaluate_arithmetic("+".join(["1.5"] * 450)) == 675.0
+    assert evaluate_arithmetic("100-1-2-3") == 94

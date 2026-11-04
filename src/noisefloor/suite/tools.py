@@ -184,14 +184,22 @@ def _evaluate(node: ast.expr, depth: int) -> Number:
         operand = _evaluate(node.operand, depth + 1)
         return -operand if isinstance(node.op, ast.USub) else operand
     if isinstance(node, ast.BinOp):
-        func = _BINARY.get(type(node.op))
-        if func is None:
-            raise CalcError(f"operator not allowed: {type(node.op).__name__}")
-        left = _evaluate(node.left, depth + 1)
-        right = _evaluate(node.right, depth + 1)
-        if isinstance(node.op, ast.Pow):
-            _check_power(left, right)
-        return _checked(func(left, right))
+        # A flat chain such as a + b + c nests on the left: walk it in a loop, so that its
+        # length costs no depth and no recursion; only real nesting counts toward the limit.
+        links: list[ast.BinOp] = []
+        while isinstance(node, ast.BinOp):
+            links.append(node)
+            node = node.left
+        value = _evaluate(node, depth + 1)
+        for link in reversed(links):
+            func = _BINARY.get(type(link.op))
+            if func is None:
+                raise CalcError(f"operator not allowed: {type(link.op).__name__}")
+            right = _evaluate(link.right, depth + 1)
+            if isinstance(link.op, ast.Pow):
+                _check_power(value, right)
+            value = _checked(func(value, right))
+        return value
     raise CalcError(f"not allowed in an expression: {type(node).__name__}")
 
 
@@ -245,8 +253,27 @@ def _args_record(args: object) -> dict[str, object]:
     return {"_raw": repr(args)[:200]}
 
 
+_PATH_WRAPPERS = "`'\""
+
+
+def _clean_path(value: str) -> str:
+    """A path argument without surrounding whitespace, backticks, or quotes."""
+    previous = None
+    while value != previous:
+        previous = value
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in _PATH_WRAPPERS:
+            value = value[1:-1]
+    return value
+
+
 def _parse_args(spec: ToolSpec, args: object) -> dict[str, str] | str:
-    """Validated string arguments, or an error observation."""
+    """Validated string arguments, or an error observation.
+
+    Path arguments lose surrounding whitespace, backticks, and quotes (as copied from
+    the instruction), and a file path for ``read_file`` or ``write_file`` must not end
+    with ``/``.
+    """
     if args is None:
         args = {}
     if not isinstance(args, Mapping):
@@ -266,6 +293,13 @@ def _parse_args(spec: ToolSpec, args: object) -> dict[str, str] | str:
         if isinstance(value, bool) or not isinstance(value, str | int | float):
             return _error(f"argument '{param.name}' for {spec.name} must be a string")
         parsed[param.name] = str(value)
+    if "path" in parsed:
+        parsed["path"] = _clean_path(parsed["path"])
+        if spec.name in ("read_file", "write_file") and parsed["path"].endswith("/"):
+            return _error(
+                f"{parsed['path']} names a directory; give a file path (parent directories "
+                "are created automatically)"
+            )
     return parsed
 
 
@@ -349,10 +383,10 @@ class ToolEnv:
         spec = TOOLS_BY_NAME.get(name) if isinstance(name, str) else None
         if spec is None:
             return _error(f"unknown tool {name!r}; available tools: {', '.join(TOOL_NAMES)}")
-        parsed = _parse_args(spec, args)
-        if isinstance(parsed, str):
-            return parsed
         try:
+            parsed = _parse_args(spec, args)
+            if isinstance(parsed, str):
+                return parsed
             return self._run(spec.name, parsed)
         except (FsError, CalcError) as exc:
             return _error(str(exc))

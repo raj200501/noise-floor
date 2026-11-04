@@ -16,11 +16,17 @@ from __future__ import annotations
 import json
 import re
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from noisefloor.client import BackendError, ChatRequest, Client
+from noisefloor.client import (
+    BackendError,
+    BackendTimeoutError,
+    ChatRequest,
+    Client,
+    ContextLimitError,
+)
 
 FENCE = re.compile(r"```(?:json|JSON)?\s*(.*?)```", re.S)
 
@@ -88,6 +94,8 @@ class Episode:
     trace: list[dict[str, Any]] = field(default_factory=list)
     error: str = ""
     model_ids: list[str] = field(default_factory=list)
+    end_reason: str = ""
+    rejected_calls: int = 0
 
 
 def system_prompt(specs: Sequence[ToolSpecLike]) -> str:
@@ -105,16 +113,57 @@ def system_prompt(specs: Sequence[ToolSpecLike]) -> str:
     return "\n".join(lines)
 
 
-def parse_action(text: str) -> tuple[str, dict[str, Any]] | None:
-    """Extract ``(tool, args)`` from a reply, or None if no valid action is present."""
+_ARG_KEYS = ("args", "arguments", "parameters", "input")
+_NAME_KEYS = frozenset({"tool", "name", "type", "id"})
+
+
+def _as_action(obj: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
+    """``(tool, args)`` from one JSON object, or None if it is not an action.
+
+    Accepts ``tool`` or ``name``; arguments under ``args``, ``arguments``,
+    ``parameters``, or ``input`` (a JSON-encoded string is decoded), or flat beside the
+    tool name; and the OpenAI ``{"type": "function", "function": {...}}`` wrapper.
+    """
+    inner = obj.get("function")
+    if isinstance(inner, dict) and ("name" in inner or "tool" in inner):
+        obj = inner
+    tool = obj.get("tool") or obj.get("name")
+    if not isinstance(tool, str):
+        return None
+    for key in _ARG_KEYS:
+        if key in obj:
+            args = obj[key]
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args) if args.strip() else {}
+                except ValueError:
+                    return None
+            return (tool, args) if isinstance(args, dict) else None
+    return tool, {k: v for k, v in obj.items() if k not in _NAME_KEYS}
+
+
+def parse_action(
+    text: str, tools: Collection[str] | None = None
+) -> tuple[str, dict[str, Any]] | None:
+    """Extract ``(tool, args)`` from a reply, or None if no valid action is present.
+
+    JSON objects inside code fences come first, then the whole reply. With ``tools``,
+    the first action that names a known tool wins (so a restated data row such as
+    ``{"name": "steel hinge", ...}`` is not taken for the action); otherwise, or if
+    none does, the first action.
+    """
     candidates = [m.group(1) for m in FENCE.finditer(text)] + [text]
-    for chunk in candidates:
-        for obj in _json_objects(chunk):
-            tool = obj.get("tool") or obj.get("name")
-            args = obj.get("args", obj.get("arguments", {}))
-            if isinstance(tool, str) and isinstance(args, dict):
-                return tool, args
-    return None
+    actions = [
+        action
+        for chunk in candidates
+        for obj in _json_objects(chunk)
+        if (action := _as_action(obj)) is not None
+    ]
+    if tools is not None:
+        known = next((a for a in actions if a[0] in tools), None)
+        if known is not None:
+            return known
+    return actions[0] if actions else None
 
 
 def _json_objects(text: str) -> list[dict[str, Any]]:
@@ -144,8 +193,10 @@ def run_episode(env: Environment, client: Client, config: AgentConfig) -> Episod
     ]
     start = time.monotonic()
     episode = Episode("timeout", 0, 0, 0, 0, 0.0, 0.0)
+    episode.end_reason = "step_limit"
     while episode.steps < config.max_steps:
         if time.monotonic() - start > config.wall_limit_s:
+            episode.end_reason = "wall_clock"
             break
         request = ChatRequest(
             backend=config.backend,
@@ -159,7 +210,15 @@ def run_episode(env: Environment, client: Client, config: AgentConfig) -> Episod
             remaining = max(1.0, config.wall_limit_s - (time.monotonic() - start))
             reply = client.chat(request, kind=config.call_kind, timeout=remaining)
         except BackendError as exc:
-            episode.status, episode.error = "infra_error", str(exc)[:300]
+            episode.error = str(exc)[:300]
+            if isinstance(exc, ContextLimitError):
+                episode.status, episode.end_reason = "timeout", "context_limit"
+            elif isinstance(exc, BackendTimeoutError) or (
+                time.monotonic() - start >= config.wall_limit_s
+            ):
+                episode.status, episode.end_reason = "timeout", "wall_clock"
+            else:
+                episode.status, episode.end_reason = "infra_error", "backend_error"
             break
         episode.steps += 1
         episode.input_tokens += reply.input_tokens
@@ -168,12 +227,14 @@ def run_episode(env: Environment, client: Client, config: AgentConfig) -> Episod
         if reply.model_id and reply.model_id not in episode.model_ids:
             episode.model_ids.append(reply.model_id)
         messages.append({"role": "assistant", "content": reply.text})
-        action = parse_action(reply.text)
+        action = parse_action(reply.text, names)
         if action is None:
             episode.parse_errors += 1
+            episode.rejected_calls += 1
             observation = 'Error: reply with one JSON object like {"tool": ..., "args": {...}}.'
             episode.trace.append({"tool": None, "obs_chars": len(observation)})
         elif action[0] not in names:
+            episode.rejected_calls += 1
             observation = f"Error: unknown tool {action[0]!r}. Tools: {', '.join(sorted(names))}."
             episode.trace.append({"tool": action[0], "obs_chars": len(observation)})
         else:
@@ -181,6 +242,7 @@ def run_episode(env: Environment, client: Client, config: AgentConfig) -> Episod
             episode.trace.append({"tool": action[0], "obs_chars": len(observation)})
         if env.done:
             episode.status = "ok"
+            episode.end_reason = str(getattr(env, "end_reason", None) or "submitted")
             break
         messages.append(
             {

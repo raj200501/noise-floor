@@ -18,7 +18,7 @@ from typing import Any
 from noisefloor.suite.tasks import DIFFICULTIES, FAMILIES, FAMILY_NAMES, Task, generate
 
 SUITE_NAME = "nf-tools"
-SUITE_VERSION = "1"
+SUITE_VERSION = "2"  # D-021: grader, pointer, derive, and tool fixes
 
 
 def _seed_list(seeds: range | Sequence[int]) -> list[int]:

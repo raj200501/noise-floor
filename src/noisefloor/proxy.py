@@ -21,6 +21,7 @@ from noisefloor.client import (
     ChatRequest,
     ChatResponse,
     Client,
+    ContextLimitError,
     ModelCallRefusedError,
 )
 
@@ -113,6 +114,15 @@ def make_handler(client: Client, timeout: float) -> type[BaseHTTPRequestHandler]
                 reply = client.chat(request, timeout=timeout)
             except ModelCallRefusedError as exc:
                 self._send(403, {"error": {"message": str(exc)}})
+                return
+            except ContextLimitError as exc:
+                # OpenAI's code for this, so the harness sees a context overflow, not a fault.
+                error = {
+                    "message": str(exc),
+                    "type": "invalid_request_error",
+                    "code": "context_length_exceeded",
+                }
+                self._send(400, {"error": error})
                 return
             except BackendError as exc:
                 self._send(502, {"error": {"message": str(exc)}})
