@@ -61,11 +61,15 @@ def component_summary(rows: Sequence[Mapping[str, Any]], component: str) -> dict
         "bias": sum(errors) / len(errors) if errors else None,
         "coverage": {},
         "missing": {},
+        "above_zero": {},
     }
     for rule in rules_of(rows, component):
         hits = sum(_covers(c[rule], c["planted"]) for c in comps)
         out["coverage"][rule] = hits / len(comps)
         out["missing"][rule] = sum(1 for c in comps if not c[rule] or None in c[rule])
+        # Power of "supported as non-zero": the interval's lower end is above 0.
+        above = sum(1 for c in comps if c[rule] and c[rule][0] is not None and c[rule][0] > 0)
+        out["above_zero"][rule] = above / len(comps)
     return out
 
 

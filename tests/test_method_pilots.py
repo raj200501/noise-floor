@@ -30,6 +30,7 @@ def test_component_summary_counts_missing_as_miss() -> None:
     out = mp.component_summary(ROWS, "harness")
     assert out["n"] == 3 and out["coverage"]["box_basic"] == pytest.approx(1 / 3)
     assert out["missing"]["box_basic"] == 1
+    assert out["above_zero"]["box_basic"] == pytest.approx(2 / 3)
     task = mp.component_summary(ROWS, "task")
     assert task["coverage"]["basic"] == pytest.approx(2 / 3)
     assert task["bias"] == pytest.approx(-0.1)
