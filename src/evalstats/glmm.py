@@ -89,6 +89,8 @@ class Decomposition:
     """Model-based standard error of every fixed-effect coefficient (bootstrap only)."""
     coefficient_se_replicates: dict[str, tuple[float, ...]] = field(default_factory=dict)
     """Bootstrap replicates of those standard errors (bootstrap only)."""
+    coefficient_jackknife: dict[str, tuple[float, ...]] = field(default_factory=dict)
+    """Every coefficient in each delete-one-group refit (jackknife only)."""
 
     def component(self, name: str) -> VarianceComponent:
         """The component with this name."""
@@ -117,6 +119,7 @@ class _RawFit:
     boot_fixed: dict[str, np.ndarray] = field(default_factory=dict)  # replicate coefficients
     fixed_se: dict[str, float] = field(default_factory=dict)  # model-based standard errors
     boot_fixed_se: dict[str, np.ndarray] = field(default_factory=dict)  # their replicates
+    jack_fixed: dict[str, np.ndarray] = field(default_factory=dict)  # delete-one-group fits
 
 
 def _check_names(names: Sequence[str], frame: pd.DataFrame) -> None:
@@ -237,26 +240,39 @@ function(df, formula, factors, level, do_profile) {
 
 
 _R_BOOT = """
-function(df, formula, factors, nagq, n_boot, seed) {
+function(df, formula, factors, nagq, n_boot, seed, jk_group) {
   for (col in factors) df[[col]] <- factor(df[[col]])
   msgs <- character(0)
   keep <- function(w) {
     msgs <<- c(msgs, conditionMessage(w))
     invokeRestart("muffleWarning")
   }
-  ctrl <- lme4::glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 1e5))
+  form <- stats::as.formula(formula)
+  response <- all.vars(form[[2]])
+  # The original fit tries a fixed optimizer sequence and keeps the first that fits without
+  # an error; the replicates use the same optimizer.
+  fit <- NULL
+  for (opt in c("bobyqa", "Nelder_Mead", "nloptwrap")) {
+    optctrl <- if (opt == "nloptwrap") list() else list(maxfun = 1e5)
+    ctrl <- lme4::glmerControl(optimizer = opt, optCtrl = optctrl)
+    fit <- tryCatch(
+      withCallingHandlers(
+        lme4::glmer(form, data = df, family = stats::binomial, nAGQ = nagq, control = ctrl),
+        warning = keep
+      ),
+      error = function(e) {
+        msgs <<- c(msgs, paste("optimizer", opt, "failed:", conditionMessage(e)))
+        NULL
+      }
+    )
+    if (!is.null(fit)) break
+  }
+  if (is.null(fit)) stop(paste("no optimizer fitted the model:", paste(msgs, collapse = "; ")))
+  msgs <- c(msgs, paste("optimizer:", opt))
   # Replicates are fresh fits (refit() starts the Laplace stage without the nAGQ = 0
   # initial step and is slower); they skip the final derivative pass, which only feeds
   # convergence diagnostics, so diagnostics come from the original fit alone.
-  boot_ctrl <- lme4::glmerControl(
-    optimizer = "bobyqa", optCtrl = list(maxfun = 1e5), calc.derivs = FALSE
-  )
-  form <- stats::as.formula(formula)
-  response <- all.vars(form[[2]])
-  fit <- withCallingHandlers(
-    lme4::glmer(form, data = df, family = stats::binomial, nAGQ = nagq, control = ctrl),
-    warning = keep
-  )
+  boot_ctrl <- lme4::glmerControl(optimizer = opt, optCtrl = optctrl, calc.derivs = FALSE)
   vc <- as.data.frame(lme4::VarCorr(fit))
   grp <- as.character(vc$grp)
   fe_names <- names(lme4::fixef(fit))
@@ -286,11 +302,27 @@ function(df, formula, factors, nagq, n_boot, seed) {
     boot_fe[b, ] <- as.numeric(lme4::fixef(f)[fe_names])
     boot_se[b, ] <- as.numeric(se_of(f))
   }
+  # Delete-one-group jackknife of the fixed effects (fresh fits), when a group is given.
+  levels_jk <- if (nzchar(jk_group)) sort(unique(as.character(df[[jk_group]]))) else character(0)
+  jk_fe <- matrix(NA_real_, length(levels_jk), length(fe_names))
+  jk_failed <- 0L
+  for (i in seq_along(levels_jk)) {
+    d <- droplevels(df[as.character(df[[jk_group]]) != levels_jk[i], , drop = FALSE])
+    f <- tryCatch(
+      suppressWarnings(
+        lme4::glmer(form, data = d, family = stats::binomial, nAGQ = nagq, control = boot_ctrl)
+      ),
+      error = function(e) NULL
+    )
+    if (is.null(f)) { jk_failed <- jk_failed + 1L; next }
+    jk_fe[i, ] <- as.numeric(lme4::fixef(f)[fe_names])
+  }
   conv <- fit@optinfo$conv$lme4$messages
   list(
     grp = grp, vcov = as.numeric(vc$vcov), fe_names = fe_names,
     fe = as.numeric(lme4::fixef(fit)), boot_vc = boot_vc, boot_fe = boot_fe,
     se = as.numeric(se_of(fit)), boot_se = boot_se,
+    jk_fe = jk_fe, jk_n = length(levels_jk), jk_failed = jk_failed,
     failed = failed, warned = warned,
     msgs = unique(c(as.character(msgs), as.character(conv))),
     version = as.character(utils::packageVersion("lme4"))
@@ -307,6 +339,7 @@ def _fit_lme4_bootstrap(
     nagq: int,
     n_boot: int,
     seed: int,
+    jackknife: str = "",
 ) -> _RawFit:
     import rpy2.robjects as ro
     from rpy2.rinterface_lib import callbacks
@@ -323,7 +356,9 @@ def _fit_lme4_bootstrap(
         with localconverter(ro.default_converter + pandas2ri.converter):
             rdf = ro.conversion.get_conversion().py2rpy(data)
         # R's set.seed takes a 32-bit integer.
-        out = ro.r(_R_BOOT)(rdf, formula, factors, nagq, n_boot, int(seed) % 2_147_483_647)
+        out = ro.r(_R_BOOT)(
+            rdf, formula, factors, nagq, n_boot, int(seed) % 2_147_483_647, jackknife
+        )
     finally:
         callbacks.consolewrite_warnerror = saved
     get = dict(zip(out.names, list(out), strict=True))
@@ -340,6 +375,11 @@ def _fit_lme4_bootstrap(
         g.replace("__", ":"): boot_vc[:, i] for i, g in enumerate(grp) if g != "Residual"
     }
     msgs = [str(m) for m in get["msgs"]]
+    jk_n = int(next(iter(get["jk_n"])))
+    jk_fe = np.asarray(get["jk_fe"], dtype=np.float64).reshape(jk_n, len(fe_names), order="F")
+    if jk_n:
+        jk_failed = int(next(iter(get["jk_failed"])))
+        msgs.append(f"jackknife over {jackknife}: {jk_n} refits, {jk_failed} failed")
     failed, warned = int(next(iter(get["failed"]))), int(next(iter(get["warned"])))
     msgs.append(f"bootstrap: {n_boot} replicates, {failed} failed, {warned} with warnings")
     return _RawFit(
@@ -355,6 +395,7 @@ def _fit_lme4_bootstrap(
         boot_fixed={n: boot_fe[:, i] for i, n in enumerate(fe_names)},
         fixed_se=dict(zip(fe_names, [float(v) for v in get["se"]], strict=True)),
         boot_fixed_se={n: boot_se[:, i] for i, n in enumerate(fe_names)},
+        jack_fixed={n: jk_fe[:, i] for i, n in enumerate(fe_names)} if jk_n else {},
     )
 
 
@@ -599,8 +640,6 @@ def contribution_box(
     ``se_draws`` are the coefficients' standard errors (for the ``student`` rule). None if a
     coefficient has fewer than two usable replicates or the factor has more than 13 levels.
     """
-    from scipy import optimize
-
     k1 = draws.shape[1]
     if k1 == 0 or k1 > _MAX_BOX_COEFS:
         return None
@@ -618,6 +657,15 @@ def contribution_box(
         if ci is None:
             return None
         bounds.append(ci)
+    return _box_range(weights, estimate, bounds)
+
+
+def _box_range(
+    weights: np.ndarray, estimate: np.ndarray, bounds: Sequence[tuple[float, float]]
+) -> tuple[float, float]:
+    """Range of the contribution variance over a box of coefficient intervals."""
+    from scipy import optimize
+
     # A convex quadratic: its maximum over the box is at a vertex, its minimum is found by
     # bounded minimization from the clipped estimate.
     hi_v = max(_contribution_variance(weights, np.array(v)) for v in itertools.product(*bounds))
@@ -628,8 +676,49 @@ def contribution_box(
     def objective(x: np.ndarray) -> float:
         return _contribution_variance(weights, x)
 
-    res = optimize.minimize(objective, start, method="L-BFGS-B", bounds=bounds)
+    res = optimize.minimize(objective, start, method="L-BFGS-B", bounds=list(bounds))
     return max(0.0, float(res.fun)), hi_v
+
+
+def jackknife_coef_interval(
+    estimate: float, draws: np.ndarray, level: float
+) -> tuple[float, float] | None:
+    """Student t interval for a coefficient from its delete-one-group refits.
+
+    The jackknife standard error is ``sqrt((G - 1) / G * sum((d - mean(d))**2))`` over the
+    ``G`` refits that succeeded, and the quantile is Student t on ``G - 1`` degrees of
+    freedom. None with fewer than 3 refits.
+    """
+    from scipy import stats
+
+    d = draws[np.isfinite(draws)]
+    g = d.size
+    if g < 3:
+        return None
+    se = math.sqrt((g - 1) / g * float(np.sum((d - d.mean()) ** 2)))
+    q = float(stats.t.ppf(0.5 + level / 2, g - 1))
+    return estimate - q * se, estimate + q * se
+
+
+def jackknife_box(
+    weights: np.ndarray, estimate: np.ndarray, draws: np.ndarray, level: float
+) -> tuple[float, float] | None:
+    """Contribution interval from a Bonferroni box of jackknife coefficient intervals.
+
+    ``draws`` has one row per deleted group and one column per coefficient (the factor's
+    levels after the reference). None if any coefficient has no interval.
+    """
+    k1 = draws.shape[1]
+    if k1 == 0 or k1 > _MAX_BOX_COEFS:
+        return None
+    each = 1 - (1 - level) / k1
+    bounds = []
+    for j in range(k1):
+        ci = jackknife_coef_interval(float(estimate[j]), draws[:, j], each)
+        if ci is None:
+            return None
+        bounds.append(ci)
+    return _box_range(weights, estimate, bounds)
 
 
 def coefficient_errors(
@@ -655,13 +744,19 @@ def _boot_parts(
     level: float,
     boot_interval: str,
     box_interval: str = "percentile",
+    fixed_interval: str = "box",
 ) -> list[tuple[str, str, float, tuple[float, float] | None, np.ndarray]]:
-    """(name, kind, estimate, interval, replicate values) for every non-residual component."""
+    """(name, kind, estimate, interval, replicate values) for every non-residual component.
+
+    A component whose bootstrap lost more than ``MAX_FAILED_SHARE`` of its replicates gets
+    no interval. With ``fixed_interval="jackknife"`` a fixed factor's interval is
+    :func:`jackknife_box` of its delete-one-group refits instead of the bootstrap box.
+    """
     parts = []
     for name in random:
         draws = raw.boot_random[name]
         est = raw.random_var[name]
-        ci = boot_variance_interval(est, draws, level, boot_interval)
+        ci = boot_variance_interval(est, draws, level, boot_interval) if enough(draws) else None
         parts.append((name, "random", est, ci, draws))
     for factor in fixed:
         levels, weights = level_weights(data, factor)
@@ -675,10 +770,20 @@ def _boot_parts(
             else np.empty((n_boot, 0))
         )
         variance = _contribution_variance(weights, estimate)
-        se, se_draws = coefficient_errors(raw, names, n_boot)
-        ci = contribution_box(
-            weights, estimate, draws, level, box_interval, se=se, se_draws=se_draws
-        )
+        if fixed_interval == "jackknife":
+            n_jk = len(next(iter(raw.jack_fixed.values()))) if raw.jack_fixed else 0
+            jk_cols = [raw.jack_fixed.get(n, np.full(n_jk, np.nan)) for n in names]
+            jk = np.column_stack(jk_cols) if names else np.empty((n_jk, 0))
+            ci = jackknife_box(weights, estimate, jk, level)
+        else:
+            se, se_draws = coefficient_errors(raw, names, n_boot)
+            ci = (
+                contribution_box(
+                    weights, estimate, draws, level, box_interval, se=se, se_draws=se_draws
+                )
+                if all(enough(draws[:, j]) for j in range(draws.shape[1]))
+                else None
+            )
         reps = np.array(
             [
                 _contribution_variance(weights, row) if np.all(np.isfinite(row)) else np.nan
@@ -687,6 +792,32 @@ def _boot_parts(
         )
         parts.append((factor, "fixed", variance, ci, reps))
     return parts
+
+
+MAX_FAILED_SHARE = 0.10  # more failed bootstrap replicates than this: no interval
+
+
+def enough(draws: np.ndarray) -> bool:
+    """True when at most ``MAX_FAILED_SHARE`` of the replicates failed (are not finite)."""
+    n = int(draws.size)
+    return n > 0 and int(np.isfinite(draws).sum()) >= (1 - MAX_FAILED_SHARE) * n
+
+
+def _check_rules(
+    box_interval: str,
+    share_interval: str,
+    fixed_interval: str,
+    jackknife_group: str,
+    random: Sequence[str],
+) -> None:
+    if box_interval not in COEF_INTERVALS:
+        raise ValueError(f"unknown bootstrap interval {box_interval!r}")
+    if share_interval not in SHARE_INTERVALS:
+        raise ValueError(f"unknown bootstrap interval {share_interval!r}")
+    if fixed_interval not in ("box", "jackknife"):
+        raise ValueError(f"unknown fixed interval {fixed_interval!r}")
+    if fixed_interval == "jackknife" and jackknife_group not in random:
+        raise ValueError("the jackknife group must be one of the random terms")
 
 
 def _check_options(level: float, method: str, boot_interval: str, nagq: int, n_boot: int) -> None:
@@ -715,6 +846,8 @@ def decompose(
     boot_interval: str = "percentile",
     box_interval: str = "percentile",
     share_interval: str = "percentile",
+    fixed_interval: str = "box",
+    jackknife_group: str = "task",
 ) -> Decomposition:
     """Fit a logit GLMM and partition the latent variance.
 
@@ -725,14 +858,15 @@ def decompose(
     replicates, each a fresh fit with ``nagq`` = 1 for Laplace or 0 for the faster
     approximation, random variances with ``boot_interval``, fixed contributions with
     ``box_interval``, and shares with ``share_interval``; see the module docstring).
+    With ``fixed_interval="jackknife"`` the fixed contributions instead get
+    :func:`jackknife_box` intervals from delete-one-level refits over the
+    ``jackknife_group`` column (one refit per level), which keep variation of the
+    fixed effects across that group's levels that the parametric bootstrap omits.
     """
     if not results.is_binary:
         raise ValueError("decompose needs binary outcomes")
     _check_options(level, method, boot_interval, nagq, n_boot)
-    if box_interval not in COEF_INTERVALS:
-        raise ValueError(f"unknown bootstrap interval {box_interval!r}")
-    if share_interval not in SHARE_INTERVALS:
-        raise ValueError(f"unknown bootstrap interval {share_interval!r}")
+    _check_rules(box_interval, share_interval, fixed_interval, jackknife_group, random)
     frame = results.frame
     _check_names([*random, *fixed], frame)
     data = _prepare(frame, random, fixed)
@@ -741,7 +875,10 @@ def decompose(
     if method == "parametric_bootstrap":
         if backend != "lme4":
             raise ValueError("the parametric bootstrap needs the lme4 backend")
-        raw = _fit_lme4_bootstrap(data, random, fixed, nagq=nagq, n_boot=n_boot, seed=seed)
+        group = jackknife_group if fixed_interval == "jackknife" else ""
+        raw = _fit_lme4_bootstrap(
+            data, random, fixed, nagq=nagq, n_boot=n_boot, seed=seed, jackknife=group
+        )
         return _bootstrap_decomposition(
             frame,
             data,
@@ -752,6 +889,7 @@ def decompose(
             boot_interval=boot_interval,
             box_interval=box_interval,
             share_interval=share_interval,
+            fixed_interval=fixed_interval,
         )
     if backend == "lme4":
         raw = _fit_lme4(data, random, fixed, level, intervals)
@@ -819,6 +957,7 @@ def _bootstrap_decomposition(
     boot_interval: str,
     box_interval: str,
     share_interval: str = "percentile",
+    fixed_interval: str = "box",
 ) -> Decomposition:
     parts = _boot_parts(
         data,
@@ -828,6 +967,7 @@ def _bootstrap_decomposition(
         level=level,
         boot_interval=boot_interval,
         box_interval=box_interval,
+        fixed_interval=fixed_interval,
     )
     total = sum(p[2] for p in parts) + LOGISTIC_RESIDUAL_VAR
     reps = np.column_stack([p[4] for p in parts]) if parts else np.empty((0, 0))
@@ -856,8 +996,13 @@ def _bootstrap_decomposition(
                 share=variance / total,
                 lo=None if ci is None else ci[0],
                 hi=None if ci is None else ci[1],
-                interval_method="parametric_bootstrap_"
-                + (boot_interval if kind == "random" else f"box_{box_interval}"),
+                interval_method=(
+                    f"parametric_bootstrap_{boot_interval}"
+                    if kind == "random"
+                    else "task_jackknife_box"
+                    if fixed_interval == "jackknife"
+                    else f"parametric_bootstrap_box_{box_interval}"
+                ),
                 share_lo=s_lo,
                 share_hi=s_hi,
             )
@@ -898,6 +1043,9 @@ def _bootstrap_decomposition(
         coefficient_se=dict(raw.fixed_se),
         coefficient_se_replicates={
             name: tuple(float(v) for v in values) for name, values in raw.boot_fixed_se.items()
+        },
+        coefficient_jackknife={
+            name: tuple(float(v) for v in values) for name, values in raw.jack_fixed.items()
         },
     )
 

@@ -300,3 +300,52 @@ def test_student_coefficient_interval() -> None:
         se_draws=se_draws[:, None],
     )
     assert box is not None and box[0] < 0.25 < box[1]
+
+
+def test_jackknife_intervals_and_box() -> None:
+    from scipy import stats
+
+    draws = np.array([0.4, 0.5, 0.6, 0.5, np.nan])
+    lo, hi = glmm.jackknife_coef_interval(0.52, draws, 0.95)
+    d = draws[:4]
+    se = math.sqrt(3 / 4 * float(np.sum((d - d.mean()) ** 2)))
+    q = float(stats.t.ppf(0.975, 3))
+    assert (lo, hi) == pytest.approx((0.52 - q * se, 0.52 + q * se))
+    assert glmm.jackknife_coef_interval(0.5, np.array([0.1, np.nan]), 0.95) is None
+    weights = np.array([0.5, 0.5])
+    box = glmm.jackknife_box(weights, np.array([0.52]), draws[:, None], 0.95)
+    assert box == pytest.approx((lo**2 / 4, hi**2 / 4)) if lo > 0 else box[0] == 0.0
+    assert glmm.jackknife_box(weights, np.zeros(0), np.empty((5, 0)), 0.95) is None
+    assert glmm.enough(np.array([1.0] * 9 + [np.nan])) and not glmm.enough(
+        np.array([1.0] * 8 + [np.nan, np.nan, np.nan])
+    )
+
+
+@needs_r
+def test_lme4_bootstrap_with_task_jackknife(planted: EvalResults) -> None:
+    d = decompose(
+        planted,
+        random=("task", "model"),
+        fixed=("harness",),
+        method="parametric_bootstrap",
+        n_boot=4,
+        nagq=0,
+        fixed_interval="jackknife",
+        seed=3,
+    )
+    harness = d.component("harness")
+    assert harness.interval_method == "task_jackknife_box"
+    assert harness.lo is not None and harness.lo <= harness.variance <= harness.hi
+    n_tasks = planted.frame["task"].nunique()
+    assert all(len(v) == n_tasks for v in d.coefficient_jackknife.values())
+    assert any(m.startswith("jackknife over task") for m in d.messages)
+    with pytest.raises(ValueError, match="unknown fixed interval"):
+        decompose(planted, method="parametric_bootstrap", fixed_interval="sandwich")
+    with pytest.raises(ValueError, match="jackknife group"):
+        decompose(
+            planted,
+            random=("task",),
+            method="parametric_bootstrap",
+            fixed_interval="jackknife",
+            jackknife_group="model",
+        )
