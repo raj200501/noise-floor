@@ -353,3 +353,21 @@ exploratory and banked in `artifacts/method_pilots/` (synthetic data, seeds from
   priority (`echo 19 > /proc/<pid>/autogroup`) as soon as it starts; with that, llama-server
   got its three threads back at once. While the E1 local arm runs, nothing CPU-heavy runs at all
   (docs/PLAN.md), whatever its priority.
+
+## D-025 2026-11-04 E1 local models from screening s3, and s3 stopped early
+- Rule (s3 is exploratory, D-021 suite version 2): an E1 local model needs an s3 success rate
+  from 0.2 to 0.8 (the brief's pilot target) and runs that can finish inside E1's shorter
+  wall-clock limit of 150 s, so its s3 median wall time must be under 150 s. Numbers:
+  `python -m noisefloor.pilot s3 --summary` on `artifacts/pilot/s3.jsonl` (with the D-024
+  contention caveat).
+- Chosen: qwen3-1.7b and qwen3-4b (Qwen3) and granite-4.0-micro (Granite 4.0): three
+  configurations over two families, as the brief requires (section 5). Excluded: smollm3-3b
+  (success below 0.2, most runs timed out) and phi-4-mini.
+- phi-4-mini: s3 was stopped at 08:55 UTC after phi's first 4 runs, all failures at a limit
+  (three at the 300 s wall clock, one at the step limit). Its llama-server generated about 5
+  tokens per second even once the CPU was free (granite-4.0-micro about 11), so a 15-step
+  episode cannot finish in 150 s and would add about a day of CPU to E1 for runs that mostly
+  time out. Its 4 completed runs were banked by the normal salvage path (`salvaged: true`);
+  the run in flight at the stop was discarded. The other 16 planned phi runs were not run.
+- With 3 local models the local arm is 3 x 30 tasks x 16 runs = 1,440 runs; with the Claude
+  slice's 180, E1 plans 1,620 runs (G7 needs at least 1,000, at least 150 on Claude tiers).

@@ -34,3 +34,20 @@ def test_main_dry_run_and_execute(
     assert pilot.main(["p1"]) == 0
     assert seen["n"] == 200 and Path(seen["artifact"]).name == "p1.jsonl"
     seen["log"]("message")
+
+
+def test_summary_rows() -> None:
+    rows = [
+        {"model": "b", "outcome": 1.0, "status": "ok", "wall_s": 10.0},
+        {"model": "b", "outcome": 0.0, "status": "timeout", "wall_s": 300.0},
+        {"model": "a", "outcome": 0.0, "status": "ok", "wall_s": 20.0},
+    ]
+    out = pilot.summary(rows)
+    assert [r["model"] for r in out] == ["a", "b"]
+    assert out[1] == {
+        "model": "b",
+        "runs": 2,
+        "success": 0.5,
+        "timeouts": 1,
+        "median_wall_s": 155.0,
+    }

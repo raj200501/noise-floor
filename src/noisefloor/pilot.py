@@ -14,10 +14,13 @@ background wrapper in docs/PLAN.md for long plans); it resumes if interrupted.
 from __future__ import annotations
 
 import argparse
+import json
 import random
+import statistics
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from noisefloor.orchestrate import REPO, execute
 from noisefloor.runner import RunSpec
@@ -97,17 +100,39 @@ def plan_runs(name: str, order_seed: int = 7) -> list[RunSpec]:
     return specs
 
 
+def summary(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Per model: banked runs, success rate, timeouts, and median wall time (exploratory)."""
+    out = []
+    for model in sorted({str(r["model"]) for r in rows}):
+        mine = [r for r in rows if r["model"] == model]
+        out.append(
+            {
+                "model": model,
+                "runs": len(mine),
+                "success": sum(float(r["outcome"]) for r in mine) / len(mine),
+                "timeouts": sum(1 for r in mine if r["status"] == "timeout"),
+                "median_wall_s": statistics.median(float(r["wall_s"]) for r in mine),
+            }
+        )
+    return out
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run a pilot plan (resumable)."""
+    """Run a pilot plan (resumable), or summarize its banked runs."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("plan", choices=sorted(PLANS))
     parser.add_argument("--dry-run", action="store_true", help="print the plan and exit")
+    parser.add_argument("--summary", action="store_true", help="summarize banked runs and exit")
     args = parser.parse_args(list(argv) if argv is not None else None)
     specs = plan_runs(args.plan)
     if args.dry_run:
         print(f"{len(specs)} runs; first: {specs[0].run_id}")
         return 0
     artifact = REPO / "artifacts" / "pilot" / f"{args.plan}.jsonl"
+    if args.summary:
+        rows = [json.loads(ln) for ln in artifact.read_text().splitlines() if ln.strip()]
+        print(json.dumps(summary(rows), indent=1))
+        return 0
     ledger = REPO / "artifacts" / "usage" / "ledger.jsonl"
     banked = execute(
         specs,
