@@ -1,0 +1,150 @@
+{
+ "checks": [
+  {
+   "abs_diff": 1.3877787807814457e-17,
+   "name": "CR1 standard error of a mean (demo fixture)",
+   "note": "",
+   "reference": 0.031557710569356766,
+   "reference_impl": "statsmodels 0.15.0 OLS cluster",
+   "tolerance": 1e-10,
+   "value": 0.03155771056935678
+  },
+  {
+   "abs_diff": 0.0,
+   "name": "t interval lower bound for a score",
+   "note": "",
+   "reference": 0.5736236923114638,
+   "reference_impl": "statsmodels 0.15.0 DescrStatsW.tconfint_mean",
+   "tolerance": 1e-10,
+   "value": 0.5736236923114638
+  },
+  {
+   "abs_diff": 0.0,
+   "name": "t interval upper bound for a score",
+   "note": "",
+   "reference": 0.6985985299107583,
+   "reference_impl": "statsmodels 0.15.0 DescrStatsW.tconfint_mean",
+   "tolerance": 1e-10,
+   "value": 0.6985985299107583
+  },
+  {
+   "abs_diff": 0.0,
+   "name": "paired t-test p-value",
+   "note": "",
+   "reference": 0.5101918017008008,
+   "reference_impl": "statsmodels 0.15.0 DescrStatsW.ttest_mean",
+   "tolerance": 1e-10,
+   "value": 0.5101918017008008
+  },
+  {
+   "abs_diff": 0.0,
+   "name": "paired t statistic",
+   "note": "",
+   "reference": -0.6605278005141514,
+   "reference_impl": "scipy 1.18.1 stats.ttest_rel",
+   "tolerance": 1e-10,
+   "value": -0.6605278005141514
+  },
+  {
+   "abs_diff": 1.1102230246251565e-16,
+   "name": "two-sided power, 100 tasks",
+   "note": "",
+   "reference": 0.143174245172304,
+   "reference_impl": "statsmodels 0.15.0 NormalIndPower (one sample)",
+   "tolerance": 1e-08,
+   "value": 0.14317424517230412
+  },
+  {
+   "abs_diff": 1.6653345369377348e-16,
+   "name": "two-sided power, 400 tasks",
+   "note": "",
+   "reference": 0.18550669985875018,
+   "reference_impl": "statsmodels 0.15.0 NormalIndPower (one sample)",
+   "tolerance": 1e-08,
+   "value": 0.18550669985875035
+  },
+  {
+   "abs_diff": 0.0,
+   "name": "percentile bootstrap lower bound",
+   "note": "independent resampling streams; tolerance covers Monte Carlo error",
+   "reference": 0.575,
+   "reference_impl": "scipy 1.18.1 stats.bootstrap",
+   "tolerance": 0.01,
+   "value": 0.575
+  },
+  {
+   "abs_diff": 0.0,
+   "name": "percentile bootstrap upper bound",
+   "note": "independent resampling streams; tolerance covers Monte Carlo error",
+   "reference": 0.6972222222222222,
+   "reference_impl": "scipy 1.18.1 stats.bootstrap",
+   "tolerance": 0.01,
+   "value": 0.6972222222222222
+  },
+  {
+   "abs_diff": 1.1102230246251565e-16,
+   "name": "BCa bootstrap lower bound",
+   "note": "independent resampling streams; tolerance covers Monte Carlo error",
+   "reference": 0.5722222222222223,
+   "reference_impl": "scipy 1.18.1 stats.bootstrap",
+   "tolerance": 0.01,
+   "value": 0.5722222222222222
+  },
+  {
+   "abs_diff": 2.220446049250313e-16,
+   "name": "BCa bootstrap upper bound",
+   "note": "independent resampling streams; tolerance covers Monte Carlo error",
+   "reference": 0.6944444444444446,
+   "reference_impl": "scipy 1.18.1 stats.bootstrap",
+   "tolerance": 0.01,
+   "value": 0.6944444444444444
+  },
+  {
+   "abs_diff": 4.199934844351105e-11,
+   "name": "GLMM harness coefficient, rpy2 path versus direct R",
+   "note": "",
+   "reference": 0.4872382101,
+   "reference_impl": "R lme4 glmer called directly with Rscript",
+   "tolerance": 1e-06,
+   "value": 0.48723821005800066
+  },
+  {
+   "abs_diff": 2.3508750501832765e-11,
+   "name": "GLMM task variance, rpy2 path versus direct R",
+   "note": "",
+   "reference": 1.5881426019,
+   "reference_impl": "R lme4 glmer called directly with Rscript",
+   "tolerance": 1e-06,
+   "value": 1.5881426019235088
+  },
+  {
+   "abs_diff": 3.6085578969391463e-12,
+   "name": "GLMM model variance, rpy2 path versus direct R",
+   "note": "",
+   "reference": 0.1701301798,
+   "reference_impl": "R lme4 glmer called directly with Rscript",
+   "tolerance": 1e-06,
+   "value": 0.17013017980360856
+  },
+  {
+   "abs_diff": 0.000541100441381559,
+   "name": "GLMM harness coefficient, lme4 (Laplace) versus statsmodels (variational Bayes)",
+   "note": "different estimators; tolerance on the logit scale",
+   "reference": 0.4877793104993822,
+   "reference_impl": "statsmodels 0.15.0 BinomialBayesMixedGLM",
+   "tolerance": 0.05,
+   "value": 0.48723821005800066
+  },
+  {
+   "abs_diff": 0.02239749117584222,
+   "name": "GLMM task variance, lme4 versus statsmodels",
+   "note": "different estimators; tolerance on the variance scale",
+   "reference": 1.610540093099351,
+   "reference_impl": "statsmodels 0.15.0 BinomialBayesMixedGLM",
+   "tolerance": 0.25,
+   "value": 1.5881426019235088
+  }
+ ],
+ "generator": "python -m noisefloor.e0_crosscheck",
+ "python": "3.12.3"
+}
