@@ -11,6 +11,7 @@ from noisefloor import recovery as rc
 needs_r = pytest.mark.skipif(not lme4_available(), reason="R, lme4, or rpy2 not available")
 SMALL = rc.Design(n_models=2, n_tasks=6, batch_size=4, days=2, blocks_per_day=1)
 SMALL_PLANTED = rc.Planted(model=(0.3, -0.3), day=(0.0, 0.1), block=(0.0,))
+SMALL_PLANTED_2D = rc.Planted(model=(0.3, -0.3))
 
 
 def test_half_fraction_blocks_are_balanced() -> None:
@@ -48,6 +49,9 @@ def test_simulate_structure_and_determinism() -> None:
 def test_design_and_planted_validation() -> None:
     with pytest.raises(ValueError, match="runs_per_cell"):
         rc.Design(runs_per_cell=4)
+    full = rc.simulate(rc.Design(n_models=2, n_tasks=3, runs_per_cell=16), SMALL_PLANTED_2D, 1)
+    assert len(full) == 2 * 3 * 16
+    assert (full.groupby(["model", "task"])["harness"].apply(lambda s: (s == "1").sum()) == 8).all()
     with pytest.raises(ValueError, match="positive"):
         rc.Design(n_tasks=0)
     with pytest.raises(ValueError, match="model and day"):

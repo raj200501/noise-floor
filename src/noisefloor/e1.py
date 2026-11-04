@@ -1,10 +1,11 @@
 """E1 factorial study: design, run plan, and schedule (docs/BUILD_BRIEF.md section 5).
 
-Local arm: every model is crossed with every task, and each (model, task) cell runs one
-block of a half fraction 2^(5-1) of five two-level factors
-(:func:`noisefloor.recovery.half_fraction_blocks`, the same blocks the G6 recovery study
-simulates): harness, wall-clock timeout, step budget, sampling temperature, and
-concurrency. Within a cell every factor is balanced (4 runs at each level). Runs are
+Local arm: every model is crossed with every task, and each (model, task) cell runs the
+half fraction 2^(5-1) (``runs_per_cell = 16``) or one of its two blocks (8) of five
+two-level factors (:func:`noisefloor.recovery.half_fraction_blocks`, the design the G6
+recovery study simulates): harness, wall-clock timeout, step budget, sampling
+temperature, and concurrency. Within a cell every factor is balanced (half the cell's
+runs at each level). Runs are
 grouped into batches of one model and one concurrency level (one llama-server
 configuration, at most ``batch_size`` runs), and batches are spread evenly, in random
 order, over ``days`` x ``blocks_per_day`` time slots. Each run's ``block`` field is
@@ -25,7 +26,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from noisefloor.models import CLAUDE_TIERS, MODELS
-from noisefloor.recovery import TWO_LEVEL, half_fraction_blocks
+from noisefloor.recovery import TWO_LEVEL, cell_runs, half_fraction_blocks
 from noisefloor.runner import RunSpec
 from noisefloor.suite import FAMILY_NAMES, Task, check_disjoint, generate, suite_manifest
 
@@ -58,9 +59,12 @@ class E1Design:
     claude_runs_per_task: int = 2
     order_seed: int = 1
     max_tokens: int = 384
+    runs_per_cell: int = 8
 
     def __post_init__(self) -> None:
         """Reject designs E1 cannot run."""
+        if self.runs_per_cell not in (8, 16):
+            raise ValueError("runs_per_cell must be 8 (one block) or 16 (the half fraction)")
         unknown = [m for m in self.models if m not in MODELS]
         if unknown:
             raise ValueError(f"not pinned local models: {unknown}")
@@ -97,6 +101,7 @@ class E1Design:
             claude_runs_per_task=int(data["claude_runs_per_task"]),
             order_seed=int(data["order_seed"]),
             max_tokens=int(data["max_tokens"]),
+            runs_per_cell=int(data.get("runs_per_cell", 8)),
         )
 
     def to_json(self) -> dict[str, Any]:
@@ -115,6 +120,7 @@ class E1Design:
             "claude_runs_per_task": self.claude_runs_per_task,
             "order_seed": self.order_seed,
             "max_tokens": self.max_tokens,
+            "runs_per_cell": self.runs_per_cell,
         }
 
 
@@ -170,7 +176,7 @@ def local_plan(design: E1Design) -> list[RunSpec]:
     runs: list[RunSpec] = []
     for mi, model in enumerate(design.models):
         for ti, task in enumerate(task_list):
-            half = first if (mi + ti) % 2 == 0 else second
+            half = cell_runs(first, second, mi + ti, design.runs_per_cell)
             for bits in half:
                 runs.append(_local_spec(design, model, task, bits, rng.randrange(2**31)))
     groups: dict[tuple[str, int], list[RunSpec]] = {}

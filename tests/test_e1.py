@@ -104,3 +104,14 @@ def test_design_validation_and_json() -> None:
         e1.E1Design(models=MODELS, tasks_per_family=0)
     data = e1.E1Design(models=MODELS).to_json()
     assert data["models"] == list(MODELS) and data["levels"]["steps"] == [8, 15]
+
+
+def test_sixteen_runs_per_cell() -> None:
+    full = e1.E1Design(models=MODELS[:2], tasks_per_family=2, runs_per_cell=16)
+    plan = e1.local_plan(full)
+    assert len(plan) == 2 * len(e1.tasks(full)) * 16 and len({s.run_id for s in plan}) == len(plan)
+    cells = collections.Counter((s.model, s.family, s.task_seed) for s in plan)
+    assert set(cells.values()) == {16}
+    assert e1.E1Design.from_json(full.to_json()) == full
+    with pytest.raises(ValueError, match="runs_per_cell"):
+        e1.E1Design(models=MODELS, runs_per_cell=4)

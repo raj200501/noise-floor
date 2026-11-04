@@ -71,8 +71,8 @@ class Design:
 
     def __post_init__(self) -> None:
         """Reject shapes the factorial cannot fill."""
-        if self.runs_per_cell != 8:
-            raise ValueError("runs_per_cell must be 8 (one block of the half fraction)")
+        if self.runs_per_cell not in (8, 16):
+            raise ValueError("runs_per_cell must be 8 (one block) or 16 (the half fraction)")
         if min(self.n_models, self.n_tasks, self.batch_size, self.days, self.blocks_per_day) < 1:
             raise ValueError("every design size must be positive")
 
@@ -111,6 +111,15 @@ def half_fraction_blocks() -> tuple[list[tuple[int, ...]], list[tuple[int, ...]]
     return first, second
 
 
+def cell_runs(
+    first: list[tuple[int, ...]], second: list[tuple[int, ...]], parity: int, runs: int
+) -> list[tuple[int, ...]]:
+    """The factor levels of one (model, task) cell: one block by parity, or both."""
+    if runs == 16:
+        return first + second
+    return first if parity % 2 == 0 else second
+
+
 def fixed_contribution(levels: Sequence[float], shares: Sequence[float]) -> float:
     """Variance over runs of a factor's contribution, given level effects and shares."""
     effects = np.asarray(levels, dtype=np.float64)
@@ -131,7 +140,7 @@ def simulate(design: Design, planted: Planted, seed: int) -> pd.DataFrame:
     runs = []
     for m in range(design.n_models):
         for t in range(design.n_tasks):
-            half = first if (m + t) % 2 == 0 else second
+            half = cell_runs(first, second, m + t, design.runs_per_cell)
             for bits in half:
                 runs.append((m, t, dict(zip(TWO_LEVEL, bits, strict=True))))
     order = rng.permutation(len(runs))
@@ -644,6 +653,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--no-batch", action="store_true", help="plant no batch variance and fit no batch term"
     )
+    parser.add_argument("--tasks", type=int, default=40)
+    parser.add_argument("--runs-per-cell", type=int, default=8)
+    parser.add_argument(
+        "--mde", action="store_true", help="also score MDE intervals at three designs"
+    )
     args = parser.parse_args(args_list)
     seeds = [s for s in range(args.first, args.first + args.count)]
     if any(s not in PILOT_SEEDS for s in seeds):
@@ -656,11 +670,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.no_batch:
         settings = AnalysisSettings(n_boot=args.n_boot, random=("task", "model:task"))
         planted = dataclasses.replace(planted, batch_var=0.0)
+    if args.mde:
+        settings = dataclasses.replace(settings, mde_designs=((20, 1), (40, 1), (89, 5)))
+    design = Design()
+    if (args.tasks, args.runs_per_cell) != (40, 8):
+        design = Design(n_tasks=args.tasks, runs_per_cell=args.runs_per_cell)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     for seed in seeds:
         if seed in done:
             continue
-        row = pilot_row(Design(), planted, settings, seed)
+        row = pilot_row(design, planted, settings, seed)
         with args.out.open("a") as fh:
             fh.write(dumps(row) + "\n")
     rows = [json.loads(ln) for ln in args.out.read_text().splitlines() if ln.strip()]
