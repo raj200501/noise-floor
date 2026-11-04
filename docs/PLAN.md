@@ -97,10 +97,21 @@ clean (D-004, D-019). This hosted session cannot run them by design. Steps for R
    `SMOKE: PASS`, which means the child reported the plan login (`apiKeySource none`), only the
    file tools Read, Glob, Grep, Write, and Edit, no MCP servers, and no memory files. Anything
    else prints `SMOKE: CHECK <what>`: stop and report it.
-3. Run the arm with the command the E1 preregistration names. It is resumable: rerun the same
-   command each day. Daily caps come from budget.toml times `CAP_SHARE`; at `CAP_SHARE = 0.2`
-   that is 6 runs a day (about 25 days for 150 runs), at `CAP_SHARE = 1` it is 30 a day (about 5
-   days). The turn cap per run is `claude_agent_max_turns` times `CAP_SHARE` (8 at 0.2).
-4. Commit `artifacts/e1/claude.jsonl` and `artifacts/usage/ledger.jsonl` (the ledger logs tokens
-   and `plan_equivalent_usd`, an API-price estimate, never cash), and push to the session branch
-   or send the files back.
+3. Run the slice with `uv run python -m noisefloor.e1 claude prereg/0004-e1-factorial.md`
+   from a clone at the freeze commit (or a later commit whose plan hash matches; the runner
+   refuses otherwise). It is resumable: rerun the same command each day. Daily caps are the
+   budget.toml caps times the smaller of budget.toml's `cap_share` (0.2) and `CAP_SHARE`, so
+   at most 6 runs a day (about 30 days for 180 runs); a faster slice needs `cap_share` raised
+   in budget.toml by Raj (Claude never raises a cap). The turn cap per run is
+   `claude_agent_max_turns` times that share (8 at 0.2); a run whose cap would be below its
+   planned 8 steps is refused, so do not set `CAP_SHARE` below 0.2.
+4. The slice ends when its 180 runs are banked or 45 days after the freeze, whichever comes
+   first, and its outcomes are not analyzed before then. Do not update Claude Code while it
+   runs (its children run with `DISABLE_AUTOUPDATER=1`); a new CLI version stops the slice
+   until `uv run python -m noisefloor.e1 resume claude --note "<version change>"` accepts it
+   as a deviation. If a tier is served by a model ID other than its first run's, the slice
+   ends there. Any other stop prints its reason and the resume command (exit code 3).
+5. Commit `artifacts/e1/claude.jsonl`, `artifacts/e1/stops-claude.jsonl`, and
+   `artifacts/usage/ledger-claude.jsonl` (tokens and `plan_equivalent_usd`, an API-price
+   estimate, never cash). These files are written only on Raj's machine, so they merge with
+   this session's work without conflicts; push to the session branch or send the files back.

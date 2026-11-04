@@ -239,3 +239,58 @@ def test_runs_table_confirmatory_rules() -> None:
         }
     )
     assert late["block"] == "b1" and late["day"] == "2026-11-05"
+
+
+def test_claude_exclusions_and_runs_left_out() -> None:
+    def claude(rid: str, start: str, **extra: object) -> dict:
+        base = {"run_id": rid, "model": "claude-haiku", "started_at": start}
+        return {**base, "factors": {"steps": "8"}, **extra}
+
+    recs = [
+        claude("b", "2026-11-06T01:00:00+00:00", claude={"model_id": "m1", "max_turns": 8}),
+        claude("a", "2026-11-05T01:00:00+00:00", model_ids=["m1"], max_steps_used=8),
+        claude("c", "2026-11-07T01:00:00+00:00", claude={"model_id": "m2", "max_turns": 8}),
+        claude("d", "2026-11-08T01:00:00+00:00", model_ids=["m1"], max_steps_used=6),
+        {"run_id": "l", "model": "qwen3-4b", "started_at": "2026-11-05T00:00:00+00:00"},
+    ]
+    assert a.claude_exclusions(recs) == {"c": "model_changed", "d": "step_budget"}
+    rows = [
+        {"confirmatory": True, "backend": "claude", "status": "ok", "excluded": "model_changed"},
+        {"confirmatory": True, "backend": "local", "status": "infra_error", "excluded": None},
+        {"confirmatory": True, "backend": "local", "status": "ok", "excluded": None},
+        {"confirmatory": False, "backend": "local", "status": "infra_error", "excluded": None},
+    ]
+    assert a.exclusion_counts(rows, ["infra_error"]) == {
+        "local": {"infra_error": 1},
+        "claude": {"model_changed": 1},
+    }
+    assert a._usable(rows, ["infra_error"]) == [rows[2]]
+
+
+def test_no_outcome_is_read_before_both_arms_end(tmp_path: Path) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    planned = {"l1": "e1", "l2": "e1", "c1": "e1-claude", "c2": "e1-claude"}
+    frozen = datetime(2026, 11, 5, tzinfo=UTC)
+    soon = frozen + timedelta(days=10)
+    recs = [{"run_id": "l1"}, {"run_id": "c1"}]
+    out = a.arms_not_ended(recs, planned, tmp_path, frozen, soon)
+    assert out == [
+        "the local arm has not ended (1 of 2 banked)",
+        "the Claude slice has not ended (1 of 2 banked)",
+    ]
+    (tmp_path / "stops-local.jsonl").write_text('{"kind": "day_limit", "at": "x"}\n')
+    later = frozen + timedelta(days=45)
+    assert a.arms_not_ended(recs, planned, tmp_path, frozen, later) == []
+    (tmp_path / "stops-claude.jsonl").write_text('{"kind": "end_point", "at": "x"}\n')
+    assert a.arms_not_ended(recs, planned, tmp_path, frozen, soon) == []
+    everything = [{"run_id": r} for r in planned]
+    assert a.arms_not_ended(everything, planned, tmp_path / "none", None, soon) == []
+
+
+def test_compute_refuses_while_an_arm_runs(tmp_path: Path) -> None:
+    prereg = write_prereg(tmp_path / "prereg.md")
+    recs = [r for r in fake_records(str(prereg)) if r["phase"] == "e1"][:-1]
+    (tmp_path / "local.jsonl").write_text("".join(json.dumps(r) + "\n" for r in recs))
+    with pytest.raises(ValueError, match="local arm has not ended"):
+        a.compute(prereg, tmp_path)

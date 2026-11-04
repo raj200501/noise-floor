@@ -374,7 +374,7 @@ def test_no_batch_starts_after_day_seven(tmp_path) -> None:
     stop = e1.open_stop(stops)
     assert calls == [] and stop["kind"] == "day_limit"
     assert stop["unbanked"] == len(e1.local_plan(design))
-    with pytest.raises(ValueError, match="7-day limit"):
+    with pytest.raises(ValueError, match="has ended"):
         e1.resume(stops, "more time", clock[0])
 
 
@@ -436,7 +436,7 @@ def test_run_claude_and_plan_command(tmp_path, capsys) -> None:
     assert "Claude runs" in capsys.readouterr().out
 
 
-def test_frozen_plan_and_pins(tmp_path) -> None:
+def test_frozen_plan_and_pins(tmp_path, monkeypatch) -> None:
     import json as _json
 
     design = e1.E1Design(models=MODELS[:1], families=("config",), tasks_per_family=2)
@@ -455,6 +455,24 @@ def test_frozen_plan_and_pins(tmp_path) -> None:
     prereg.write_text(text + "\n```json e1-design\n" + _json.dumps(pins) + "\n```\n")
     with pytest.raises(ValueError, match="pins"):
         e1.check_frozen_plan(prereg, design)
+    # A frozen preregistration (in the chain) must carry both keys.
+    chain = tmp_path / "CHAIN.jsonl"
+    chain.write_text(_json.dumps({"file": str(prereg), "sha256": "x"}) + "\n")
+    missing = {"plan_sha256": good["plan_sha256"]}
+    prereg.write_text(text + "\n```json e1-design\n" + _json.dumps(missing) + "\n```\n")
+    e1.check_frozen_plan(prereg, design)  # outside the project chain: keys are optional
+    import functools
+
+    from noisefloor import preregs
+
+    monkeypatch.setattr(preregs, "chain_entry", functools.partial(preregs.chain_entry, chain=chain))
+    with pytest.raises(ValueError, match="no model_pins"):
+        e1.check_frozen_plan(prereg, design)
+    prereg.write_text(text)
+    with pytest.raises(ValueError, match="e1-design"):
+        e1.check_frozen_plan(prereg, design)
+    prereg.write_text(text + "\n```json e1-design\n" + _json.dumps(good) + "\n```\n")
+    e1.check_frozen_plan(prereg, design)
     other = e1.E1Design(models=MODELS[:1], families=("config",), tasks_per_family=2, order_seed=9)
     assert e1.plan_sha256(other) != e1.plan_sha256(design)
 
@@ -494,3 +512,113 @@ def test_run_local_starts_in_the_first_block(tmp_path) -> None:
     clock[0] = datetime(2026, 11, 6, 0, 5, tzinfo=UTC)
     assert go(never_sleep, wait=False) == per_slot["day1-b1"]  # the arm's day 1 is Nov 6
     assert all(prefix.startswith("e1-day1-b1-") for prefix, _ in calls)
+
+
+def test_claude_plan_is_ordered_in_complete_groups(design: e1.E1Design) -> None:
+    plan = e1.claude_plan(design)
+    size = design.claude_runs_per_task
+    for cut in range(len(plan) + 1):
+        groups = collections.Counter((s.model, s.family, s.task_seed) for s in plan[:cut])
+        assert sum(1 for n in groups.values() if n % size) <= 1
+        full = collections.Counter(k[0] for k, n in groups.items() if n == size)
+        counts = [full.get(t, 0) for t in design.claude_tiers]
+        assert max(counts) - min(counts) <= 1
+    assert e1.claude_plan(design) == plan  # fixed by the order seed
+
+
+def write_rows(path, rows) -> None:
+    import json
+
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+
+
+@pytest.mark.usefixtures("unfrozen_ok")
+def test_claude_slice_end_point_and_changes(tmp_path, monkeypatch) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    design = e1.E1Design(models=MODELS[:1], families=("config",), tasks_per_family=2)
+    prereg = plan_prereg(tmp_path, design)
+    artifact = tmp_path / "claude.jsonl"
+    stops = tmp_path / "stops-claude.jsonl"
+    frozen = datetime(2026, 11, 5, tzinfo=UTC)
+    clock = [frozen + timedelta(days=3)]
+    monkeypatch.setattr(e1, "frozen_at", lambda path: frozen)
+    calls: list = []
+
+    def go():
+        return e1.run_claude(
+            prereg,
+            artifact=artifact,
+            ledger=tmp_path / "l",
+            now=lambda: clock[0],
+            log=lambda m: None,
+            execute=fake_execute(calls),
+        )
+
+    def run(rid, model_id, cli=None, harness="claude_code"):
+        if harness == "minimal":
+            return {"run_id": rid, "model": "claude-haiku", "model_ids": [model_id]}
+        return {
+            "run_id": rid,
+            "model": "claude-haiku",
+            "claude": {"model_id": model_id, "cli_version": cli},
+        }
+
+    # A new Claude Code version stops the slice until a resume accepts it.
+    write_rows(artifact, [run("a", "m1", "2.0.1"), run("b", "m1", "2.0.2")])
+    assert go() == 0 and calls == []
+    stop = e1.open_stop(stops)
+    assert stop["kind"] == "cli_changed" and stop["to"] == "2.0.2"
+    e1.resume(stops, "accepted the new CLI as a deviation", clock[0])
+    assert e1.claude_changes(artifact, stops) == (None, None)
+    assert go() == len(e1.claude_plan(design)) and calls
+    # Another model ID for a tier ends the slice for good.
+    write_rows(artifact, [run("a", "m1", "2.0.1"), run("c", "m2", harness="minimal")])
+    stops.unlink()
+    assert go() == 0
+    stop = e1.open_stop(stops)
+    assert stop["kind"] == "end_point" and "served by m2 after m1" in stop["reason"]
+    with pytest.raises(ValueError, match="has ended"):
+        e1.resume(stops, "x", clock[0])
+    # The slice starts nothing 45 days after the freeze.
+    write_rows(artifact, [run("a", "m1", "2.0.1")])
+    stops.unlink()
+    clock[0] = frozen + timedelta(days=e1.CLAUDE_END_DAYS)
+    assert go() == 0 and e1.open_stop(stops)["reason"] == "45 days after the freeze"
+
+
+def test_frozen_at_reads_the_chain_entry(tmp_path, monkeypatch) -> None:
+    import functools
+    import json
+    from datetime import UTC, datetime
+
+    from noisefloor import preregs
+
+    prereg = tmp_path / "p.md"
+    prereg.write_text("x")
+    chain = tmp_path / "CHAIN.jsonl"
+    chain.write_text(json.dumps({"file": str(prereg), "frozen_at": "2026-11-05T01:02:03Z"}) + "\n")
+    assert e1.frozen_at(prereg) is None
+    monkeypatch.setattr(preregs, "chain_entry", functools.partial(preregs.chain_entry, chain=chain))
+    assert e1.frozen_at(prereg) == datetime(2026, 11, 5, 1, 2, 3, tzinfo=UTC)
+
+
+@pytest.mark.usefixtures("unfrozen_ok")
+def test_a_stopped_local_arm_still_ends_after_day_seven(tmp_path) -> None:
+    from datetime import UTC, datetime
+
+    design = e1.E1Design(models=MODELS[:2], families=("config",), tasks_per_family=3, batch_size=2)
+    prereg = plan_prereg(tmp_path, design)
+    first = "2026-11-01T01:00:00+00:00"
+    write_rows(
+        tmp_path / "local.jsonl",
+        [{"run_id": "x", "started_at": first, "batch_started_at": first, "status": "ok"}],
+    )
+    stops = tmp_path / "stops-local.jsonl"
+    e1.record_stop(
+        stops, "batch_failure", "server did not start", datetime(2026, 11, 3, tzinfo=UTC)
+    )
+    clock = [datetime(2026, 11, 8, 3, 0, tzinfo=UTC)]
+    go = local_runner(tmp_path, prereg, clock, fake_execute([], clock))
+    assert go() == 0 and e1.open_stop(stops)["kind"] == "day_limit"
+    assert go() == 0 and len(e1.jsonl.read(stops)) == 2  # recorded once

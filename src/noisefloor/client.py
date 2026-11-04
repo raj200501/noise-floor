@@ -49,6 +49,8 @@ from typing import IO, Any
 
 REPO = Path(__file__).resolve().parents[2]
 DEFAULT_LEDGER = REPO / "artifacts" / "usage" / "ledger.jsonl"
+# Claude runs on Raj's machine log here, so the two machines never append to one file.
+CLAUDE_LEDGER = REPO / "artifacts" / "usage" / "ledger-claude.jsonl"
 DEFAULT_CACHE = REPO / "runs" / "cache" / "llm"
 GUARD_EXACT = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL")
 GUARD_PREFIX = "CLAUDE_CODE_USE_"
@@ -74,6 +76,7 @@ CHILD_SECRET_PREFIXES = ("AWS_", "AZURE_", "GOOGLE_", "GCLOUD_", "OPENAI_")
 CHILD_SWITCHES = {
     "CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1",  # Raj's CLAUDE.md files stay out of the child
     "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",  # and so does his auto memory
+    "DISABLE_AUTOUPDATER": "1",  # the CLI does not update itself while a slice runs
     "GIT_CONFIG_NOSYSTEM": "1",
     "GIT_CONFIG_GLOBAL": "/dev/null",
 }

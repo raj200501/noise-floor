@@ -50,7 +50,7 @@ def spec(**kw: Any) -> RunSpec:
         temperature=0.0,
         seed=3,
         timeout_s=30.0,
-        max_steps=15,
+        max_steps=8,
         threads=1,
         concurrency=1,
     )
@@ -180,28 +180,28 @@ def test_claude_code_run_submits_and_is_graded(
 def test_claude_code_end_reasons(tmp_path: Path, fake: Path, no_guard: None) -> None:
     c = make_client(tmp_path, claude_agent_max_turns=2, claude_agent_runs_per_day=20)
     plan(fake, turns=[{"text": "a"}])
-    out = run_claude_code(spec(), c)
+    out = run_claude_code(spec(max_steps=2), c)
     assert out["end_reason"] == "stopped" and out["status"] == "ok" and out["outcome"] == 0.0
     plan(fake, turns=[{"text": str(i)} for i in range(5)])
-    out = run_claude_code(spec(), c)
+    out = run_claude_code(spec(max_steps=2), c)
     assert (
         out["end_reason"] == "step_limit" and out["claude"]["result_subtype"] == "error_max_turns"
     )
     plan(fake, turns=[{"text": str(i)} for i in range(5)], ignore_max_turns=True, result=None)
-    out = run_claude_code(spec(), c)
+    out = run_claude_code(spec(max_steps=2), c)
     assert out["end_reason"] == "step_limit" and out["claude"]["ended"] == "turn_cap"
     assert out["status"] == "timeout"
     plan(fake, turns=[{"text": "slow", "sleep": 20}])
-    out = run_claude_code(spec(timeout_s=1.0), c)
+    out = run_claude_code(spec(max_steps=2, timeout_s=1.0), c)
     assert out["end_reason"] == "wall_clock" and out["wall_s"] < 15
     plan(fake, turns=[], result=None, exit=1)
-    out = run_claude_code(spec(), c)
+    out = run_claude_code(spec(max_steps=2), c)
     assert out["end_reason"] == "backend_error" and out["status"] == "infra_error"
     assert out["error"]
     plan(
         fake, turns=[{"text": "x"}], result={"subtype": "error_during_execution", "is_error": True}
     )
-    out = run_claude_code(spec(), c)
+    out = run_claude_code(spec(max_steps=2), c)
     assert out["end_reason"] == "backend_error" and out["error"] == "done"
 
 
@@ -515,3 +515,14 @@ def test_smoke_report_and_main(tmp_path: Path) -> None:
     assert (
         claude_arm.main(["smoke"], execute=lambda *a, **k: 0, artifact=tmp_path / "none.jsonl") == 1
     )
+
+
+def test_planned_turns_refuses_a_cap_below_the_step_budget() -> None:
+    assert claude_arm.planned_turns(8, {"claude_agent_max_turns": 8}) == 8
+    assert claude_arm.planned_turns(8, {}) == 8
+    with pytest.raises(cl.ModelCallRefusedError, match="below the planned step budget"):
+        claude_arm.planned_turns(8, {"claude_agent_max_turns": 6})
+
+
+def test_children_do_not_update_the_cli() -> None:
+    assert cl.claude_child_env({})["DISABLE_AUTOUPDATER"] == "1"

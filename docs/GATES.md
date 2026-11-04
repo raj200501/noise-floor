@@ -71,10 +71,11 @@ reported bias equals the recomputed mean of estimate minus planted.
 - `artifacts/e1/runs.jsonl`: one row per task run with `run_id`, `prereg`, `prereg_sha256`,
   `started_at`, `model_id`, `day`, `factors`, `outcome` (binary), `status`, `confirmatory`. Every
   confirmatory row cites the E1 prereg with the SHA-256 of its chain entry and started no earlier
-  than that entry's `frozen_at`. Counted task runs are the confirmatory runs that ran (status
-  other than `infra_error`): at least 1,000, at least 150 with a `backend: claude` model, at
-  least 3 models over at least 2 families, local-arm runs on at least 3 days, all factor levels
-  inside the design. A run id that appears more than once fails the gate.
+  than that entry's `frozen_at`. Counted task runs are the confirmatory runs that ran and that
+  the primary analyses use (status other than `infra_error`, no `excluded` reason such as a
+  Claude run served by another model ID): at least 1,000, at least 150 with a `backend:
+  claude` model, at least 3 models over at least 2 families, local-arm runs on at least 3
+  days, all factor levels inside the design. A run id that appears more than once fails the gate.
 - `artifacts/e1/variance_components.json` (`components`: `estimate`, `lo`, `hi`, `share`,
   `share_lo`, `share_hi`) and `artifacts/e1/mde.json` (`rows`: `mde`, `lo`, `hi`), all finite
   with lo <= estimate <= hi.

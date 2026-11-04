@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from noisefloor import jsonl, preregs
+from noisefloor.client import CLAUDE_LEDGER
 from noisefloor.models import CLAUDE_TIERS, MODELS
 from noisefloor.preregs import REPO, prereg_block, repo_path
 from noisefloor.recovery import TWO_LEVEL, cell_runs, half_fraction_blocks
@@ -173,18 +174,29 @@ def model_pins(design: E1Design) -> dict[str, dict[str, str]]:
 def check_frozen_plan(prereg: Path, design: E1Design) -> None:
     """Refuse when the code would give another plan or other weights than the frozen ones.
 
-    The ``e1-design`` block records ``plan_sha256`` and the local model pins; a
-    preregistration without that block (a test fixture) is not checked.
+    The ``e1-design`` block records ``plan_sha256`` and ``model_pins``. For a
+    preregistration in prereg/CHAIN.jsonl both are required, so a frozen file without them
+    cannot run; a file outside the chain (a test fixture) is checked only for the keys it
+    has.
     """
+    frozen = preregs.chain_entry(prereg) is not None
     try:
         block = prereg_block(prereg, "e1-design")
     except ValueError:
+        if frozen:
+            raise
         return
-    if block.get("plan_sha256") not in (None, plan_sha256(design)):
-        raise ValueError("the run plan from this code differs from the frozen plan_sha256")
-    pins = block.get("model_pins")
-    if pins is not None and pins != model_pins(design):
-        raise ValueError("local model pins differ from the frozen e1-design block")
+    expected = {
+        "plan_sha256": (plan_sha256(design), "the run plan from this code differs from"),
+        "model_pins": (model_pins(design), "the local model pins differ from"),
+    }
+    for key, (value, differs) in expected.items():
+        if key not in block:
+            if frozen:
+                raise ValueError(f"the frozen e1-design block has no {key}")
+            continue
+        if block[key] != value:
+            raise ValueError(f"{differs} the frozen e1-design block ({key})")
 
 
 def _stamp(prereg: Path, design: E1Design) -> dict[str, Any]:
@@ -267,21 +279,24 @@ def claude_plan(design: E1Design) -> list[RunSpec]:
     Each task's runs come in pairs that differ in both harness and timeout: tasks
     alternate between the pairs (minimal, short) + (native, long) and (minimal, long) +
     (native, short), offset by tier, so harness and timeout are balanced in every tier
-    and within every task.
+    and within every task. Runs are ordered by complete (tier, task) groups with the tiers
+    interleaved, so a slice that ends early leaves complete pairs balanced over tiers.
     """
     if design.claude_runs_per_task % 2:
         raise ValueError("claude_runs_per_task must be even")
     rng = random.Random(f"e1-claude:{design.order_seed}")
     pairs = (((0, 0), (1, 1)), ((0, 1), (1, 0)))
     steps = design.levels["steps"][0]
-    plan = []
+    task_list = tasks(design)
+    groups: dict[tuple[int, int], list[RunSpec]] = {}
     for ci, tier in enumerate(design.claude_tiers):
-        for ti, task in enumerate(tasks(design)):
+        for ti, task in enumerate(task_list):
             combos = pairs[(ci + ti) % 2] * (design.claude_runs_per_task // 2)
+            group = groups.setdefault((ci, ti), [])
             for k, (h, t) in enumerate(combos):
                 harness = _level(design, "harness", h)
                 timeout = float(_level(design, "timeout", t))
-                plan.append(
+                group.append(
                     RunSpec(
                         run_id=f"e1c-{tier}-{task.id}-h{h}t{t}-{k}",
                         phase="e1-claude",
@@ -306,7 +321,19 @@ def claude_plan(design: E1Design) -> list[RunSpec]:
                         },
                     )
                 )
-    rng.shuffle(plan)
+    # Tasks in a fixed random order; for each task the tiers take turns, the first tier
+    # rotating with the task, and a tier's runs of the task are back to back in random
+    # order. A slice cut anywhere leaves complete (tier, task) groups but one, and tiers
+    # within one group of each other.
+    order = list(range(len(task_list)))
+    rng.shuffle(order)
+    plan: list[RunSpec] = []
+    n_tiers = len(design.claude_tiers)
+    for position, ti in enumerate(order):
+        for j in range(n_tiers):
+            group = groups[((position + j) % n_tiers, ti)]
+            rng.shuffle(group)
+            plan.extend(group)
     return plan
 
 
@@ -370,9 +397,12 @@ def planned_batches(plan: Sequence[RunSpec]) -> dict[str, list[RunSpec]]:
 
 
 ARM_DAYS = 7  # the local arm starts no batch after day 7 of the arm
+CLAUDE_END_DAYS = 45  # the Claude slice starts no run 45 days or more after the freeze
 INFRA_STOP_SHARE = 0.05  # an arm stops for repair above this share of infra_error runs ...
 INFRA_STOP_MIN = 5  # ... once at least this many are banked since its start or last resume
-STOP_KINDS = ("batch_failure", "infra_share", "day_limit", "defect")
+STOP_KINDS = ("batch_failure", "infra_share", "cli_changed", "defect", "day_limit", "end_point")
+FINAL_STOPS = ("day_limit", "end_point")  # stops that end an arm for good
+RESUME_HINT = "after a repair: python -m noisefloor.e1 resume %s --note '<what was repaired>'"
 
 
 class ArmBusyError(RuntimeError):
@@ -420,8 +450,10 @@ def resume(stops: Path, note: str, at: datetime, amendment: Path | None = None) 
     stop = open_stop(stops)
     if stop is None:
         raise ValueError(f"{stops.name}: the arm is not stopped")
-    if stop["kind"] == "day_limit":
-        raise ValueError(f"the arm reached its {ARM_DAYS}-day limit and does not resume")
+    if stop["kind"] in FINAL_STOPS:
+        raise ValueError(
+            f"the arm has ended ({stop['kind']}: {stop['reason']}); it does not resume"
+        )
     row: dict[str, Any] = {"at": at.isoformat(timespec="seconds"), "kind": "resume", "note": note}
     if stop["kind"] == "defect":
         if amendment is None:
@@ -534,22 +566,23 @@ def _local_next(
     """The next local batch (its label), seconds to wait for one, or None: stop now."""
     from noisefloor.orchestrate import banked_ids  # noqa: PLC0415 - orchestrate imports runner
 
-    stop = open_stop(stops)
-    if stop is not None:
-        log(f"e1 local arm: stopped ({stop['kind']}: {stop['reason']}); see {stops.name}")
-        return None
     done = banked_ids(artifact)
     pending = [k for k, specs in batches.items() if any(s.run_id not in done for s in specs)]
     if not pending:
         log("e1 local arm: every planned run is banked")
         return None
+    stop = open_stop(stops)
     start = arm_start(artifact)
     day = 1 if start is None else (clock.date() - start).days + 1
-    if day > ARM_DAYS:
+    if day > ARM_DAYS:  # the arm ends, stopped or not
         left = sum(1 for k in pending for s in batches[k] if s.run_id not in done)
         reason = f"day {day} of the arm; no batch starts after day {ARM_DAYS}"
-        record_stop(stops, "day_limit", reason, clock, unbanked=left)
+        if stop is None or stop["kind"] != "day_limit":
+            record_stop(stops, "day_limit", reason, clock, unbanked=left)
         log(f"e1 local arm: {reason}; {left} planned runs not banked")
+        return None
+    if stop is not None:
+        log(f"e1 local arm: stopped ({stop['kind']}: {stop['reason']}); {RESUME_HINT % 'local'}")
         return None
     if _infra_stop(artifact, stops, clock, log):
         return None
@@ -564,11 +597,74 @@ def _local_next(
     return pause
 
 
+def frozen_at(prereg: Path) -> datetime | None:
+    """When the preregistration was frozen (its chain entry), if it is in the chain."""
+    entry = preregs.chain_entry(prereg)
+    if entry is None:
+        return None
+    return datetime.fromisoformat(str(entry["frozen_at"]).replace("Z", "+00:00"))
+
+
+def served_models(record: Mapping[str, Any]) -> list[str]:
+    """Model IDs the CLI reported for a Claude run (either harness)."""
+    ids = [str(m) for m in record.get("model_ids") or []]
+    child = record.get("claude") or {}
+    if child.get("model_id"):
+        ids.append(str(child["model_id"]))
+    return list(dict.fromkeys(ids))
+
+
+def claude_changes(artifact: Path, stops: Path) -> tuple[str | None, str | None]:
+    """(model change, new CLI version) in the banked Claude runs.
+
+    A tier's first banked run fixes its model ID for the slice; the change is returned as a
+    reason. The CLI version of the first banked run, and each version that a
+    ``cli_changed`` stop recorded (accepted once resumed), are allowed; the first other
+    version is returned.
+    """
+    rows = jsonl.read(artifact, tail_ok=True)
+    first: dict[str, str] = {}
+    model_change = None
+    for row in rows:
+        for model_id in served_models(row):
+            known = first.setdefault(str(row["model"]), model_id)
+            if model_id != known and model_change is None:
+                model_change = f"{row['model']} was served by {model_id} after {known}"
+    versions = [str(v) for r in rows if (v := (r.get("claude") or {}).get("cli_version"))]
+    accepted = {versions[0]} if versions else set()
+    accepted |= {str(s.get("to")) for s in jsonl.read(stops) if s["kind"] == "cli_changed"}
+    return model_change, next((v for v in versions if v not in accepted), None)
+
+
+def _claude_ended_or_changed(
+    prereg: Path, artifact: Path, stops: Path, at: datetime, log: Callable[[str], None]
+) -> bool:
+    """Record and report why the Claude slice must not run now, if it must not."""
+    from noisefloor.orchestrate import banked_ids  # noqa: PLC0415 - orchestrate imports runner
+
+    frozen = frozen_at(prereg)
+    model_change, new_cli = claude_changes(artifact, stops)
+    if frozen is not None and at >= frozen + timedelta(days=CLAUDE_END_DAYS):
+        reason = f"{CLAUDE_END_DAYS} days after the freeze"
+        record_stop(stops, "end_point", reason, at, banked=len(banked_ids(artifact)))
+        log(f"e1 Claude slice: ended ({reason})")
+        return True
+    if model_change is not None:
+        record_stop(stops, "end_point", model_change, at, banked=len(banked_ids(artifact)))
+        log(f"e1 Claude slice: ended ({model_change})")
+        return True
+    if new_cli is not None:
+        record_stop(stops, "cli_changed", f"Claude Code {new_cli} in use", at, to=new_cli)
+        log(f"e1 Claude slice: stopped (Claude Code {new_cli}); a resume accepts it")
+        return True
+    return _infra_stop(artifact, stops, at, log)
+
+
 def run_claude(
     prereg: Path,
     *,
     artifact: Path = ARTIFACTS / "claude.jsonl",
-    ledger: Path = LEDGER,
+    ledger: Path = CLAUDE_LEDGER,
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
     log: Callable[[str], None] = print,
     execute: Callable[..., int] | None = None,
@@ -576,7 +672,9 @@ def run_claude(
     """Run the Claude slice until it is done or a cap, the guard, or a plan limit stops it.
 
     A batch-level failure or an infra_error share over the limit stops the slice, as in
-    :func:`run_local`, until :func:`resume` records a repair.
+    :func:`run_local`, until :func:`resume` records a repair; so does a change of the
+    Claude Code version. The slice ends for good :data:`CLAUDE_END_DAYS` days after the
+    freeze, or when a tier is served by another model ID than its first run's.
     """
     from noisefloor.orchestrate import BatchFailedError  # noqa: PLC0415
     from noisefloor.orchestrate import execute as default_execute  # noqa: PLC0415
@@ -588,9 +686,10 @@ def run_claude(
     with arm_lock(artifact):
         stop = open_stop(stops)
         if stop is not None:
-            log(f"e1 Claude slice: stopped ({stop['kind']}: {stop['reason']}); see {stops.name}")
+            hint = RESUME_HINT % "claude"
+            log(f"e1 Claude slice: stopped ({stop['kind']}: {stop['reason']}); {hint}")
             return 0
-        if _infra_stop(artifact, stops, now(), log):
+        if _claude_ended_or_changed(prereg, artifact, stops, now(), log):
             return 0
         try:
             return int(

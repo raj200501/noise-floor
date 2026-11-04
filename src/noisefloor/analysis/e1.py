@@ -25,7 +25,7 @@ import json
 import math
 import sys
 from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -33,8 +33,16 @@ import pandas as pd
 
 from evalstats import EvalResults, paired_difference, policy_bounds, score_interval, tasks_needed
 from evalstats.glmm import LOGISTIC_RESIDUAL_VAR, Decomposition, boot_coef_interval, decompose
+from noisefloor import jsonl
 from noisefloor.analysis import mde as mde_lib
-from noisefloor.e1 import E1Design, check_frozen_plan, claude_plan, local_plan
+from noisefloor.e1 import (
+    CLAUDE_END_DAYS,
+    E1Design,
+    check_frozen_plan,
+    claude_plan,
+    local_plan,
+    served_models,
+)
 from noisefloor.models import MODELS, is_claude
 from noisefloor.preregs import chain_entry, prereg_block
 
@@ -58,6 +66,63 @@ def read_records(directory: Path) -> list[dict[str, Any]]:
         if path.exists():
             rows += [json.loads(ln) for ln in path.read_text().splitlines() if ln.strip()]
     return rows
+
+
+def claude_exclusions(records: Sequence[Mapping[str, Any]]) -> dict[str, str]:
+    """Banked Claude runs the analyses leave out, by run id, with the reason.
+
+    ``model_changed``: the CLI reported a model ID other than the one that served the
+    tier's first banked run (runs in order of start). ``step_budget``: the run's turn cap
+    (``max_steps_used`` or ``claude.max_turns``) differs from its ``steps`` factor.
+    """
+    out: dict[str, str] = {}
+    first: dict[str, str] = {}
+    ordered = sorted(records, key=lambda r: (str(r.get("started_at") or ""), str(r["run_id"])))
+    for rec in ordered:
+        tier = str(rec["model"])
+        if not is_claude(tier):
+            continue
+        ids = served_models(rec)
+        if ids:
+            first.setdefault(tier, ids[0])
+        if any(model_id != first[tier] for model_id in ids):
+            out[str(rec["run_id"])] = "model_changed"
+            continue
+        used = rec.get("max_steps_used") or (rec.get("claude") or {}).get("max_turns")
+        planned = str((rec.get("factors") or {}).get("steps", ""))
+        if used is not None and planned.isdigit() and int(used) != int(planned):
+            out[str(rec["run_id"])] = "step_budget"
+    return out
+
+
+def arms_not_ended(
+    records: Sequence[Mapping[str, Any]],
+    planned: Mapping[str, str],
+    directory: Path,
+    frozen_at: datetime | None,
+    now: datetime,
+) -> list[str]:
+    """Why an arm has not ended (empty once both have), so no outcome is read early.
+
+    The local arm ends when every planned local run is banked or its day-7 stop is
+    recorded; the Claude slice when every planned Claude run is banked, its end point is
+    recorded, or :data:`noisefloor.e1.CLAUDE_END_DAYS` days have passed since the freeze.
+    """
+    banked = {str(r["run_id"]) for r in records}
+    out = []
+    local = {rid for rid, phase in planned.items() if phase == "e1"}
+    local_stops = jsonl.read(directory / "stops-local.jsonl")
+    if not local <= banked and not any(s["kind"] == "day_limit" for s in local_stops):
+        out.append(f"the local arm has not ended ({len(local & banked)} of {len(local)} banked)")
+    claude = {rid for rid, phase in planned.items() if phase == "e1-claude"}
+    claude_stops = jsonl.read(directory / "stops-claude.jsonl")
+    end = None if frozen_at is None else frozen_at + timedelta(days=CLAUDE_END_DAYS)
+    over = any(s["kind"] == "end_point" for s in claude_stops) or (end is not None and now >= end)
+    if not claude <= banked and not over:
+        out.append(
+            f"the Claude slice has not ended ({len(claude & banked)} of {len(claude)} banked)"
+        )
+    return out
 
 
 def time_block(started_at: str, block_hours: Sequence[Sequence[int]]) -> tuple[str, str]:
@@ -94,6 +159,7 @@ def runs_table(
     dups = sorted(k for k, n in counts.items() if n > 1)
     if dups:
         raise ValueError(f"{len(dups)} run ids banked more than once, first {dups[0]}")
+    left_out = claude_exclusions(records)
     rows = []
     for rec in sorted(records, key=lambda r: str(r["run_id"])):
         started = str(rec.get("started_at") or rec.get("batch_started_at") or "")
@@ -126,6 +192,7 @@ def runs_table(
                 "status": rec.get("status"),
                 "end_reason": rec.get("end_reason"),
                 "confirmatory": bool(planned_run and cites and in_time),
+                "excluded": left_out.get(str(rec["run_id"])),
             }
         )
     return rows
@@ -149,11 +216,7 @@ def analysis_frame(
     ``outcome`` names the graded column (``outcome`` or ``outcome_strict``); runs whose
     status is in ``failures`` are kept with outcome 0.
     """
-    keep = [
-        r
-        for r in rows
-        if r["confirmatory"] and r["backend"] == "local" and r["status"] not in exclude
-    ]
+    keep = [r for r in _usable(rows, exclude) if r["backend"] == "local"]
     if not keep:
         raise ValueError("no confirmatory local-arm runs to analyze")
     days = {d: f"d{i + 1}" for i, d in enumerate(sorted({r["day"] for r in keep}))}
@@ -309,7 +372,27 @@ def holm(p_values: Sequence[float]) -> list[float]:
 
 
 def _usable(rows: Sequence[Mapping[str, Any]], exclude: Sequence[str]) -> list[Mapping[str, Any]]:
-    return [r for r in rows if r["confirmatory"] and r["status"] not in exclude]
+    """Confirmatory runs the primary analyses use: no excluded status, not left out."""
+    return [
+        r
+        for r in rows
+        if r["confirmatory"] and r["status"] not in exclude and not r.get("excluded")
+    ]
+
+
+def exclusion_counts(
+    rows: Sequence[Mapping[str, Any]], exclude: Sequence[str]
+) -> dict[str, dict[str, int]]:
+    """Confirmatory runs left out of the primary analyses, per arm and reason."""
+    out: dict[str, dict[str, int]] = {"local": {}, "claude": {}}
+    for r in rows:
+        if not r["confirmatory"]:
+            continue
+        reason = r.get("excluded") or (r["status"] if r["status"] in exclude else None)
+        if reason:
+            arm = out[str(r["backend"])]
+            arm[str(reason)] = arm.get(str(reason), 0) + 1
+    return out
 
 
 def _results(rows: Sequence[Mapping[str, Any]], key: str) -> EvalResults:
@@ -488,15 +571,23 @@ def _dump(obj: Any) -> str:
     return json.dumps(clean(obj), sort_keys=True, indent=1) + "\n"
 
 
-def compute(prereg: Path, directory: Path = E1_DIR) -> dict[str, str]:
-    """Every output file's text, recomputed from the inputs in ``directory``."""
+def compute(prereg: Path, directory: Path = E1_DIR, now: datetime | None = None) -> dict[str, str]:
+    """Every output file's text, recomputed from the inputs in ``directory``.
+
+    Raises ``ValueError`` while either arm is still running (:func:`arms_not_ended`).
+    """
     settings = prereg_block(prereg, "e1-analysis")
     design = E1Design.from_json(prereg_block(prereg, "e1-plan"))
     planned = {s.run_id: s.phase for s in [*local_plan(design), *claude_plan(design)]}
     check_frozen_plan(prereg, design)
     entry = chain_entry(prereg)
+    frozen = None if entry is None else _utc(str(entry["frozen_at"]))
+    records = read_records(directory)
+    running = arms_not_ended(records, planned, directory, frozen, now or datetime.now(UTC))
+    if running:
+        raise ValueError("; ".join(running) + "; outcomes are not analyzed before then")
     rows = runs_table(
-        read_records(directory),
+        records,
         prereg=_rel(prereg),
         planned=planned,
         block_hours=settings["block_hours"],
@@ -504,17 +595,13 @@ def compute(prereg: Path, directory: Path = E1_DIR) -> dict[str, str]:
     )
     data = analysis_frame(rows, settings["exclude_status"])
     decomp = decomposition(data, settings)
-    excluded = sum(
-        1
-        for r in rows
-        if r["confirmatory"]
-        and r["backend"] == "local"
-        and r["status"] in settings["exclude_status"]
-    )
+    left_out = exclusion_counts(rows, settings["exclude_status"])
+    excluded = sum(left_out["local"].values())
     variance = {
         "prereg": _rel(prereg),
         "n_runs": len(data),
         "excluded_runs": excluded,
+        "exclusions": left_out,
         "backend": decomp.backend,
         "formula": decomp.formula,
         "converged": decomp.converged,

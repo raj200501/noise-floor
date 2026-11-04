@@ -48,7 +48,7 @@ from pathlib import Path
 from typing import Any
 
 from noisefloor import jsonl
-from noisefloor.claude_arm import run_claude_code, turn_cap
+from noisefloor.claude_arm import planned_turns, run_claude_code
 from noisefloor.client import REPO, Client, Ledger, ModelCallRefusedError, effective_caps
 from noisefloor.minimal_agent import AgentConfig, run_episode
 from noisefloor.models import CLAUDE_TIERS, MODELS, is_claude, serve, wait_ready
@@ -120,7 +120,7 @@ def run_minimal(spec: RunSpec, client: Client) -> dict[str, Any]:
     """One minimal-agent episode (a Claude tier counts as one ``agent_run``)."""
     task = generate(spec.family, spec.task_seed, spec.difficulty)
     claude = is_claude(spec.model)
-    max_steps = turn_cap(spec.max_steps, client.caps) if claude else spec.max_steps
+    max_steps = planned_turns(spec.max_steps, client.caps) if claude else spec.max_steps
     if claude:
         client.start_agent_run(CLAUDE_TIERS[spec.model])
     env = task.start(max_calls=max_steps)

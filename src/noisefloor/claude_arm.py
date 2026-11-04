@@ -13,7 +13,8 @@ Two harnesses run Claude tiers:
 
 Every run is one ``agent_run`` against ``claude_agent_runs_per_day`` and is limited to
 ``claude_agent_max_turns`` turns, both times the cap share (:func:`turn_cap`), through
-:class:`noisefloor.client.Client`. The Claude Code process needs the network to reach the
+:class:`noisefloor.client.Client`; a run whose turn cap would fall below its planned step
+budget is refused (:func:`planned_turns`). The Claude Code process needs the network to reach the
 model, so it runs on the host rather than in :mod:`noisefloor.sandbox`; it has no tool
 that runs code or reaches the network. Results are model results on synthetic tasks.
 
@@ -33,7 +34,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from noisefloor.client import REPO, ClaudeRun, Client
+from noisefloor.client import CLAUDE_LEDGER, REPO, ClaudeRun, Client, ModelCallRefusedError
 from noisefloor.models import CLAUDE_TIERS
 from noisefloor.suite import Snapshot, episode_status, generate
 from noisefloor.suite.fs import FileView
@@ -58,6 +59,21 @@ def turn_cap(max_steps: int, caps: Mapping[str, Any]) -> int:
     """The turn budget of a Claude run: the run's step limit, at most the turn cap."""
     cap = caps.get("claude_agent_max_turns")
     return max_steps if cap is None else max(1, min(max_steps, int(cap)))
+
+
+def planned_turns(max_steps: int, caps: Mapping[str, Any]) -> int:
+    """The run's planned step budget, refused when the turn cap is below it.
+
+    A lower cap (a cap share below 0.2 gives fewer than 8 turns) would run a different
+    step budget than the run's ``steps`` factor records, so the run does not start.
+    """
+    turns = turn_cap(max_steps, caps)
+    if turns < max_steps:
+        raise ModelCallRefusedError(
+            f"turn cap {turns} is below the planned step budget {max_steps}: "
+            "claude_agent_max_turns times the cap share must be at least that"
+        )
+    return turns
 
 
 def materialize(files: FileView, root: Path) -> None:
@@ -155,7 +171,7 @@ def run_claude_code(spec: RunSpec, client: Client) -> dict[str, Any]:
     count (guard, daily cap, plan limit), leaving it to be run again later.
     """
     task = generate(spec.family, spec.task_seed, spec.difficulty)
-    max_turns = turn_cap(spec.max_steps, client.caps)
+    max_turns = planned_turns(spec.max_steps, client.caps)
     with tempfile.TemporaryDirectory(prefix="nf-claude-run-") as tmp:
         root = Path(tmp)
         materialize(task.files, root)
@@ -210,7 +226,7 @@ def smoke_spec(tier: str, now: datetime | None = None) -> RunSpec:
         temperature=0.0,
         seed=0,
         timeout_s=300.0,
-        max_steps=15,
+        max_steps=8,  # the E1 Claude step budget (turn cap 8 at cap share 0.2)
         threads=1,
         concurrency=1,
     )
@@ -254,7 +270,7 @@ def main(
     execute(
         [spec],
         artifact=out,
-        ledger=REPO / "artifacts" / "usage" / "ledger.jsonl",
+        ledger=CLAUDE_LEDGER,
         prefix="claude-smoke",
         log=lambda m: print(m, flush=True),
     )

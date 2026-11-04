@@ -778,9 +778,10 @@ def g7(ctx: Ctx) -> str:
                 f"run {rid} factor {name}={level} not in design",
             )
         need(r.get("outcome") in (0, 1, True, False), f"run {rid} outcome not binary")
-    # A task run counts once it ran: runs with status infra_error do not count toward the
-    # floors (prereg 0004), and a planned run the runner never started is never banked.
-    ran = [r for r in conf if r.get("status") != "infra_error"]
+    # A task run counts once it ran and the primary analyses use it: runs with status
+    # infra_error, and Claude runs left out (another model ID or step budget), do not count
+    # toward the floors (prereg 0004); a planned run the runner never started is never banked.
+    ran = [r for r in conf if r.get("status") != "infra_error" and not r.get("excluded")]
     need(len(ran) >= E1_MIN_RUNS, f"{len(ran)} confirmatory task runs < {E1_MIN_RUNS}")
     claude = sum(1 for r in ran if models[str(r["model_id"])].get("backend") == "claude")
     need(claude >= E1_MIN_CLAUDE_RUNS, f"{claude} Claude-tier runs < {E1_MIN_CLAUDE_RUNS}")

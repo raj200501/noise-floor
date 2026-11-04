@@ -264,3 +264,16 @@ def test_g7_counts_runs_that_ran_and_rejects_duplicates(tmp_path: Path) -> None:
     _g7_repo(dup, [*rows, dict(rows[0])])
     with pytest.raises(ship_check.GateError, match="banked more than once"):
         ship_check.g7(_ctx(dup))
+
+
+def test_budget_counts_both_ledgers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+
+    runs = [{"ts": "2026-11-05T01:00:00+00:00", "kind": "agent_run", "turns": 8}] * 4
+    a, b = tmp_path / "ledger.jsonl", tmp_path / "ledger-claude.jsonl"
+    a.write_text("".join(json.dumps(r) + "\n" for r in runs))
+    monkeypatch.setattr(budget, "LEDGERS", (a, b))
+    monkeypatch.delenv("CAP_SHARE", raising=False)
+    assert budget.main() == 0  # 4 agent runs, cap 6 at cap share 0.2
+    b.write_text("".join(json.dumps(r) + "\n" for r in runs))
+    assert budget.main() == 1  # 8 on one day across the two ledgers

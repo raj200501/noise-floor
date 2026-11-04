@@ -475,3 +475,29 @@ the method decisions, written before acting and before any pilot 6 coverage was 
    lock. During the arm the log names banked and infra_error counts and infra_error end reasons
    only. Records are appended one write each, a cut final record is removed before the next
    append, and a run id banked twice fails the analysis and G7.
+
+## D-030 2026-11-04 Claude slice: model IDs, CLI version, turn cap, files (before freezing)
+Written before acting, to settle review items ops-5, ops-6, ops-17, and stats-18 together with
+D-028 item 7.
+1. Tiers run by their CLI alias (haiku, sonnet, opus). Every run records the model ID the CLI
+   reports. A tier's first banked run fixes its model ID for the slice: a run reporting another
+   ID ends the slice (it starts no further run), and runs on another ID are left out of the
+   analyses and counted. Reason: mixing two models in one tier would make the tier contrasts
+   uninterpretable, and stopping is the only rule that keeps every analyzed tier one model.
+2. Claude Code children run with `DISABLE_AUTOUPDATER=1`, and every run records the CLI version.
+   A version other than the slice's first (or one a resumed stop already accepted) stops the
+   slice until a resume accepts it; the change is reported as a deviation and the runs are
+   analyzed by tier. The CLI does not change the model, so this stop can resume.
+3. A run whose turn cap (`claude_agent_max_turns` times the cap share) would be below its
+   planned step budget is refused before it starts, and the analysis leaves out any banked run
+   whose recorded turn cap differs from its `steps` factor. The smoke run uses the E1 budget of 8.
+4. The plan runs complete (tier, task) groups back to back, tasks in a fixed random order and
+   tiers taking turns, so a slice that ends early leaves complete pairs balanced over tiers.
+5. The slice starts no run 45 days or more after the freeze (D-028 item 7), and the E1 analysis
+   refuses to run until both arms have ended (the local arm: every planned run banked or the
+   day-7 stop; the slice: every planned run banked, its end point, or 45 days after the freeze),
+   so no outcome is read early.
+6. Claude usage on Raj's machine goes to `artifacts/usage/ledger-claude.jsonl` and the slice's
+   stops to `artifacts/e1/stops-claude.jsonl`; `make budget` counts both ledgers. The two
+   machines then never append to the same tracked file.
+7. G7 counts only runs the primary analyses use (status other than infra_error and not left out).

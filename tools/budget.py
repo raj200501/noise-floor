@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Budget report (`make budget`).
 
-Reads budget.toml and the usage ledger (artifacts/usage/ledger.jsonl, written by
-the client wrapper) and checks that cash spent is exactly 0 and that every daily
-cap was respected. `total_cost_usd` from Claude stream-json is an API-price
+Reads budget.toml and the usage ledgers written by the client wrapper
+(artifacts/usage/ledger.jsonl for this machine, artifacts/usage/ledger-claude.jsonl for the
+Claude slice on Raj's machine; daily caps count both) and checks that cash spent is exactly
+0 and that every daily cap was respected. `total_cost_usd` from Claude stream-json is an API-price
 estimate and is reported as plan_equivalent_usd, never as cash.
 
 Ledger entries are JSON objects with at least ``ts`` (ISO 8601) and ``kind``
@@ -23,7 +24,10 @@ from pathlib import Path
 from typing import Any
 
 REPO = Path(__file__).resolve().parent.parent
-LEDGER = REPO / "artifacts" / "usage" / "ledger.jsonl"
+LEDGERS = (
+    REPO / "artifacts" / "usage" / "ledger.jsonl",
+    REPO / "artifacts" / "usage" / "ledger-claude.jsonl",
+)
 DAILY_CAPS = {
     "agent_run": "claude_agent_runs_per_day",
     "single_call": "claude_single_calls_per_day",
@@ -88,7 +92,8 @@ def check(caps: dict[str, Any], entries: list[dict[str, Any]]) -> tuple[list[str
 def main() -> int:
     caps = load_caps(REPO / "budget.toml")
     share = cap_share(caps, os.environ.get("CAP_SHARE"))
-    lines, ok = check(effective_caps(caps, share), load_ledger(LEDGER))
+    entries = [e for path in LEDGERS for e in load_ledger(path)]
+    lines, ok = check(effective_caps(caps, share), entries)
     print(f"cap_share = {share:g}")
     print("\n".join(lines))
     return 0 if ok else 1
