@@ -5,10 +5,11 @@ user, network, and mount namespaces created by ``unshare``. Inside, before the
 command starts, :func:`enter` (run as ``python -m noisefloor.sandbox``):
 
 1. brings up the loopback interface (the only network: no route outside);
-2. builds a new root on a private tmpfs from read-only bind mounts of the host's
-   top-level directories, a writable bind of ``workspace``, a fresh private
-   ``/tmp``, and ``/dev`` and ``/proc``; then makes that root read-only and
-   ``chroot``s into it.
+2. builds a new root on a tmpfs inside the workspace from read-only bind mounts of
+   the host's top-level directories, a writable bind of ``workspace``, a fresh
+   private ``/tmp`` (with read-only binds of the checkout and its venv when they
+   live under the host's /tmp), and ``/dev`` and ``/proc``; then makes that root
+   read-only and ``chroot``s into it.
 
 So the command can write only to ``workspace`` and its private ``/tmp``, and can
 reach only services it starts itself on loopback. The environment is scrubbed of
@@ -97,9 +98,19 @@ def available() -> bool:
     return probe.returncode == 0
 
 
-def sandboxed(cmd: Sequence[str], workspace: str | Path) -> list[str]:
-    """Command line that runs ``cmd`` in the sandbox with ``workspace`` writable."""
+def default_ro_paths() -> list[str]:
+    """Paths under /tmp that the sandboxed command needs to read (this checkout, its venv)."""
+    repo = str(Path(__file__).resolve().parents[2])
+    return sorted({p for p in (repo, sys.prefix) if p.startswith("/tmp/")})
+
+
+def sandboxed(cmd: Sequence[str], workspace: str | Path, ro_paths: Sequence[str] = ()) -> list[str]:
+    """Command line that runs ``cmd`` in the sandbox with ``workspace`` writable.
+
+    ``ro_paths`` under /tmp are bound read-only into the sandbox's private /tmp.
+    """
     ws = str(Path(workspace).resolve())
+    ro_args = [arg for path in ro_paths for arg in ("--ro", str(path))]
     return [
         "unshare",
         "--user",
@@ -111,6 +122,7 @@ def sandboxed(cmd: Sequence[str], workspace: str | Path) -> list[str]:
         "-m",
         "noisefloor.sandbox",
         ws,
+        *ro_args,
         "--",
         *cmd,
     ]
@@ -129,7 +141,7 @@ def run(
     ws = Path(workspace).resolve()
     ws.mkdir(parents=True, exist_ok=True)
     return subprocess.run(
-        sandboxed(cmd, ws),
+        sandboxed(cmd, ws, default_ro_paths()),
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -168,13 +180,16 @@ def _bind_ro(src: str, dst: str) -> None:
     _mount(None, dst, None, MS_BIND | MS_REMOUNT | MS_RDONLY)
 
 
-def enter(workspace: str) -> None:
-    """Set up the sandbox inside fresh namespaces (call only as namespace root)."""
+def enter(workspace: str, ro_paths: Sequence[str] = ()) -> None:
+    """Set up the sandbox inside fresh namespaces (call only as namespace root).
+
+    The new root is assembled on a tmpfs inside the workspace, so the host's /tmp is
+    never written; the sandbox gets its own empty /tmp.
+    """
     _loopback_up()
     _mount(None, "/", None, MS_REC | MS_PRIVATE)
-    _mount("tmpfs", "/tmp", "tmpfs", MS_NOSUID | MS_NODEV, "size=64m")
-    root = "/tmp/nf-root"
-    os.mkdir(root)
+    root = f"{workspace}/.nf-root"
+    os.makedirs(root, exist_ok=True)
     _mount("tmpfs", root, "tmpfs", MS_NOSUID | MS_NODEV, "size=16m")
     for name in sorted(os.listdir("/")):
         src = f"/{name}"
@@ -191,23 +206,45 @@ def enter(workspace: str) -> None:
     _mount("/dev", f"{root}/dev", None, MS_BIND | MS_REC)
     _mount("/proc", f"{root}/proc", None, MS_BIND | MS_REC)
     _mount("tmpfs", f"{root}/tmp", "tmpfs", MS_NOSUID | MS_NODEV, "size=1g")
+    for path in ro_paths:
+        if path.startswith("/tmp/") and os.path.isdir(path):
+            os.makedirs(f"{root}{path}", exist_ok=True)
+            _bind_ro(path, f"{root}{path}")
     inner_ws = f"{root}{workspace}"
     if not os.path.isdir(inner_ws):
-        raise OSError(f"workspace {workspace} is not under a mounted top-level directory")
+        os.makedirs(inner_ws)
     _mount(workspace, inner_ws, None, MS_BIND)
     _mount(None, root, None, MS_REMOUNT | MS_RDONLY | MS_NOSUID | MS_NODEV)
     os.chroot(root)
     os.chdir(workspace)
 
 
+def parse_args(args: Sequence[str]) -> tuple[str, list[str], list[str]] | None:
+    """Split ``WS [--ro PATH]... -- CMD...`` into (workspace, ro paths, command)."""
+    if "--" not in args:
+        return None
+    sep = list(args).index("--")
+    head, cmd = list(args[:sep]), list(args[sep + 1 :])
+    if not head or not cmd:
+        return None
+    workspace, rest = head[0], head[1:]
+    if len(rest) % 2 or any(flag != "--ro" for flag in rest[::2]):
+        return None
+    return workspace, rest[1::2], cmd
+
+
 def main(argv: list[str] | None = None) -> int:
-    """Entry point inside the namespaces: ``python -m noisefloor.sandbox WS -- cmd ...``."""
-    args = sys.argv[1:] if argv is None else argv
-    if len(args) < 3 or args[1] != "--":
-        print("usage: python -m noisefloor.sandbox WORKSPACE -- CMD ...", file=sys.stderr)
+    """Entry point inside the namespaces: ``python -m noisefloor.sandbox WS [--ro P] -- cmd``."""
+    parsed = parse_args(sys.argv[1:] if argv is None else argv)
+    if parsed is None:
+        print(
+            "usage: python -m noisefloor.sandbox WORKSPACE [--ro PATH]... -- CMD ...",
+            file=sys.stderr,
+        )
         return 2
-    enter(args[0])
-    os.execvp(args[2], args[2:])
+    workspace, ro_paths, cmd = parsed
+    enter(workspace, ro_paths)
+    os.execvp(cmd[0], cmd)
     return 127  # execvp does not return
 
 

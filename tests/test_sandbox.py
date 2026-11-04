@@ -74,6 +74,27 @@ def test_scrubbed_env_and_command_line() -> None:
     assert cmd[-4:] == ["/w", "--", "echo", "hi"]
 
 
+def test_parse_args_and_ro_paths(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert sandbox.parse_args(["/w", "--", "echo"]) == ("/w", [], ["echo"])
+    assert sandbox.parse_args(["/w", "--ro", "/tmp/a", "--", "x", "y"]) == (
+        "/w",
+        ["/tmp/a"],
+        ["x", "y"],
+    )
+    for bad in (
+        ["/w", "echo"],
+        ["--", "x"],
+        ["/w", "--"],
+        ["/w", "--rw", "/a", "--", "x"],
+        ["/w", "--ro", "--", "x"],
+    ):
+        assert sandbox.parse_args(bad) is None
+    cmd = sandbox.sandboxed(["echo"], "/w", ["/tmp/repo"])
+    assert cmd[-5:] == ["/w", "--ro", "/tmp/repo", "--", "echo"]
+    monkeypatch.setattr(sandbox.sys, "prefix", "/tmp/venv-x")
+    assert "/tmp/venv-x" in sandbox.default_ro_paths()
+
+
 def test_main_usage_and_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
     assert sandbox.main(["only-one-arg"]) == 2
     monkeypatch.setattr(sandbox, "available", lambda: False)

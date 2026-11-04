@@ -5,6 +5,7 @@ Run before every push so nothing that reaches GitHub fails CI. Standard library 
 Prints one line per step and a final `PREPUSH: PASS <sha>` or `PREPUSH: FAIL <step>`.
 """
 
+import os
 import shutil
 import subprocess
 import sys
