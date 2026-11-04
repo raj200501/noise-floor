@@ -19,12 +19,12 @@ No variance-component interval is a Wald interval. A random term ``a:b`` means
 one random intercept per observed combination of ``a`` and ``b``.
 
 Bootstrap intervals: a random-effect variance gets the ``percentile``, ``basic``
-(``2 * estimate - quantiles``, cut at 0), or ``bc`` (bias-corrected percentile)
-interval of its replicates (``boot_interval``). A fixed factor's contribution gets the
-range of the contribution over a box of intervals for the factor's coefficients
-(``box_interval``: percentile, basic, or bias-corrected), each at level
-``1 - (1 - level) / (k - 1)`` for ``k`` levels (Bonferroni), so it covers at least as
-often as the box. Shares get percentile intervals.
+(``2 * estimate - quantiles``, cut at 0), ``bc`` (bias-corrected percentile), or
+``basic_log`` (basic on the log scale) interval of its replicates (``boot_interval``).
+A fixed factor's contribution gets the range of the contribution over a box of intervals
+for the factor's coefficients (``box_interval``: percentile, basic, or bias-corrected),
+each at level ``1 - (1 - level) / (k - 1)`` for ``k`` levels (Bonferroni), so it covers
+at least as often as the box. Shares get percentile intervals.
 """
 
 from __future__ import annotations
@@ -453,7 +453,7 @@ def _fixed_components(
     return out
 
 
-BOOT_INTERVALS = ("percentile", "basic", "bc")
+BOOT_INTERVALS = ("percentile", "basic", "bc", "basic_log")
 METHODS = ("profile", "parametric_bootstrap")
 _MAX_BOX_COEFS = 12  # a factor with more levels gets no box interval (2**12 vertices)
 
@@ -466,6 +466,9 @@ def boot_variance_interval(
     ``percentile``: the replicate quantiles. ``basic``: ``2 * estimate`` minus the
     quantiles, cut at 0. ``bc``: the bias-corrected percentile interval (quantiles at
     ``Phi(2 z0 -+ z)``, with ``z0`` from the share of replicates below the estimate).
+    ``basic_log``: the basic interval of the log variance, ``estimate**2 / quantiles``,
+    which corrects a proportional bias of the estimator; it falls back to the percentile
+    interval when the estimate or the lower quantile is 0.
     """
     from scipy import stats
 
@@ -478,6 +481,12 @@ def boot_variance_interval(
     elif kind == "basic":
         q_lo, q_hi = np.quantile(d, [a, 1 - a])
         lo, hi = max(0.0, 2 * estimate - q_hi), max(0.0, 2 * estimate - q_lo)
+    elif kind == "basic_log":
+        q_lo, q_hi = np.quantile(d, [a, 1 - a])
+        if estimate > 0 and q_lo > 0:
+            lo, hi = estimate**2 / q_hi, estimate**2 / q_lo
+        else:
+            lo, hi = q_lo, q_hi
     elif kind == "bc":
         below = float(np.mean(d < estimate) + 0.5 * np.mean(d == estimate))
         below = min(max(below, 1 / (d.size + 1)), d.size / (d.size + 1))
@@ -513,7 +522,7 @@ def boot_coef_interval(
     a = (1 - level) / 2
     if kind == "percentile":
         lo, hi = np.quantile(d, [a, 1 - a])
-    elif kind == "basic":
+    elif kind in ("basic", "basic_log"):  # a signed coefficient has no log scale
         q_lo, q_hi = np.quantile(d, [a, 1 - a])
         lo, hi = 2 * estimate - q_hi, 2 * estimate - q_lo
     elif kind == "bc":

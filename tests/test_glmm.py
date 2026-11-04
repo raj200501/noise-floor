@@ -208,3 +208,18 @@ def test_bootstrap_option_validation(planted: EvalResults) -> None:
         decompose(planted, method="parametric_bootstrap", n_boot=1)
     with pytest.raises(ValueError, match="needs the lme4 backend"):
         decompose(planted, method="parametric_bootstrap", backend="statsmodels")
+
+
+def test_basic_log_interval() -> None:
+    import numpy as np
+
+    draws = np.array([0.2, 0.3, 0.4, 0.5, 0.6])
+    lo, hi = glmm.boot_variance_interval(0.4, draws, 0.8, "basic_log")
+    q_lo, q_hi = np.quantile(draws, [0.1, 0.9])
+    assert lo == pytest.approx(0.16 / q_hi) and hi == pytest.approx(0.16 / q_lo)
+    zero = np.array([0.0, 0.0, 0.1, 0.2])
+    assert glmm.boot_variance_interval(0.1, zero, 0.8, "basic_log") == pytest.approx(
+        tuple(np.quantile(zero, [0.1, 0.9]))
+    )
+    coef = glmm.boot_coef_interval(0.4, draws, 0.8, "basic_log")
+    assert coef == pytest.approx(glmm.boot_coef_interval(0.4, draws, 0.8, "basic"))
