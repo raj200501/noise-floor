@@ -52,7 +52,7 @@ from evalstats.glmm import (
 from noisefloor import jsonl, preregs
 from noisefloor.analysis import mde as mde_lib
 from noisefloor.e0 import expected_sigmoid
-from noisefloor.e0_run import lower_priority, record_environment
+from noisefloor.e0_run import init_worker, record_environment
 from noisefloor.preregs import prereg_block
 from noisefloor.provenance import single_environment, stamp
 
@@ -731,7 +731,7 @@ def _pool_map(jobs: list[Any], func: Any, workers: int) -> Iterator[Any]:
     if workers <= 1:
         yield from map(func, jobs)
         return
-    with mp.get_context("spawn").Pool(workers, initializer=lower_priority) as pool:
+    with mp.get_context("spawn").Pool(workers, initializer=init_worker) as pool:
         yield from pool.imap_unordered(func, jobs)
 
 

@@ -132,7 +132,7 @@ def run_cell(cell: Cell, workers: int = 1, root: Path = E0_DIR, log: Any = print
                 fh.write(json.dumps(row, sort_keys=True) + "\n")
                 added += 1
         else:
-            with mp.get_context("spawn").Pool(workers, initializer=_lower_priority) as pool:
+            with mp.get_context("spawn").Pool(workers, initializer=init_worker) as pool:
                 for _, row in pool.imap_unordered(_work, jobs, chunksize=4):
                     fh.write(json.dumps(row, sort_keys=True) + "\n")
                     fh.flush()
@@ -154,6 +154,16 @@ def lower_priority(autogroup: Path = Path("/proc/self/autogroup")) -> None:
 
 
 _lower_priority = lower_priority
+
+
+def init_worker() -> None:
+    """Pool worker start: lowest CPU priority, and read the environment the worker loaded.
+
+    Reading it here, before any work, makes every stamp name the code the worker imported
+    at start, even if a commit lands while it runs.
+    """
+    lower_priority()
+    process_environment()
 
 
 def coverage_name(index: int, prereg: Path) -> str:

@@ -168,3 +168,13 @@ def test_lower_priority(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
     assert calls == [10] and group.read_text() == "19\n"
     e0_run.lower_priority(tmp_path / "missing" / "autogroup")  # no such file: ignored
     assert calls == [10, 10]
+
+
+def test_init_worker_lowers_priority_and_reads_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(e0_run, "lower_priority", lambda: calls.append("nice"))
+    monkeypatch.setattr(e0_run, "process_environment", lambda: calls.append("env") or {})
+    e0_run.init_worker()
+    assert calls == ["nice", "env"]
