@@ -81,7 +81,8 @@ private manifest covers it); `docs/leaderboards/<board>.md` for each; `artifacts
 `python -m noisefloor.reanalysis --verify`.
 
 ## G9 Library shipped
-`uv build --wheel` gives one `evalstats-*.whl`; it installs into a clean venv, imports, and
+`uv build --wheel` gives one `evalstats-*.whl`; it installs (with its documented `glmm` extra,
+which example 04 needs for a GLMM backend) into a clean venv, imports, and
 `evalstats --help` works; at least 5 `docs/examples/*.py` run with the wheel's Python and no
 network; `docs/api/` is generated (says so) and names everything in `evalstats.__all__`.
 

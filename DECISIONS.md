@@ -161,3 +161,22 @@ configuration per batch), so the E1 analysis will include a batch random effect.
   intervals (task bootstrap of the maximum studentized deviation) are bootstrap intervals, so
   their interval types (`bca`, `bootstrap_max_t`) get the 500-replicate floor, like `bootstrap`
   and the GLMM profile type.
+
+## D-018 2026-11-04 Pilot p1 stopped early; second-round candidates; context window
+- Pilot p1 (D-016) was stopped after 24 banked runs, all on Qwen2.5-1.5B: 2 of them solved their
+  task, most ended at the 15-step limit (for example calling `list_dir` on a file path again and
+  again despite the `not a directory` observation), and one ended when the conversation exceeded
+  the server's 8,192-token context. That puts Qwen2.5-1.5B well under the 0.2 floor of section 4,
+  and the two smaller first-round candidates are unlikely to do better. The 24 runs stay in
+  artifacts/pilot/p1.jsonl as exploratory data.
+- Context: llama-server now gives every parallel slot 32,768 tokens (fifteen steps of
+  observations and replies can exceed 8,192). Earlier pilot runs used 8,192.
+- Second-round candidates (all permissive licenses, pinned by revision and file SHA-256):
+  Qwen3-1.7B (Q8_0, the only official GGUF), Qwen3-4B (Q4_K_M), Granite 4.0 micro (3B, Q4_K_M),
+  SmolLM3-3B (Q4_K_M, ggml-org build), and Phi-4-mini-instruct (3.8B, Q4_K_M, unsloth build;
+  MIT). Qwen3's thinking mode is turned off through the chat template
+  (`enable_thinking: false`), because thinking tokens on CPU would multiply run times; this is a
+  fixed part of each model configuration, recorded in provenance.
+- A screening plan (s2) runs each candidate on a small task set with both harnesses to measure
+  success and run time; the E1 models and difficulty mix are chosen from it and the pilot, then
+  preregistered. All screening data is exploratory.

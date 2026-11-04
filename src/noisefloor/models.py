@@ -26,6 +26,8 @@ DEFAULT_SERVER = (
     Path.home()
     / ".cache/noisefloor/src/llama_cpp_python-0.3.36/vendor/llama.cpp/build/bin/llama-server"
 )
+DEFAULT_CTX = 32768  # tokens per parallel slot (D-018)
+NO_THINKING = ("--chat-template-kwargs", '{"enable_thinking": false}')
 RUNTIME = {
     "name": "llama.cpp llama-server",
     "source": "llama-cpp-python 0.3.36 sdist (vendor/llama.cpp)",
@@ -48,6 +50,7 @@ class LocalModel:
     sha256: str
     license: str
     quant: str = "Q4_K_M"
+    server_args: tuple[str, ...] = ()
 
     def path(self, models_dir: Path | None = None) -> Path:
         """Where the weights file is expected."""
@@ -128,7 +131,7 @@ def server_command(
     port: int,
     threads: int,
     *,
-    ctx: int = 8192,
+    ctx: int = DEFAULT_CTX,
     parallel: int = 1,
     models_dir: Path | None = None,
 ) -> list[str]:
@@ -151,6 +154,7 @@ def server_command(
         "--no-webui",
         "--seed",
         "0",
+        *model.server_args,
     ]
 
 
@@ -175,7 +179,7 @@ def serve(
     port: int,
     threads: int,
     *,
-    ctx: int = 8192,
+    ctx: int = DEFAULT_CTX,
     parallel: int = 1,
     log_path: Path | None = None,
     models_dir: Path | None = None,

@@ -761,7 +761,7 @@ def g9(ctx: Ctx) -> str:
     res = run(
         ctx,
         "wheel-install",
-        ["uv", "pip", "install", "--quiet", "--python", str(py), str(wheels[0])],
+        ["uv", "pip", "install", "--quiet", "--python", str(py), f"{wheels[0]}[glmm]"],
         cwd=ctx.tmp,
     )
     need(res.code == 0, f"wheel install: {tail(res.out)}")

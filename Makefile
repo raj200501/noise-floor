@@ -8,7 +8,7 @@ TODO   := $(TOOL) tools/todo.py
 PKGS   := src/evalstats src/noisefloor
 
 .PHONY: setup doctor test lint typecheck ci demo prereg-verify claimcheck freshness \
-        citecheck secrets-scan budget review report reproduce ship-check prepush
+        citecheck secrets-scan budget review report reproduce ship-check prepush apidoc
 
 # The R extra (rpy2 for lme4) is installed only where R is present.
 R_EXTRA := $(if $(shell command -v Rscript 2>/dev/null),--extra r,)
@@ -67,3 +67,7 @@ ship-check:
 # Fresh-clone make setup + make ci before every push (D-015).
 prepush:
 	$(TOOL) tools/prepush.py
+
+# Regenerate docs/api/evalstats.md from docstrings.
+apidoc:
+	$(RUN) python tools/apidoc.py
