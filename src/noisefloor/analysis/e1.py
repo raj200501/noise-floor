@@ -258,22 +258,33 @@ def _results(rows: Sequence[Mapping[str, Any]], key: str) -> EvalResults:
     return EvalResults(frame)
 
 
+def interval_method(settings: Mapping[str, Any], name: str, key: str, default: str) -> str:
+    """The preregistered interval method for one arm or Holm family.
+
+    ``settings[name]`` is one method for all, or a mapping from arm (``local``, ``claude``)
+    or Holm family to a method.
+    """
+    value = settings.get(name, default)
+    return str(value[key]) if isinstance(value, Mapping) else str(value)
+
+
 def scores_table(
     rows: Sequence[Mapping[str, Any]], settings: Mapping[str, Any]
 ) -> list[dict[str, Any]]:
     """Each model's success rate with its preregistered interval (confirmatory runs).
 
-    The interval method is ``settings["score_interval"]`` (default ``cluster_t``).
+    The interval method is ``settings["score_interval"]`` (default ``cluster_t``), one
+    method or one per arm.
     """
     usable = _usable(rows, settings["exclude_status"])
     if not usable:
         return []
     results = _results(usable, "model_id")
-    method = str(settings.get("score_interval", "cluster_t"))
     out = []
     for model in sorted({r["model_id"] for r in usable}):
-        si = score_interval(results, model, method=method, level=float(settings["level"]))
         backend = next(r["backend"] for r in usable if r["model_id"] == model)
+        method = interval_method(settings, "score_interval", backend, "cluster_t")
+        si = score_interval(results, model, method=method, level=float(settings["level"]))
         out.append(
             {
                 "model": model,
@@ -317,10 +328,13 @@ def contrasts_table(
     local model on minimal-agent runs with the Claude step budget (temperature-confounded).
     Holm families: local harness contrasts, Claude harness contrasts, local model pairs,
     and Claude-local pairs. The interval method is ``settings["contrast_interval"]``
-    (default ``cluster_t``).
+    (default ``cluster_t``), one method or one per family.
     """
     level = float(settings["level"])
-    method = str(settings.get("contrast_interval", "cluster_t"))
+
+    def method(family: str) -> str:
+        return interval_method(settings, "contrast_interval", family, "cluster_t")
+
     usable = _usable(rows, settings["exclude_status"])
     harness: list[dict[str, Any]] = []
     for model in sorted({r["model_id"] for r in usable}):
@@ -335,7 +349,7 @@ def contrasts_table(
                     "minimal",
                     level,
                     label=f"harness:{model}",
-                    method=method,
+                    method=method(family),
                     family=family,
                 )
             )
@@ -353,7 +367,7 @@ def contrasts_table(
                     b,
                     level,
                     label=f"model:{a}-{b}",
-                    method=method,
+                    method=method("models-local"),
                     family="models-local",
                 )
             )
@@ -371,7 +385,7 @@ def contrasts_table(
                     b,
                     level,
                     label=f"model:{a}-{b}",
-                    method=method,
+                    method=method("models-claude"),
                     family="models-claude",
                 )
                 row["label"] = "temperature-confounded"

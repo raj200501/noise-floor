@@ -27,8 +27,13 @@ SETTINGS = {
     "boot_interval": "basic_log",
     "box_interval": "basic",
     "share_interval": "basic_log",
-    "score_interval": "cluster_wilson",
-    "contrast_interval": "mover_wilson",
+    "score_interval": {"local": "cluster_t", "claude": "cluster_wilson"},
+    "contrast_interval": {
+        "harness-local": "cluster_t",
+        "harness-claude": "mover_wilson",
+        "models-local": "cluster_t",
+        "models-claude": "mover_wilson",
+    },
     "seed": 7,
     "exclude_status": ["infra_error"],
     "block_hours": [[0, 12], [12, 24]],
@@ -124,7 +129,8 @@ def test_build_and_verify(tmp_path: Path) -> None:
     scores = json.loads((tmp_path / "scores.json").read_text())["rows"]
     assert {r["model"] for r in scores} == {*DESIGN.models, *DESIGN.claude_tiers}
     assert all(r["lo"] <= r["score"] <= r["hi"] for r in scores)
-    assert {r["interval_method"] for r in scores} == {"cluster_wilson"}
+    methods = {r["model"]: r["interval_method"] for r in scores}
+    assert methods["claude-haiku"] == "cluster_wilson" and methods["qwen3-4b"] == "cluster_t"
     contrasts = json.loads((tmp_path / "contrasts.json").read_text())
     assert {r["contrast"] for r in contrasts["harness"]} == {
         f"harness:{m}" for m in (*DESIGN.models, *DESIGN.claude_tiers)
@@ -136,7 +142,13 @@ def test_build_and_verify(tmp_path: Path) -> None:
     assert all(r["label"] == "temperature-confounded" for r in claude_rows)
     assert all(r["p_holm"] >= r["p_value"] for r in contrasts["models"])
     every = [*contrasts["harness"], *contrasts["models"]]
-    assert {r["interval_method"] for r in every} == {"mover_wilson"}
+    by_family = {r["family"]: r["interval_method"] for r in every}
+    assert by_family == {
+        "harness-local": "cluster_t",
+        "harness-claude": "mover_wilson",
+        "models-local": "cluster_t",
+        "models-claude": "mover_wilson",
+    }
     assert {r["family"] for r in every} == {
         "harness-local",
         "harness-claude",
