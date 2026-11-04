@@ -81,17 +81,24 @@ def base_provenance() -> dict[str, Any]:
     }
 
 
-def make_batches(specs: Sequence[RunSpec], prefix: str) -> list[Batch]:
-    """Group consecutive runs that share a server configuration (order is kept)."""
-    batches: list[Batch] = []
-    current: list[RunSpec] = []
+def make_batches(specs: Sequence[RunSpec], prefix: str, max_size: int = 10) -> list[Batch]:
+    """Group consecutive runs that share a server configuration, at most ``max_size`` each.
+
+    Order is kept. Batch IDs include a hash of their run IDs, so a resumed plan never
+    reuses the workspace of a different batch.
+    """
+    if max_size < 1:
+        raise ValueError("max_size must be positive")
+    groups: list[list[RunSpec]] = []
     for spec in specs:
-        if current and batch_key(current[-1]) != batch_key(spec):
-            batches.append(Batch(f"{prefix}-b{len(batches):04d}", tuple(current)))
-            current = []
-        current.append(spec)
-    if current:
-        batches.append(Batch(f"{prefix}-b{len(batches):04d}", tuple(current)))
+        if groups and batch_key(groups[-1][-1]) == batch_key(spec) and len(groups[-1]) < max_size:
+            groups[-1].append(spec)
+        else:
+            groups.append([spec])
+    batches = []
+    for i, group in enumerate(groups):
+        digest = hashlib.sha256(",".join(s.run_id for s in group).encode()).hexdigest()[:8]
+        batches.append(Batch(f"{prefix}-b{i:04d}-{digest}", tuple(group)))
     return batches
 
 
@@ -157,6 +164,53 @@ def sandboxed_executor(timeout_per_run: float = 900.0) -> Executor:
     return execute_batch
 
 
+def _bank(
+    rows: Sequence[Mapping[str, Any]],
+    batch: Batch,
+    workspace: Path,
+    *,
+    artifact: Path,
+    ledger: Path,
+    base: Mapping[str, Any],
+    started: str,
+    salvaged: bool,
+) -> None:
+    """Append records with provenance, merge the batch ledger, and mark the workspace."""
+    by_id = {s.run_id: s for s in batch.runs}
+    with artifact.open("a") as fh:
+        for row in rows:
+            record = {
+                **row,
+                "provenance": provenance(by_id[row["run_id"]], batch, base),
+                "batch_started_at": started,
+            }
+            if salvaged:
+                record["salvaged"] = True
+            fh.write(json.dumps(record, sort_keys=True) + "\n")
+    batch_ledger = workspace / "out" / "ledger.jsonl"
+    if batch_ledger.exists():
+        ledger.parent.mkdir(parents=True, exist_ok=True)
+        with ledger.open("a") as fh:
+            fh.write(batch_ledger.read_text())
+    (workspace / ".banked").write_text(started + "\n")
+
+
+def salvage(
+    root: Path, prefix: str, specs: Mapping[str, RunSpec], done: set[str]
+) -> list[tuple[Path, list[dict[str, Any]]]]:
+    """Completed but unbanked runs left in workspaces of an interrupted plan."""
+    found = []
+    for workspace in sorted(root.glob(f"{prefix}-b*")):
+        results = workspace / "out" / "results.jsonl"
+        if (workspace / ".banked").exists() or not results.exists():
+            continue
+        rows = [json.loads(ln) for ln in results.read_text().splitlines() if ln.strip()]
+        rows = [r for r in rows if r.get("run_id") in specs and r["run_id"] not in done]
+        if rows:
+            found.append((workspace, rows))
+    return found
+
+
 def execute(
     specs: Iterable[RunSpec],
     *,
@@ -166,39 +220,52 @@ def execute(
     executor: Executor | None = None,
     work_root: Path | None = None,
     log: Callable[[str], None] = print,
+    max_batch: int = 10,
 ) -> int:
-    """Run every spec not yet banked in ``artifact``; returns the number banked now."""
+    """Run every spec not yet banked in ``artifact``; returns the number banked now.
+
+    Runs that an interrupted earlier call completed but did not bank are salvaged from
+    their workspaces first (marked ``"salvaged": true``) and never re-run.
+    """
+    spec_list = list(specs)
+    by_id = {s.run_id: s for s in spec_list}
     done = banked_ids(artifact)
-    todo = [s for s in specs if s.run_id not in done]
     run_batch = executor or sandboxed_executor()
     root = work_root or Path(os.environ.get("NOISEFLOOR_WORK", DEFAULT_WORK))
     base = base_provenance()
     artifact.parent.mkdir(parents=True, exist_ok=True)
     banked = 0
-    for batch in make_batches(todo, prefix):
+    for workspace, rows in salvage(root, prefix, by_id, done):
+        batch = Batch(workspace.name, tuple(by_id[r["run_id"]] for r in rows))
+        started = datetime.now(UTC).isoformat(timespec="seconds")
+        _bank(
+            rows,
+            batch,
+            workspace,
+            artifact=artifact,
+            ledger=ledger,
+            base=base,
+            started=started,
+            salvaged=True,
+        )
+        done |= {r["run_id"] for r in rows}
+        banked += len(rows)
+        log(f"{workspace.name}: salvaged {len(rows)} completed runs")
+    todo = [s for s in spec_list if s.run_id not in done]
+    for batch in make_batches(todo, prefix, max_batch):
         workspace = root / batch.batch_id
         started = datetime.now(UTC).isoformat(timespec="seconds")
         rows = run_batch(batch, workspace)
-        by_id = {s.run_id: s for s in batch.runs}
-        with artifact.open("a") as fh:
-            for row in rows:
-                spec = by_id[row["run_id"]]
-                fh.write(
-                    json.dumps(
-                        {
-                            **row,
-                            "provenance": provenance(spec, batch, base),
-                            "batch_started_at": started,
-                        },
-                        sort_keys=True,
-                    )
-                    + "\n"
-                )
-        batch_ledger = workspace / "out" / "ledger.jsonl"
-        if batch_ledger.exists():
-            ledger.parent.mkdir(parents=True, exist_ok=True)
-            with ledger.open("a") as fh:
-                fh.write(batch_ledger.read_text())
+        _bank(
+            rows,
+            batch,
+            workspace,
+            artifact=artifact,
+            ledger=ledger,
+            base=base,
+            started=started,
+            salvaged=False,
+        )
         banked += len(rows)
         ok = sum(r.get("status") == "ok" for r in rows)
         log(f"{batch.batch_id}: {len(rows)} runs banked ({ok} ok)")

@@ -27,12 +27,15 @@ def spec(run_id: str, model: str = "qwen2.5-0.5b", threads: int = 4) -> RunSpec:
     )
 
 
-def test_make_batches_keeps_order_and_splits_on_config() -> None:
-    specs = [spec("a"), spec("b"), spec("c", threads=2), spec("d")]
-    batches = make_batches(specs, "p")
-    assert [[r.run_id for r in b.runs] for b in batches] == [["a", "b"], ["c"], ["d"]]
-    assert [b.batch_id for b in batches] == ["p-b0000", "p-b0001", "p-b0002"]
+def test_make_batches_keeps_order_and_splits_on_config_and_size() -> None:
+    specs = [spec("a"), spec("b"), spec("c", threads=2), spec("d"), spec("e"), spec("f")]
+    batches = make_batches(specs, "p", max_size=2)
+    assert [[r.run_id for r in b.runs] for b in batches] == [["a", "b"], ["c"], ["d", "e"], ["f"]]
+    assert all(b.batch_id.startswith(f"p-b{i:04d}-") for i, b in enumerate(batches))
+    assert len({b.batch_id for b in batches}) == 4
     assert make_batches([], "p") == []
+    with pytest.raises(ValueError, match="positive"):
+        make_batches(specs, "p", max_size=0)
 
 
 def fake_executor(log: list[str]) -> orchestrate.Executor:
@@ -59,7 +62,7 @@ def test_execute_banks_with_provenance_and_resumes(tmp_path: Path) -> None:
         work_root=tmp_path / "work",
         log=lambda m: None,
     )
-    assert n == 2 and calls == ["t-b0000", "t-b0001"]
+    assert n == 2 and [c.split("-")[1] for c in calls] == ["b0000", "b0001"]
     rows = [json.loads(ln) for ln in artifact.read_text().splitlines()]
     prov = rows[0]["provenance"]
     assert prov["model_sha256"] and prov["config_sha256"] == config_hash(specs[0])
@@ -99,3 +102,42 @@ def test_sandboxed_executor_fills_missing_runs(
     assert by_id["a"]["status"] == "ok" and by_id["b"]["status"] == "infra_error"
     assert "exited 1" in by_id["b"]["error"]
     assert (tmp_path / "w" / "runner.stderr").read_text() == "killed"
+
+
+def test_salvage_banks_completed_runs_of_an_interrupted_batch(tmp_path: Path) -> None:
+    artifact = tmp_path / "runs.jsonl"
+    ledger = tmp_path / "ledger.jsonl"
+    old = tmp_path / "work" / "s-b0000-deadbeef" / "out"
+    old.mkdir(parents=True)
+    a = spec("a")
+    (old / "results.jsonl").write_text(
+        json.dumps({**a.to_json(), "status": "ok", "outcome": 1.0, "batch_id": "s-b0000-x"})
+        + "\n"
+        + json.dumps({"run_id": "stranger", "status": "ok"})
+        + "\n"
+    )
+    (old / "ledger.jsonl").write_text('{"kind": "local"}\n')
+    calls: list[str] = []
+    n = execute(
+        [a, spec("b")],
+        artifact=artifact,
+        ledger=ledger,
+        prefix="s",
+        executor=fake_executor(calls),
+        work_root=tmp_path / "work",
+        log=lambda m: None,
+    )
+    rows = {json.loads(ln)["run_id"]: json.loads(ln) for ln in artifact.read_text().splitlines()}
+    assert n == 2 and set(rows) == {"a", "b"} and rows["a"]["salvaged"] is True
+    assert "salvaged" not in rows["b"] and len(calls) == 1
+    assert (old.parent / ".banked").exists()
+    again = execute(
+        [a, spec("b")],
+        artifact=artifact,
+        ledger=ledger,
+        prefix="s",
+        executor=fake_executor(calls),
+        work_root=tmp_path / "work",
+        log=lambda m: None,
+    )
+    assert again == 0 and len(ledger.read_text().splitlines()) == 2
