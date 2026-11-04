@@ -127,6 +127,14 @@ def test_pilot_command(
         rc.main(["pilot", str(out), "5", "1"])
 
 
+@needs_r
+def test_pilot_command_workers(tmp_path: Path) -> None:
+    out = tmp_path / "pilot.jsonl"
+    argv = ["pilot", str(out), "990001", "2", "--n-boot", "3", "--nagq", "0", "--tasks", "6"]
+    assert rc.main([*argv, "--workers", "2"]) == 0
+    assert {json.loads(ln)["seed"] for ln in out.read_text().splitlines()} == {990001, 990002}
+
+
 def small_config() -> dict:
     planted = rc.Planted(model=(0.3, -0.3), day=(0.0, 0.1), block=(0.0,)).to_json()
     return {

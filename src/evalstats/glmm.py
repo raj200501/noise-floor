@@ -10,8 +10,9 @@ Backends (named in every result):
 * ``lme4``: ``glmer`` (Laplace, bobyqa) through rpy2, with profile-likelihood
   intervals (``method="profile"``) or a parametric bootstrap
   (``method="parametric_bootstrap"``: each replicate draws new random effects and new
-  outcomes from the fitted model and refits it, optionally with ``nagq=0``, which is
-  about ten times faster). Used when R, lme4, and rpy2 are available.
+  outcomes from the fitted model and fits it afresh, with ``nagq=1`` (Laplace) or
+  ``nagq=0``, which is much faster but attenuates fixed effects). Used when R, lme4,
+  and rpy2 are available.
 * ``statsmodels-vb``: ``BinomialBayesMixedGLM`` fitted by variational Bayes, with
   approximate posterior intervals (labeled ``vb_posterior``). The fallback.
 
@@ -241,11 +242,16 @@ function(df, formula, factors, nagq, n_boot, seed) {
     invokeRestart("muffleWarning")
   }
   ctrl <- lme4::glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 1e5))
+  # Replicates are fresh fits (refit() starts the Laplace stage without the nAGQ = 0
+  # initial step and is slower); they skip the final derivative pass, which only feeds
+  # convergence diagnostics, so diagnostics come from the original fit alone.
+  boot_ctrl <- lme4::glmerControl(
+    optimizer = "bobyqa", optCtrl = list(maxfun = 1e5), calc.derivs = FALSE
+  )
+  form <- stats::as.formula(formula)
+  response <- all.vars(form[[2]])
   fit <- withCallingHandlers(
-    lme4::glmer(
-      stats::as.formula(formula), data = df, family = stats::binomial, nAGQ = nagq,
-      control = ctrl
-    ),
+    lme4::glmer(form, data = df, family = stats::binomial, nAGQ = nagq, control = ctrl),
     warning = keep
   )
   vc <- as.data.frame(lme4::VarCorr(fit))
@@ -261,9 +267,11 @@ function(df, formula, factors, nagq, n_boot, seed) {
   warned <- 0L
   for (b in seq_len(n_boot)) {
     hit <- FALSE
+    d <- df
+    d[[response]] <- sims[[b]]
     f <- tryCatch(
       withCallingHandlers(
-        lme4::refit(fit, sims[[b]]),
+        lme4::glmer(form, data = d, family = stats::binomial, nAGQ = nagq, control = boot_ctrl),
         warning = function(w) { hit <<- TRUE; invokeRestart("muffleWarning") }
       ),
       error = function(e) NULL
@@ -709,7 +717,7 @@ def decompose(
     random intercepts; ``fixed`` lists categorical covariates entered as fixed
     effects. Outcomes must be binary. ``method`` picks the lme4 intervals:
     ``profile`` (profile likelihood) or ``parametric_bootstrap`` (``n_boot``
-    replicates, refits with ``nagq`` = 1 for Laplace or 0 for the faster
+    replicates, each a fresh fit with ``nagq`` = 1 for Laplace or 0 for the faster
     approximation, random variances with ``boot_interval``; see the module docstring).
     """
     if not results.is_binary:

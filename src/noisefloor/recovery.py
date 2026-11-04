@@ -511,6 +511,10 @@ def config_from(block: Mapping[str, Any]) -> tuple[Design, Planted, AnalysisSett
     return Design(**block["design"]), planted, settings
 
 
+def _pilot_job(job: tuple[Design, Planted, AnalysisSettings, int]) -> dict[str, Any]:
+    return pilot_row(*job)
+
+
 def _recover_job(job: tuple[dict[str, Any], int]) -> dict[str, Any]:
     block, seed = job
     design, planted, settings = config_from(block)
@@ -651,11 +655,12 @@ def run_e0_glmm(amendment: Path, workers: int = 1, root: Path = E0_DIR, log: Any
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """``python -m noisefloor.recovery pilot OUT.jsonl FIRST COUNT [--n-boot B]``.
+    """``python -m noisefloor.recovery pilot OUT.jsonl FIRST COUNT [--n-boot B] [--nagq 0|1]``.
 
     Runs exploratory method-pilot datasets (seeds from :data:`PILOT_SEEDS`) with the
-    default design and planted values, appending one JSON line per dataset (resumable),
-    then prints the coverage summary.
+    default design and planted values, appending one JSON line per dataset (resumable;
+    ``--workers`` runs datasets in parallel, so lines arrive out of seed order), then
+    prints the coverage summary.
     """
     args_list = list(argv) if argv is not None else sys.argv[1:]
     if args_list and args_list[0] in ("g6-run", "g6-bank", "e0-run"):
@@ -674,6 +679,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--mde", action="store_true", help="also score MDE intervals at three designs"
     )
+    parser.add_argument(
+        "--nagq", type=int, choices=(0, 1), default=1, help="1 for Laplace fits, 0 for nAGQ = 0"
+    )
+    parser.add_argument("--workers", type=int, default=1)
     args = parser.parse_args(args_list)
     seeds = [s for s in range(args.first, args.first + args.count)]
     if any(s not in PILOT_SEEDS for s in seeds):
@@ -681,10 +690,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     done = set()
     if args.out.exists():
         done = {json.loads(ln)["seed"] for ln in args.out.read_text().splitlines() if ln.strip()}
-    settings = AnalysisSettings(n_boot=args.n_boot)
+    settings = AnalysisSettings(n_boot=args.n_boot, nagq=args.nagq)
     planted = Planted()
     if args.no_batch:
-        settings = AnalysisSettings(n_boot=args.n_boot, random=("task", "model:task"))
+        settings = dataclasses.replace(settings, random=("task", "model:task"))
         planted = dataclasses.replace(planted, batch_var=0.0)
     if args.mde:
         settings = dataclasses.replace(settings, mde_designs=((20, 1), (40, 1), (89, 5)))
@@ -692,12 +701,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     if (args.tasks, args.runs_per_cell) != (40, 8):
         design = Design(n_tasks=args.tasks, runs_per_cell=args.runs_per_cell)
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    for seed in seeds:
-        if seed in done:
-            continue
-        row = pilot_row(design, planted, settings, seed)
-        with args.out.open("a") as fh:
+    jobs = [(design, planted, settings, s) for s in seeds if s not in done]
+    with args.out.open("a") as fh:
+        for row in _pool_map(jobs, _pilot_job, args.workers):
             fh.write(dumps(row) + "\n")
+            fh.flush()
     rows = [json.loads(ln) for ln in args.out.read_text().splitlines() if ln.strip()]
     print(json.dumps(pilot_summary(rows), indent=1, sort_keys=True))
     return 0
