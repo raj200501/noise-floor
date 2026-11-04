@@ -7,14 +7,19 @@ from the E1 fit, analyzes each with the unchanged primary analysis
 (:func:`noisefloor.recovery.recover`), and holds every component's coverage to the G5 rule
 (coverage at least nominal minus 0.015 minus twice its Monte Carlo standard error).
 
-The planted values are the E1 estimates: the intercept, model, factor, day, and block
-effects and the task and model:task variances of the primary fit
-(``artifacts/e1/variance_components.json``); the batch variance of the batch-term
-sensitivity fit (``sensitivity.json``); and task-by-harness, task-by-steps, and
-task-by-timeout variances from one auxiliary fit with those random terms added
-(:func:`auxiliary_interactions`). A component whose coverage fails the rule is reported
-as resting on an unsupported method; if the batch variance exceeds :data:`BATCH_RULE`, the
-concurrency, day, and block intervals are also reported as not validated.
+The planted values come from one auxiliary fit of the primary model with task-by-harness,
+task-by-steps, and task-by-timeout random terms added (:func:`auxiliary_fit`): its
+intercept, model, factor, day, and block effects, its task and model:task variances, and
+its three task-by-factor variances, planted together (if that fit fails, the primary fit
+in ``artifacts/e1/variance_components.json`` without interactions, labeled in the
+config). The task truth the check scores is the planted task variance plus half of each
+task-by-factor variance, which the primary model's task term targets
+(:func:`noisefloor.recovery.planted_values`). The batch variance planted is the upper end
+of the batch-term sensitivity fit's interval (``sensitivity.json``), since its point
+estimate runs low (D-022). A component whose coverage fails the rule is reported as
+resting on an unsupported method; if that batch variance exceeds :data:`BATCH_RULE`, or
+the batch-term fit failed, the concurrency, day, and block intervals are also reported as
+not validated.
 
 ``python -m noisefloor.post_check run PREREG`` appends one row per dataset to
 ``artifacts/e1/post_check/raw.jsonl`` (resumable, stamped as G6 rows are);
@@ -39,7 +44,7 @@ from noisefloor import jsonl, preregs
 from noisefloor.e0_run import record_environment
 from noisefloor.e1 import E1Design
 from noisefloor.preregs import prereg_block
-from noisefloor.provenance import single_environment, stamp
+from noisefloor.provenance import check_same_environment, single_environment, stamp
 from noisefloor.recovery import TWO_LEVEL, AnalysisSettings, Design, Planted, recover
 
 REPO = Path(__file__).resolve().parents[2]
@@ -69,11 +74,17 @@ def settings_from(analysis: Mapping[str, Any]) -> AnalysisSettings:
         box_interval=str(analysis["box_interval"]),
         share_interval=str(analysis.get("share_interval", "percentile")),
         fixed_interval=str(analysis.get("fixed_interval", "box")),
+        mde_designs=tuple((int(t), int(k)) for t, k in analysis["mde"]["designs"]),
+        mde_interval=str(analysis["mde"]["interval"]),
     )
 
 
-def auxiliary_interactions(data: pd.DataFrame, analysis: Mapping[str, Any]) -> dict[str, float]:
-    """Task-by-factor variances from one fit of the primary model plus those random terms."""
+def auxiliary_fit(data: pd.DataFrame, analysis: Mapping[str, Any]) -> dict[str, Any]:
+    """One fit of the primary model plus task-by-factor random terms (no intervals).
+
+    Returns its fixed effects, its random variances (task and model:task net of the
+    task-by-factor terms), and the task-by-factor variances, all planted together.
+    """
     fixed = tuple(f for f in analysis["fixed"] if data[f].nunique() > 1)
     random = (*analysis["random"], *(f"task:{f}" for f in INTERACTION_FACTORS))
     fit = decompose(
@@ -85,7 +96,11 @@ def auxiliary_interactions(data: pd.DataFrame, analysis: Mapping[str, Any]) -> d
         nagq=int(analysis["nagq"]),
     )
     found = {c.name: c.variance for c in fit.components if c.kind == "random"}
-    return {f: float(found[f"task:{f}"]) for f in INTERACTION_FACTORS}
+    return {
+        "fixed_effects": {str(k): float(v) for k, v in fit.fixed_effects.items()},
+        "variances": {k: float(found[k]) for k in analysis["random"]},
+        "interactions": {f: float(found[f"task:{f}"]) for f in INTERACTION_FACTORS},
+    }
 
 
 def planted_from_fit(
@@ -163,16 +178,28 @@ def prepare(prereg: Path, directory: Path = E1_DIR) -> dict[str, Any]:
     variance = json.loads((directory / "variance_components.json").read_text())
     sensitivity = json.loads((directory / "sensitivity.json").read_text())
     batch_fit = sensitivity["batch_random_effect"]
-    # A failed batch-term fit leaves no batch variance to plant: 0, and the config says so.
-    batch = next(
-        (c["estimate"] for c in batch_fit.get("components", []) if c["name"] == "batch"), 0.0
-    )
-    variances = {c["name"]: c["estimate"] for c in variance["components"]}
+    # The batch variance planted, and compared with the 0.05 rule, is the upper end of the
+    # batch-term fit's interval (its point estimate runs low, D-022). A failed batch-term
+    # fit plants 0, and then concurrency, day, and block are reported as not validated.
+    batch_row = next((c for c in batch_fit.get("components", []) if c["name"] == "batch"), None)
+    batch = 0.0 if batch_row is None else float(batch_row.get("hi") or batch_row["estimate"])
+    # The auxiliary fit's fixed effects and variances are planted with its task-by-factor
+    # variances; if it fails, the check runs with the primary fit and no interactions.
+    try:
+        aux: dict[str, Any] = auxiliary_fit(data, settings)
+        aux_error = None
+    except Exception as exc:  # a failed auxiliary fit is reported, not fatal
+        aux_error = f"{type(exc).__name__}: {exc}"[:300]
+        aux = {
+            "fixed_effects": variance["fixed_effects"],
+            "variances": {c["name"]: c["estimate"] for c in variance["components"]},
+            "interactions": {},
+        }
     simulated, planted = planted_from_fit(
-        variance["fixed_effects"],
-        variances,
-        batch_var=float(batch),
-        interactions=auxiliary_interactions(data, settings),
+        aux["fixed_effects"],
+        aux["variances"],
+        batch_var=batch,
+        interactions=aux["interactions"],
         design=design,
         data=data,
     )
@@ -182,7 +209,8 @@ def prepare(prereg: Path, directory: Path = E1_DIR) -> dict[str, Any]:
         "settings": settings_from(settings).__dict__,
         "seeds": [POST_SEEDS[0], POST_SEEDS[-1]],
         "batch_rule": BATCH_RULE,
-        "batch_fit_error": batch_fit.get("error"),
+        "batch_fit_error": batch_fit.get("error") if batch_row is None else None,
+        "auxiliary_fit_error": aux_error,
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(config, indent=1, sort_keys=True) + "\n")
@@ -205,12 +233,17 @@ def run(
     seeds: Sequence[int] = POST_SEEDS,
 ) -> int:
     """Append a row for every post-check seed not yet run (resumable)."""
+    from noisefloor.analysis import e1 as analysis  # noqa: PLC0415 - analysis imports e1
     from noisefloor.recovery import _pool_map, dumps  # noqa: PLC0415
 
+    # The check runs the analysis code G6 and E0 part 2 ran (prereg 0004), in one environment.
+    analysis.check_analysis_code(prereg, prereg_block(prereg, "e1-analysis"))
     config = prepare(prereg, directory)
     raw = directory / "post_check" / "raw.jsonl"
     jsonl.repair_tail(raw)
-    done = {int(r["seed"]) for r in jsonl.read(raw)}
+    present = jsonl.read(raw)
+    check_same_environment((r.get("stamp") for r in present), "post-E1 check")
+    done = {int(r["seed"]) for r in present}
     block = {k: config[k] for k in ("design", "planted", "settings")}
     jobs = [(block, s) for s in seeds if s not in done]
     record_environment(raw.parent)
@@ -224,7 +257,10 @@ def run(
 
 
 def summarize(
-    rows: Sequence[Mapping[str, Any]], nominal: float, batch_var: float
+    rows: Sequence[Mapping[str, Any]],
+    nominal: float,
+    batch_var: float,
+    batch_failed: bool = False,
 ) -> dict[str, Any]:
     """Per component, coverage under the G5 rule; and which intervals are not validated."""
     names = sorted({n for r in rows for n in r["components"]})
@@ -245,12 +281,13 @@ def summarize(
         }
     failing = sorted(n for n, c in components.items() if not c["passes"])
     batch = batch_var > BATCH_RULE
-    unsupported = sorted({*failing, *(BATCH_FACTORS if batch else ())})
+    unsupported = sorted({*failing, *(BATCH_FACTORS if batch or batch_failed else ())})
     return {
         "components": components,
         "failing": failing,
         "batch_var": batch_var,
         "batch_rule_exceeded": batch,
+        "batch_fit_failed": batch_failed,
         "not_validated": unsupported,
     }
 
@@ -274,7 +311,12 @@ def bank(
         "label": "post-E1 check at the fitted values (D-028 item 4)",
         "environment": env,
         "config": config,
-        **summarize(ordered, float(config["settings"]["level"]), config["planted"]["batch_var"]),
+        **summarize(
+            ordered,
+            float(config["settings"]["level"]),
+            config["planted"]["batch_var"],
+            batch_failed=config.get("batch_fit_error") is not None,
+        ),
     }
     (directory / "post_check.json").write_text(
         json.dumps(artifact, indent=1, sort_keys=True) + "\n"

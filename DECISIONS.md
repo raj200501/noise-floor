@@ -582,3 +582,103 @@ D-028 item 7.
    the simulated schedule (3 days, every batch on its slot); and E0 part 2 adds a local-arm group
    at intercept -3.0 and Claude cells at intercept -2.0, so low scores lie inside the validated
    range.
+
+## D-033 2026-11-04 Second review of 0004 to 0006: sample size, pins, and stop rules (before freezing)
+The second review (five lenses, then adversarial verification) confirmed problems in the
+drafts of 0004 to 0006. These choices answer them; none rests on E1 data, which do not exist.
+1. Sample size (review brief-1, resolution-1, stats-7). D-032 item 2 said the local design was
+   the largest the CPU allows in the 7-day window; that is wrong (at the dry run's rates the 1,620
+   runs need about a day), and the claim is withdrawn. The preregistered power analysis now sets
+   the local sample: the smallest tasks per family at which every local harness contrast and
+   local model pair has power 0.8 under the Holm reading within its family, at the assumed
+   effects (normal test statistics simulated with a fixed seed, the smaller power over test
+   correlations 0 and 0.5). That is 16 tasks per family, 80 tasks; `tools/prereg_blocks.py`
+   checks the rule when it writes the `e1-power` block. The local arm runs 3 models x 80 tasks x
+   18 runs over 4 days x 2 blocks; the `e1-design` block estimates each slot's hours from the
+   dry run (a planning estimate, not a result). The Claude slice keeps 30 tasks, the first 6 of
+   each family, because its caps bind (180 runs at 6 a day). The planted effect of the fourth day
+   is 0.05, a design value. Harness differences and every Claude family stay below 0.8 under the
+   Holm reading and are reported as underpowered. G6 and E0 part 2 simulate the 80-task shape
+   (one dataset took about 8 minutes on one core in a timing run, so the 1,200 GLMM datasets take
+   about 40 hours on 4 workers).
+2. Hypotheses (brief-2): 0004 states its tests as hypotheses with frozen decision rules and names
+   the estimation targets that have no test.
+3. Claude success near the ceiling (brief-7). Section 4 asks for mean success between 0.2 and
+   0.8 for every model configuration. The Claude tiers could not be piloted here (D-004, D-019;
+   the smoke run is one pilot task) and the suite's difficulty was set on the local models
+   (D-025), so Claude success above 0.8 is expected. That is a deviation from section 4, stated
+   in 0004 and reported beside the Claude results; the Claude score cells reach the ceiling.
+4. Replication over days (brief-8): each (model, task) cell runs its half fraction once, dealt
+   over 4 UTC days x 2 blocks, with day and block as fixed blocking factors; no day holds a full
+   replicate of a cell. A full replicate on each day would multiply the local arm by four.
+5. Resource limits (brief-9): the step budget is the agent's resource budget and is estimated;
+   CPU and memory are held fixed (one llama-server with 4 threads on 4 CPUs, 16 GB), so E1
+   estimates no CPU or memory component, a stated limitation of RQ1.
+6. Claude-local labels (brief-13): those contrasts are labeled scaffold-confounded, naming every
+   known difference: Claude runs at the CLI's default temperature, with no reply cap (the
+   384-token cap reaches only the local server; Claude run specs record `max_tokens` 0, not
+   applied), and with each step sent as one role-tagged prompt. Tier pairs under one harness
+   compare equal timeouts on every task (review code-5).
+7. Cell labels and warnings (brief-3, brief-12, code-11). Each E0 cell's method and interval type
+   name the function and label the library checks, so a failing cell makes the function E1 calls
+   warn: `glmm_task_jackknife` for fixed contributions, `glmm_plugin_share` for shares,
+   `glmm_mde` for MDE rows (checked in `mde_tables`), `contrast_difference` for harness
+   differences, `sampling_discordance` for the sampling table. `glmm_task_jackknife` and
+   `glmm_plugin_share` are GLMM intervals and take G5's 500-replicate floor, as D-017 read bca.
+   `decompose`, `policy_bounds`, `rank_confidence`, and `cluster_robust_mean` now check validity,
+   and G5 checks that each failing cell's own function warns.
+8. Shares over jackknife boxes (code-7): the pilot-7 rows were scored with plugin shares mapped
+   from the task-jackknife boxes, fixed-factor shares only (pilot 7's two bootstrap replicates
+   give the random components no interval). Both pools meet the D-028 rule; the check is in
+   `artifacts/method_pilots/summary.json` (exploratory, added after pilot 7 ran).
+9. A replaced method (brief-11, resolution-5): an amendment frozen before the first E1 run may
+   replace a failing kind's method only beside new headline cells of that kind, which G5 then
+   requires to pass; the replaced cells move to a `retired-headline` block, stay in the grid, and
+   are listed with a warning if they fail. Otherwise a failing headline kind fails G5.
+10. Code pins (ops-1, ops-2, ops-7, resolution-7). Every simulation row names the analysis code
+   (a hash of the files that compute E1's intervals and their validation, the lock, and the
+   libraries); the G6 and E0 part 2 artifacts record it, and the E1 analysis and the post-E1
+   check refuse other analysis code unless a frozen amendment of 0004 allows it. Each E1 batch
+   compares its run code (the `src/` tree, the lock, and the llama-server binary) with the arm's
+   first banked run: a change stops the arm until a resume accepts it as a deviation, and
+   uncommitted changes block every batch. G6 and E0 part 2 refuse to add rows beside rows from
+   another environment; a study with rows from two environments runs again in one.
+11. Server settings (ops-8): the model pins include each model's server arguments (thinking off
+   for both Qwen3 models) and the context per slot, the `e1-design` block pins the llama-server
+   build and its binary's SHA-256, and the local arm's first batch needs that binary.
+12. Claude slice (code-9, ops-3, ops-5, ops-9, ops-10, resolution-6). The slice checks its stops
+   before every (tier, task) pair; three infra_error runs in a row stop it (those runs stay
+   banked); a Claude Code child that did not start clean stops it, and that run is left out and
+   counted; the slice starts only after `python -m noisefloor.claude_arm smoke` prints SMOKE:
+   PASS, and a new CLI version is accepted only after a smoke run on it passes. A tier served by
+   another model ID ends that tier only (revising D-030 item 1): its later runs are left out and
+   counted, and the other tiers go on. The slice ends when its runner records an end point (every
+   planned run of the tiers still served is banked, or 45 days after the freeze, or an early end
+   named as a deviation); the analysis machine's clock does not end it. Its stops, resumes, and
+   ends are written only where the billing guard is clean, that is, on the machine that runs it.
+   Neither arm starts before the G6 and E0 part 2 artifacts are banked.
+13. Local arm (code-2, code-10, code-12, ops-4, ops-6, ops-13, ops-14). The first batch starts
+   within 15 minutes after 00:00 UTC. After a batch aborts, every run recorded later is dropped,
+   whatever its status. A defect stop takes effect when the running batch ends. A relaunch never
+   runs beside a live runner of the same arm (the runner holds a lock, and its model server gets
+   SIGTERM if the runner dies). The analysis treats the arm as ended once the clock passes its day
+   7. A defect stop resumes only under a frozen amendment of 0004. The batch term of the
+   sensitivity fit is the planned batch; day and block are those of each executed piece's start.
+14. Analysis (code-1, code-3, code-4, code-15, brief-6, stats-6, stats-8, resolution-8). The
+   post-E1 check covers the MDE rows; the 10 percent failed-replicate rule covers the MDE rows,
+   the tasks-needed rows, and the residual share; a fit no optimizer completes leaves the
+   decomposition and MDE tables "not estimable" and every other table banked; the confirmatory
+   flag needs the chain SHA-256; E3 on E1 adds the ranking under each policy and bounds on
+   adjacent pairs (unvalidated); the independence reading of the sampling table is frozen (the
+   mean over models of the assumed E[p (1 - p)] above the upper end of the reference row's
+   interval); the post-E1 check plants an auxiliary fit with its task-by-factor variances, scores
+   the task truth the primary model targets, and plants the upper end of the batch variance.
+15. Simulation (brief-14, code-13, stats-15): the simulator deals replicate placeholders into
+   batches with the same function as `local_plan`, and a test shows that the G6 analysis and the
+   E1 analysis code give the same estimates and intervals on one simulated dataset.
+16. Validated ranges (brief-10, code-6, stats-5, stats-9, stats-10, resolution-12): the
+   `validated-range` block gives each headline kind's span on the scale E1 compares (differences
+   in absolute value), and the E1 analysis flags each estimate outside it. Cells extend the spans:
+   local groups with model-by-harness effects and with two equal models, Claude tier and harness
+   cells at larger gaps, Claude-local cells at low local rates, bound cells at larger ambiguous
+   shares, and sampling cells that simulate the sampling table's own data.

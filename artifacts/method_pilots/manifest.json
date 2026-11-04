@@ -85,6 +85,11 @@
     "pilot7a"
    ],
    "check": {
+    "fixed": "jackknife",
+    "fixed-share": "plugin"
+   },
+   "plugin_from": {
+    "random": "basic_log",
     "fixed": "jackknife"
    }
   },
@@ -94,6 +99,11 @@
     "pilot7b"
    ],
    "check": {
+    "fixed": "jackknife",
+    "fixed-share": "plugin"
+   },
+   "plugin_from": {
+    "random": "basic_log",
     "fixed": "jackknife"
    }
   }

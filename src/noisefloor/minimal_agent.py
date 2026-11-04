@@ -24,6 +24,7 @@ from noisefloor.client import (
     BackendError,
     BackendTimeoutError,
     ChatRequest,
+    ChatResponse,
     Client,
     ContextLimitError,
 )
@@ -94,6 +95,7 @@ class Episode:
     trace: list[dict[str, Any]] = field(default_factory=list)
     error: str = ""
     model_ids: list[str] = field(default_factory=list)
+    cli_versions: list[str] = field(default_factory=list)
     end_reason: str = ""
     rejected_calls: int = 0
 
@@ -183,6 +185,18 @@ def _json_objects(text: str) -> list[dict[str, Any]]:
     return found
 
 
+def _count_step(episode: Episode, reply: ChatResponse) -> None:
+    """Add one model reply to the episode's step, token, wall-time, and model accounts."""
+    episode.steps += 1
+    episode.input_tokens += reply.input_tokens
+    episode.output_tokens += reply.output_tokens
+    episode.model_wall_s += reply.wall_s
+    if reply.model_id and reply.model_id not in episode.model_ids:
+        episode.model_ids.append(reply.model_id)
+    if reply.cli_version and reply.cli_version not in episode.cli_versions:
+        episode.cli_versions.append(reply.cli_version)
+
+
 def run_episode(env: Environment, client: Client, config: AgentConfig) -> Episode:
     """Run one episode with minimal-agent."""
     specs = env.tool_specs()
@@ -220,12 +234,7 @@ def run_episode(env: Environment, client: Client, config: AgentConfig) -> Episod
             else:
                 episode.status, episode.end_reason = "infra_error", "backend_error"
             break
-        episode.steps += 1
-        episode.input_tokens += reply.input_tokens
-        episode.output_tokens += reply.output_tokens
-        episode.model_wall_s += reply.wall_s
-        if reply.model_id and reply.model_id not in episode.model_ids:
-            episode.model_ids.append(reply.model_id)
+        _count_step(episode, reply)
         messages.append({"role": "assistant", "content": reply.text})
         action = parse_action(reply.text, names)
         if action is None:

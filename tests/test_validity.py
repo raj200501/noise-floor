@@ -94,3 +94,86 @@ def test_load_coverage_merges_amendment_artifacts(tmp_path: Path) -> None:
     assert merged["prereg"] == "prereg/0003-x.md"
     assert merged["amendments"] == ["prereg/0005-y.md"]
     assert [c["cell"] for c in merged["cells"]] == ["A", "B"]
+
+
+def _rule(function: str, method: str) -> dict:
+    return {
+        "function": function,
+        "method": method,
+        "max_tasks": 1000,
+        "coverage": 0.8,
+        "nominal": 0.95,
+        "alternative": "another method",
+    }
+
+
+def test_every_e0_function_warns_on_a_matching_failing_cell(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each function an E0 cell maps to (e0_validity.FUNCTIONS) checks validity (G5)."""
+    import numpy as np
+    import pandas as pd
+
+    from evalstats import EvalResults, contrast_difference, policy_bounds, rank_confidence
+    from evalstats.intervals import cluster_robust_mean
+
+    def expect(function: str, method: str, call: object) -> None:
+        monkeypatch.setattr(validity, "_DATA", {"unsupported": {"X": _rule(function, method)}})
+        with pytest.warns(validity.UnsupportedDesignWarning, match="E0 cell X"):
+            call()  # type: ignore[operator]
+
+    data = make_results(n_tasks=12, models=("a", "b", "c"), p=(0.6, 0.5, 0.4))
+    expect("score_interval", "cluster_t", lambda: score_interval(data, "a"))
+    expect("paired_difference", "cluster_t", lambda: paired_difference(data, "a", "b"))
+    expect(
+        "contrast_difference",
+        "cluster_t",
+        lambda: contrast_difference(
+            make_results(n_tasks=12, models=("w", "x", "y", "z"), p=(0.6, 0.5, 0.4, 0.3)),
+            "w",
+            "x",
+            "y",
+            "z",
+        ),
+    )
+    expect("rank_confidence", "bootstrap_max_t", lambda: rank_confidence(data, n_boot=50, seed=1))
+    expect(
+        "cluster_robust_mean",
+        "cluster_robust",
+        lambda: cluster_robust_mean(np.array([0.0, 1.0, 1.0, 0.0]), np.array([1, 1, 2, 2])),
+    )
+    frame = data.frame.assign(status=["ok", "timeout"] * (len(data.frame) // 2))
+    expect(
+        "policy_bounds",
+        "imbens_manski",
+        lambda: policy_bounds(EvalResults.from_frame(pd.DataFrame(frame))),
+    )
+    assert set(e0_validity.FUNCTIONS.values()) == {
+        "score_interval",
+        "paired_difference",
+        "contrast_difference",
+        "cluster_robust_mean",
+        "rank_confidence",
+        "policy_bounds",
+        "decompose",
+        "replicate_mdes",
+    }
+
+
+def test_decompose_and_mde_labels_match_the_e0_glmm_cells(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from evalstats import glmm
+
+    seen: list = []
+    monkeypatch.setattr(validity, "check", lambda f, m, n: seen.append((f, m, n)) or [])
+    frame = make_results(n_tasks=7).frame
+    glmm._check_validity(frame, ("harness",), "jackknife", "plugin", "task")
+    assert seen == [
+        ("decompose", "parametric_bootstrap", 7),
+        ("decompose", "glmm_task_jackknife", 7),
+        ("decompose", "glmm_plugin_share", 7),
+    ]
+    seen.clear()
+    glmm._check_validity(frame, (), "box", "percentile", "task")
+    assert seen == [("decompose", "parametric_bootstrap", 7)]

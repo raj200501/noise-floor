@@ -45,3 +45,13 @@ def test_require_frozen(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
 def test_repo_prereg_is_frozen() -> None:
     entry = preregs.require_frozen(preregs.REPO / "prereg" / "0003-e0-coverage-grid-part1.md")
     assert entry["file"] == "prereg/0003-e0-coverage-grid-part1.md"
+
+
+def test_amends_reads_the_front_matter(tmp_path) -> None:
+    from noisefloor import preregs
+
+    a = tmp_path / "0007-a.md"
+    a.write_text("---\namends: 0004\ndate: 2026-11-20\n---\n# a\n")
+    b = tmp_path / "0008-b.md"
+    b.write_text("# no front matter\namends: 0004\n")
+    assert preregs.amends(a) == "0004" and preregs.amends(b) is None

@@ -16,7 +16,8 @@ when present) and writes under ``artifacts/e1/``:
 * ``sampling.json``: the within-configuration outcome variance from the replicate runs,
   beside the variance the MDE assumes at its reference configuration;
 * ``sensitivity.json``: the preregistered sensitivity analyses, reported beside these;
-* ``e3_bounds.json``: E3, each local model's score under every policy for ambiguous runs;
+* ``e3_bounds.json``: E3, each local model's score under every policy for ambiguous runs,
+  the ranking under each policy, and bounds on each adjacent pair;
 * ``manifest.json``: the preregistration and the SHA-256 of every input and output.
 
 ``python -m noisefloor.analysis.e1 --verify`` recomputes every output from the inputs and
@@ -31,10 +32,11 @@ import json
 import math
 import sys
 from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from evalstats import (
@@ -44,12 +46,20 @@ from evalstats import (
     policy_bounds,
     score_interval,
     tasks_needed,
+    validity,
 )
-from evalstats.glmm import LOGISTIC_RESIDUAL_VAR, Decomposition, boot_coef_interval, decompose
+from evalstats.glmm import (
+    LOGISTIC_RESIDUAL_VAR,
+    Decomposition,
+    FitFailedError,
+    boot_coef_interval,
+    decompose,
+    enough,
+)
 from noisefloor import jsonl
 from noisefloor.analysis import mde as mde_lib
 from noisefloor.e1 import (
-    CLAUDE_END_DAYS,
+    ARM_DAYS,
     REPLICATE_PHASE,
     E1Design,
     check_frozen_plan,
@@ -58,7 +68,7 @@ from noisefloor.e1 import (
     served_models,
 )
 from noisefloor.models import MODELS, is_claude
-from noisefloor.preregs import chain_entry, prereg_block
+from noisefloor.preregs import amends, chain_entry, prereg_block, require_frozen
 from noisefloor.suite import SUITE_VERSION
 
 REPO = Path(__file__).resolve().parents[3]
@@ -101,8 +111,10 @@ def claude_exclusions(records: Sequence[Mapping[str, Any]]) -> dict[str, str]:
     """Banked Claude runs the analyses leave out, by run id, with the reason.
 
     ``model_changed``: the CLI reported a model ID other than the one that served the
-    tier's first banked run (runs in order of start). ``step_budget``: the run's turn cap
-    (``max_steps_used`` or ``claude.max_turns``) differs from its ``steps`` factor.
+    tier's first banked run (runs in order of start). ``contaminated``: a Claude Code
+    child that did not report a clean start (plan login, only the allowed tools, no MCP
+    servers, no memory files). ``step_budget``: the run's turn cap (``max_steps_used`` or
+    ``claude.max_turns``) differs from its ``steps`` factor.
     """
     out: dict[str, str] = {}
     first: dict[str, str] = {}
@@ -116,6 +128,9 @@ def claude_exclusions(records: Sequence[Mapping[str, Any]]) -> dict[str, str]:
             first.setdefault(tier, ids[0])
         if any(model_id != first[tier] for model_id in ids):
             out[str(rec["run_id"])] = "model_changed"
+            continue
+        if (rec.get("claude") or {}).get("clean") is False:
+            out[str(rec["run_id"])] = "contaminated"
             continue
         used = rec.get("max_steps_used") or (rec.get("claude") or {}).get("max_turns")
         planned = str((rec.get("factors") or {}).get("steps", ""))
@@ -133,20 +148,28 @@ def arms_not_ended(
 ) -> list[str]:
     """Why an arm has not ended (empty once both have), so no outcome is read early.
 
-    The local arm ends when every planned local run is banked or its day-7 stop is
-    recorded; the Claude slice when every planned Claude run is banked, its end point is
-    recorded, or :data:`noisefloor.e1.CLAUDE_END_DAYS` days have passed since the freeze.
+    The local arm ends when every planned local run is banked, its day-7 stop is recorded,
+    or the clock has passed day :data:`noisefloor.e1.ARM_DAYS` of the arm (it starts no
+    batch after that day). The Claude slice ends only when every planned Claude run is
+    banked or its own runner recorded an end point, on the machine that runs it (the
+    analysis machine's clock does not end it; ``frozen_at`` is kept for the caller).
     """
+    del frozen_at  # the Claude slice's end is its runner's end_point line (prereg 0004)
     banked = {str(r["run_id"]) for r in records}
     out = []
     local = {rid for rid, phase in planned.items() if phase in ("e1", REPLICATE_PHASE)}
     local_stops = jsonl.read(directory / "stops-local.jsonl")
-    if not local <= banked and not any(s["kind"] == "day_limit" for s in local_stops):
+    starts = [
+        _utc(str(r["started_at"]))
+        for r in records
+        if r.get("started_at") and not is_claude(str(r["model"]))
+    ]
+    past = bool(starts) and (now.date() - min(starts).date()).days + 1 > ARM_DAYS
+    if not local <= banked and not past and not any(s["kind"] == "day_limit" for s in local_stops):
         out.append(f"the local arm has not ended ({len(local & banked)} of {len(local)} banked)")
     claude = {rid for rid, phase in planned.items() if phase == "e1-claude"}
     claude_stops = jsonl.read(directory / "stops-claude.jsonl")
-    end = None if frozen_at is None else frozen_at + timedelta(days=CLAUDE_END_DAYS)
-    over = any(s["kind"] == "end_point" for s in claude_stops) or (end is not None and now >= end)
+    over = any(s["kind"] == "end_point" for s in claude_stops)
     if not claude <= banked and not over:
         out.append(
             f"the Claude slice has not ended ({len(claude & banked)} of {len(claude)} banked)"
@@ -171,12 +194,14 @@ def runs_table(
     planned: Mapping[str, str],
     block_hours: Sequence[Sequence[int]],
     frozen_at: str | None = None,
+    prereg_sha256: str | None = None,
 ) -> list[dict[str, Any]]:
     """One row per run; ``planned`` maps each preregistered run id to its phase.
 
-    A run is confirmatory when its id and phase are planned, its record cites ``prereg``,
-    and it started no earlier than ``frozen_at`` (the preregistration's freeze time; not
-    checked when None). A record without ``started_at`` takes its batch's start, flagged
+    A run is confirmatory when its id and phase are planned, its record cites ``prereg``
+    (and, when ``prereg_sha256`` is given, the preregistration's chain SHA-256), and it
+    started no earlier than ``frozen_at`` (the preregistration's freeze time; not checked
+    when None). A record without ``started_at`` takes its batch's start, flagged
     ``start_from_batch`` (the runner records a start for every run it starts and banks no
     run it did not start, so this marks a malformed record). Day and block are those of
     the batch's start (``batch_started_at``), so every run of a batch shares them, as
@@ -195,7 +220,9 @@ def runs_table(
         batch_start = str(rec.get("batch_started_at") or started)
         day, block = time_block(batch_start, block_hours)
         model = str(rec["model"])
-        cites = rec.get("prereg") == prereg
+        cites = rec.get("prereg") == prereg and (
+            prereg_sha256 is None or rec.get("prereg_sha256") == prereg_sha256
+        )
         in_time = frozen_at is None or _utc(started) >= _utc(frozen_at)
         planned_run = planned.get(str(rec["run_id"])) == rec.get("phase")
         rows.append(
@@ -215,6 +242,7 @@ def runs_table(
                 "day": day,
                 "block": block,
                 "planned_slot": str(rec.get("block", "")).split("/")[0],
+                "planned_batch": str(rec.get("block") or "") or None,
                 "batch_id": rec.get("batch_id"),
                 "outcome": int(float(rec.get("outcome", 0.0)) >= 0.5),
                 "outcome_strict": rec.get("outcome_strict"),
@@ -266,7 +294,9 @@ def analysis_frame(
                 **{name: str(value) for name, value in r["factors"].items()},
                 "day": days[r["day"]],
                 "block": r["block"],
-                "batch": str(r["batch_id"]),
+                # The planned batch (prereg 0004 item 9): a planned batch finished after a
+                # stop is one batch here, though its pieces ran as two executed batches.
+                "batch": str(r.get("planned_batch") or r["batch_id"]),
             }
             for r in keep
         ]
@@ -327,6 +357,8 @@ def mde_tables(
     cfg = settings["mde"]
     designs = [(int(t), int(k)) for t, k in cfg["designs"]]
     models = sorted(data["model"].unique())
+    if "task" in data.columns:  # the E0 MDE cells (prereg 0005, method glmm_mde)
+        validity.check("replicate_mdes", "parametric_bootstrap", int(data["task"].nunique()))
     variances = {c.name: c.variance for c in decomp.components if c.kind == "random"}
     etas = mde_lib.reference_eta(
         decomp.fixed_effects, data, models, cfg["reference"], cfg["averaged"]
@@ -349,7 +381,12 @@ def mde_tables(
     rows = []
     first: dict[int, tuple[int, float | None, float | None]] = {}
     for t, k in designs:
-        ci = boot_coef_interval(point[(t, k)], reps[(t, k)], level, str(cfg["interval"]))
+        # More than MAX_FAILED_SHARE failed replicates: no interval, as for the components.
+        ci = (
+            boot_coef_interval(point[(t, k)], reps[(t, k)], level, str(cfg["interval"]))
+            if enough(np.asarray(reps[(t, k)], dtype=float))
+            else None
+        )
         lo = None if ci is None else max(0.0, ci[0])
         hi = None if ci is None else ci[1]
         first.setdefault(k, (t, lo, hi))
@@ -378,11 +415,16 @@ def mde_tables(
                     "interval_method": "mapped from the MDE interval",
                 }
             )
+    by_model = {
+        m: mde_lib.bernoulli_variance(eta, variances["task"], variances["model:task"])
+        for m, eta in etas.items()
+    }
     return {
         "reference": dict(cfg["reference"]),
         "averaged": list(cfg["averaged"]),
         "between_task_var": pooled.between_task_var,
         "within_task_var": pooled.within_task_var,
+        "within_var_by_model": by_model,
         "rows": rows,
         "tasks_needed": needed,
     }
@@ -430,6 +472,7 @@ def sampling_table(
     settings: Mapping[str, Any],
     reference: Mapping[str, str] | None = None,
     assumed: float | None = None,
+    assumed_by_model: Mapping[str, float] | None = None,
 ) -> list[dict[str, Any]]:
     """Run-to-run sampling, from the replicate runs, on the probability scale (D-028 item 3).
 
@@ -439,9 +482,12 @@ def sampling_table(
     which equals ``E[p (1 - p)]`` when repeated runs are independent; its interval is the
     task-clustered Wilson interval (``settings["sampling_interval"]``, default
     ``cluster_wilson``) of the share of discordant pairs, halved. The row of the
-    ``reference`` configuration (the MDE's) also gives ``assumed``, the per-model
-    ``E[p (1 - p)]`` the MDE uses there; a measured value well below it means repeated
-    runs of that configuration are not independent draws.
+    ``reference`` configuration (the MDE's) also gives ``assumed``, the mean over models of
+    ``E[p (1 - p)]`` that the MDE uses there (half its pooled within-task variance), and
+    each model's value (``assumed_by_model``). The frozen reading (prereg 0004 item 6): when
+    the mean lies above the upper end of the reference row's interval, repeated runs at
+    the reference are not independent draws (``independence``: ``violated``), and the
+    MDE rows with more than one run per task overstate what extra runs buy.
     """
     usable = {
         str(r["run_id"]): r for r in _usable(rows, settings["exclude_status"], replicates=True)
@@ -469,6 +515,10 @@ def sampling_table(
         is_reference = reference is not None and all(
             factors.get(k) == str(v) for k, v in reference.items()
         )
+        hi = None if si.interval.hi is None else si.interval.hi / 2
+        reading = None
+        if is_reference and assumed is not None and hi is not None:
+            reading = "violated" if assumed > hi else "not rejected"
         out.append(
             {
                 "configuration": factors,
@@ -476,27 +526,49 @@ def sampling_table(
                 "discordant": sum(d for _, d in members),
                 "within_var": si.interval.estimate / 2,
                 "lo": None if si.interval.lo is None else si.interval.lo / 2,
-                "hi": None if si.interval.hi is None else si.interval.hi / 2,
+                "hi": hi,
                 "interval_method": f"half of {si.interval.method}",
                 "mde_reference": is_reference,
                 "mde_assumed_within_var": assumed if is_reference else None,
+                "mde_assumed_within_var_by_model": (
+                    dict(assumed_by_model) if is_reference and assumed_by_model else None
+                ),
+                "independence": reading,
             }
         )
     return out
 
 
-def schedule_check(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    """Whether the local arm kept the simulated schedule: 3 days, every batch on its slot.
+def mark_independence(mde: dict[str, Any], sampling: Sequence[Mapping[str, Any]]) -> None:
+    """Label the MDE rows with more than one run per task by the independence reading.
 
-    G6 and E0 part 2 simulate exactly 3 days x 2 blocks with each batch on its planned
-    slot. A batch runs off its slot when its realized day (the rank of its start date among
-    the arm's dates) or block differs from the planned ``day<k>-b<n>``. If the arm used
-    another number of days or any batch ran off its slot, the day and block intervals rest
-    on a design the validation did not simulate (prereg 0004).
+    The k-run rows (and their tasks-needed rows) rest on independent repeated runs; when
+    the sampling table's reference row reads ``violated``, they are labeled as resting on
+    a violated assumption (prereg 0004 item 6); otherwise as consistent with the table.
+    """
+    reading = next((r["independence"] for r in sampling if r.get("mde_reference")), None)
+    label = {
+        "violated": "rests on a violated independence assumption (sampling table)",
+        "not rejected": "independence not rejected by the sampling table",
+        None: "independence not checked (no reference row in the sampling table)",
+    }[reading]
+    for row in [*mde.get("rows", []), *mde.get("tasks_needed", [])]:
+        if int(row["runs"]) > 1:
+            row["independence"] = label
+
+
+def schedule_check(rows: Sequence[Mapping[str, Any]], days: int = 3) -> dict[str, Any]:
+    """Whether the local arm kept the simulated schedule: ``days`` days, batches on their slots.
+
+    G6 and E0 part 2 simulate exactly the planned days x 2 blocks with each batch on its
+    planned slot. A batch runs off its slot when its realized day (the rank of its start
+    date among the arm's dates) or block differs from the planned ``day<k>-b<n>``. If the
+    arm used another number of days or any batch ran off its slot, the day and block
+    intervals rest on a design the validation did not simulate (prereg 0004).
     """
     local = [r for r in rows if r["confirmatory"] and r["backend"] == "local"]
-    days = sorted({str(r["day"]) for r in local})
-    rank = {d: i + 1 for i, d in enumerate(days)}
+    dates = sorted({str(r["day"]) for r in local})
+    rank = {d: i + 1 for i, d in enumerate(dates)}
     batches: dict[str, tuple[str, str, str]] = {}
     for r in local:
         batches[str(r["batch_id"])] = (str(r["planned_slot"]), str(r["day"]), str(r["block"]))
@@ -504,10 +576,10 @@ def schedule_check(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         b for b, (slot, day, block) in batches.items() if slot != f"day{rank[day]}-{block}"
     )
     return {
-        "days": len(days),
+        "days": len(dates),
         "batches": len(batches),
         "batches_off_plan": len(off),
-        "simulated_design": len(days) == 3 and not off,
+        "simulated_design": len(dates) == days and not off,
     }
 
 
@@ -795,15 +867,71 @@ def _dump(obj: Any) -> str:
     return json.dumps(clean(obj), sort_keys=True, indent=1) + "\n"
 
 
-def compute(prereg: Path, directory: Path = E1_DIR, now: datetime | None = None) -> dict[str, str]:
+G6_ARTIFACT = REPO / "artifacts" / "g6" / "recovery.json"
+
+
+def validation_artifacts(settings: Mapping[str, Any]) -> dict[str, Path]:
+    """The banked G6 and E0 part 2 artifacts that validated this analysis."""
+    source = str(settings.get("validated_range", "prereg/0005-e0-glmm-cells.md"))
+    number = Path(source).name[:4]
+    return {"g6": G6_ARTIFACT, "e0": REPO / "artifacts" / "e0" / f"coverage-{number}.json"}
+
+
+def check_analysis_code(
+    prereg: Path, settings: Mapping[str, Any], amendment: Path | None = None
+) -> dict[str, Any]:
+    """The analysis code in use, refused unless it is the code G6 and E0 part 2 ran.
+
+    Prereg 0004 pins :data:`noisefloor.provenance.ANALYSIS_CODE`, the lock, and the
+    libraries from G6 and E0 part 2 to the E1 analysis: for a preregistration in the chain,
+    both artifacts must record the analysis-code hash in use now, and the files must have
+    no uncommitted changes. A frozen ``amendment`` of this preregistration may allow other
+    code (a deviation, recorded in the outputs). A file outside the chain (a test fixture)
+    is not checked.
+    """
+    from noisefloor import provenance  # noqa: PLC0415 - provenance loads R lazily
+
+    current = provenance.analysis_code()
+    found: dict[str, Any] = {"hash": current["hash"], "validated_by": {}, "amendment": None}
+    if chain_entry(prereg) is None:
+        return found
+    if current["dirty"]:
+        raise ValueError("the analysis code has uncommitted changes")
+    for name, path in validation_artifacts(settings).items():
+        if not path.exists():
+            raise ValueError(f"{_rel(path)} is not banked; G6 and E0 part 2 come first")
+        found["validated_by"][name] = json.loads(path.read_text()).get("analysis_code")
+    if all(v == current["hash"] for v in found["validated_by"].values()):
+        return found
+    if amendment is None:
+        raise ValueError(
+            f"the analysis code ({current['hash']}) is not the code G6 and E0 part 2 ran "
+            f"({found['validated_by']}); a frozen amendment must allow it"
+        )
+    require_frozen(amendment)
+    if amends(amendment) != Path(prereg).name[:4]:
+        raise ValueError(f"{amendment} does not amend {Path(prereg).name}")
+    found["amendment"] = _rel(amendment)
+    return found
+
+
+def compute(
+    prereg: Path,
+    directory: Path = E1_DIR,
+    now: datetime | None = None,
+    amendment: Path | None = None,
+) -> dict[str, str]:
     """Every output file's text, recomputed from the inputs in ``directory``.
 
-    Raises ``ValueError`` while either arm is still running (:func:`arms_not_ended`).
+    Raises ``ValueError`` while either arm is still running (:func:`arms_not_ended`), or
+    when the analysis code is not the code G6 and E0 part 2 ran
+    (:func:`check_analysis_code`).
     """
     settings = prereg_block(prereg, "e1-analysis")
     design = E1Design.from_json(prereg_block(prereg, "e1-plan"))
     planned = {s.run_id: s.phase for s in [*local_plan(design), *claude_plan(design)]}
     check_frozen_plan(prereg, design)
+    code = check_analysis_code(prereg, settings, amendment)
     entry = chain_entry(prereg)
     frozen = None if entry is None else _utc(str(entry["frozen_at"]))
     records = read_records(directory)
@@ -816,35 +944,53 @@ def compute(prereg: Path, directory: Path = E1_DIR, now: datetime | None = None)
         planned=planned,
         block_hours=settings["block_hours"],
         frozen_at=None if entry is None else str(entry["frozen_at"]),
+        prereg_sha256=None if entry is None else str(entry["sha256"]),
     )
     data = analysis_frame(rows, settings["exclude_status"])
-    decomp = decomposition(data, settings)
     left_out = exclusion_counts(rows, settings["exclude_status"])
-    excluded = sum(left_out["local"].values())
-    variance = {
+    variance: dict[str, Any] = {
         "prereg": _rel(prereg),
         "n_runs": len(data),
-        "excluded_runs": excluded,
+        "excluded_runs": sum(left_out["local"].values()),
         "exclusions": left_out,
-        "schedule": schedule_check(rows),
-        "backend": decomp.backend,
-        "formula": decomp.formula,
-        "converged": decomp.converged,
-        "messages": list(decomp.messages),
+        "schedule": schedule_check(rows, design.days),
         "settings": settings,
-        "components": components_json(decomp),
-        "fixed_effects": {str(k): float(v) for k, v in decomp.fixed_effects.items()},
+        "analysis_code": code,
     }
-    mde = {"prereg": _rel(prereg), **mde_tables(decomp, data, settings)}
+    try:
+        decomp: Decomposition | None = decomposition(data, settings)
+    except FitFailedError as exc:  # prereg 0004: reported as not estimable; G7 fails
+        decomp = None
+        failure = {"estimable": False, "message": str(exc)[:2000], "components": []}
+        variance.update(failure)
+        mde: dict[str, Any] = {"prereg": _rel(prereg), **failure, "rows": [], "tasks_needed": []}
+        del mde["components"]
+    if decomp is not None:
+        variance.update(
+            {
+                "estimable": True,
+                "backend": decomp.backend,
+                "formula": decomp.formula,
+                "converged": decomp.converged,
+                "messages": list(decomp.messages),
+                "components": components_json(decomp),
+                "fixed_effects": {str(k): float(v) for k, v in decomp.fixed_effects.items()},
+            }
+        )
+        mde = {"prereg": _rel(prereg), "estimable": True, **mde_tables(decomp, data, settings)}
+    sampling_rows = sampling_table(
+        rows,
+        settings,
+        reference=settings["mde"]["reference"],
+        assumed=None if decomp is None else float(mde["within_task_var"]) / 2,
+        assumed_by_model=None if decomp is None else mde["within_var_by_model"],
+    )
+    if decomp is not None:
+        mark_independence(mde, sampling_rows)
     sampling = {
         "prereg": _rel(prereg),
         "label": "within-configuration outcome variance from replicate runs (D-028 item 3)",
-        "rows": sampling_table(
-            rows,
-            settings,
-            reference=settings["mde"]["reference"],
-            assumed=float(mde["within_task_var"]) / 2,
-        ),
+        "rows": sampling_rows,
     }
     scores = {
         "prereg": _rel(prereg),
@@ -860,9 +1006,12 @@ def compute(prereg: Path, directory: Path = E1_DIR, now: datetime | None = None)
     bounds = {
         "prereg": _rel(prereg),
         "source": "e1",
-        "label": "E3 policy-sensitivity bounds on each local model's score",
-        "entries": bounds_table(rows, settings),
+        "label": "E3 policy-sensitivity bounds on the local models' scores and ranking",
+        **bounds_table(rows, settings),
     }
+    ranges = validated_ranges(settings)
+    if ranges is not None:
+        mark_ranges(ranges, scores, contrasts, sampling, bounds)
     tables = {
         "variance_components.json": variance,
         "mde.json": mde,
@@ -879,18 +1028,87 @@ def compute(prereg: Path, directory: Path = E1_DIR, now: datetime | None = None)
     }
 
 
-def bounds_table(rows: Sequence[Mapping[str, Any]], settings: Mapping[str, Any]) -> list[Any]:
-    """E3 on E1: each local model's score under every policy for ambiguous runs.
+FLAGGED_NOTE = "E1 has no flagging step, so no run has status flagged"
+FAMILY_KINDS = {  # contrast family -> kind of the validated-range block (prereg 0005)
+    "harness-local": "local-harness",
+    "harness-claude": "claude-harness",
+    "harness-diff-local": "local-hdiff",
+    "models-local": "local-pair",
+    "tiers-claude": "claude-tiers",
+    "models-claude": "claude-local",
+}
+
+
+def validated_ranges(settings: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The ``validated-range`` block of the preregistration ``settings`` names, if any."""
+    source = settings.get("validated_range")
+    if not source:
+        return None
+    block: dict[str, Any] = prereg_block(REPO / str(source), "validated-range")
+    return dict(block["kinds"])
+
+
+def _inside(ranges: Mapping[str, Any], kind: str, value: float | None) -> bool | None:
+    """Whether ``value`` lies in the span of ``kind`` (None when there is no value)."""
+    if value is None or not math.isfinite(value) or kind not in ranges:
+        return None
+    entry = ranges[kind]
+    lo, hi = entry["span"]
+    if entry.get("compare", "").startswith("absolute"):
+        value = abs(value)
+    return bool(lo - 1e-12 <= value <= hi + 1e-12)
+
+
+def mark_ranges(
+    ranges: Mapping[str, Any],
+    scores: Mapping[str, Any],
+    contrasts: Mapping[str, Any],
+    sampling: Mapping[str, Any],
+    bounds: Mapping[str, Any],
+) -> None:
+    """Flag every interval whose point estimate lies outside its kind's validated span.
+
+    Each row gains ``outside_validated_range`` (True, False, or None without an estimate):
+    scores by arm, contrasts by family, the sampling table by its discordance share, and
+    the E3 bounds by each model's ambiguous share (prereg 0004 and 0005).
+    """
+    for row in scores["rows"]:
+        kind = f"{row['backend']}-score"
+        row["outside_validated_range"] = _outside(_inside(ranges, kind, row["score"]))
+    for table in ("harness", "harness_differences", "models"):
+        for row in contrasts[table]:
+            kind = FAMILY_KINDS[str(row["family"])]
+            row["outside_validated_range"] = _outside(_inside(ranges, kind, row["difference"]))
+    for row in sampling["rows"]:
+        found = _inside(ranges, "sampling", float(row["within_var"]))
+        row["outside_validated_range"] = _outside(found)
+    for row in bounds["entries"]:
+        found = _inside(ranges, "bounds", row["ambiguous_share"])
+        row["outside_validated_range"] = _outside(found)
+
+
+def _outside(inside: bool | None) -> bool | None:
+    return None if inside is None else not inside
+
+
+def bounds_table(rows: Sequence[Mapping[str, Any]], settings: Mapping[str, Any]) -> dict[str, Any]:
+    """E3 on E1: the local models' scores and ranking under every policy for ambiguous runs.
 
     Ambiguous runs are those with status ``infra_error``, ``timeout``, or ``flagged``
-    (``evalstats.policy_bounds``), with Imbens and Manski intervals for the worst-case
-    bounds, on the confirmatory local-arm runs.
+    (``evalstats.policy_bounds``; E1 flags no run), on the confirmatory local-arm runs.
+    ``entries``: each model's score under every policy, its worst-case bounds, and their
+    Imbens and Manski interval. ``rankings``: the order under each policy, and how many
+    policies order the models otherwise than ``as_scored``. ``adjacent``: for each
+    adjacent pair in the ``as_scored`` order, the worst-case bounds on the difference with
+    their Imbens and Manski interval and the identified and robust readings; no E0 cell
+    has this shape, so these intervals are reported as unvalidated.
     """
     local = [
         r for r in rows if r["confirmatory"] and r["backend"] == "local" and not r.get("replicate")
     ]
+    empty: dict[str, Any] = {"entries": [], "rankings": {}, "ranking_changes": 0, "adjacent": []}
     if not local:
-        return []
+        return {**empty, "flagged": FLAGGED_NOTE}
     frame = pd.DataFrame(
         [
             {
@@ -904,7 +1122,7 @@ def bounds_table(rows: Sequence[Mapping[str, Any]], settings: Mapping[str, Any])
         ]
     )
     report = policy_bounds(EvalResults.from_frame(frame), level=float(settings["level"]))
-    return [
+    entries = [
         {
             "model": b.model,
             "scores": dict(b.scores),
@@ -918,6 +1136,30 @@ def bounds_table(rows: Sequence[Mapping[str, Any]], settings: Mapping[str, Any])
         }
         for b in report.models
     ]
+    adjacent = [
+        {
+            "higher": pair.higher,
+            "lower": pair.lower,
+            "difference": pair.difference,
+            "bound_lo": pair.bound_lo,
+            "bound_hi": pair.bound_hi,
+            "ci_lo": pair.ci_lo,
+            "ci_hi": pair.ci_hi,
+            "identified": pair.identified,
+            "robust": pair.robust,
+            "interval_method": "imbens_manski",
+            "validated": False,
+        }
+        for pair in report.adjacent
+    ]
+    return {
+        "entries": entries,
+        "reference_policy": report.policy,
+        "rankings": {name: list(order) for name, order in report.rankings.items()},
+        "ranking_changes": report.ranking_changes,
+        "adjacent": adjacent,
+        "flagged": FLAGGED_NOTE,
+    }
 
 
 def sensitivity_tables(
@@ -959,9 +1201,9 @@ def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
-def build(prereg: Path, directory: Path = E1_DIR) -> dict[str, Any]:
+def build(prereg: Path, directory: Path = E1_DIR, amendment: Path | None = None) -> dict[str, Any]:
     """Write every output and the manifest; returns the manifest."""
-    outputs = compute(prereg, directory)
+    outputs = compute(prereg, directory, amendment=amendment)
     files = {}
     for name in (*INPUTS, *STOP_LOGS):
         path = directory / name
@@ -970,7 +1212,9 @@ def build(prereg: Path, directory: Path = E1_DIR) -> dict[str, Any]:
     for name, text in outputs.items():
         (directory / name).write_text(text)
         files[_rel(directory / name)] = sha256_text(text)
-    manifest = {"prereg": _rel(prereg), "files": files}
+    manifest: dict[str, Any] = {"prereg": _rel(prereg), "files": files}
+    if amendment is not None:
+        manifest["amendment"] = _rel(amendment)
     (directory / "manifest.json").write_text(_dump(manifest))
     return manifest
 
@@ -984,7 +1228,8 @@ def verify(directory: Path = E1_DIR) -> list[str]:
         actual = REPO / path
         if not actual.exists() or hashlib.sha256(actual.read_bytes()).hexdigest() != digest:
             problems.append(f"{path}: missing or hash differs from the manifest")
-    for name, text in compute(prereg, directory).items():
+    amendment = REPO / manifest["amendment"] if manifest.get("amendment") else None
+    for name, text in compute(prereg, directory, amendment=amendment).items():
         if (directory / name).read_text() != text:
             problems.append(f"{name}: recomputation differs")
     return problems
@@ -996,6 +1241,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("command", nargs="?", choices=["build"])
     parser.add_argument("prereg", nargs="?", type=Path)
     parser.add_argument("--verify", action="store_true")
+    parser.add_argument(
+        "--amendment", type=Path, help="a frozen amendment that allows other analysis code"
+    )
     args = parser.parse_args(list(argv) if argv is not None else None)
     if args.verify:
         problems = verify()
@@ -1005,7 +1253,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1 if problems else 0
     if args.command != "build" or args.prereg is None:
         parser.error("use build PREREG or --verify")
-    manifest = build(args.prereg)
+    manifest = build(args.prereg, amendment=args.amendment)
     print(f"wrote {len(manifest['files'])} files")
     return 0
 

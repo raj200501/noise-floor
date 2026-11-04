@@ -44,9 +44,16 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from evalstats import validity
 from evalstats.schema import OUTCOME, EvalResults
 
 LOGISTIC_RESIDUAL_VAR = math.pi**2 / 3
+
+
+class FitFailedError(RuntimeError):
+    """No optimizer fitted the model (lme4 tried bobyqa, Nelder-Mead, and nloptwrap)."""
+
+
 _NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -382,6 +389,10 @@ def _fit_lme4_bootstrap(
         out = ro.r(_R_BOOT)(
             rdf, formula, factors, nagq, n_boot, int(seed) % 2_147_483_647, jackknife
         )
+    except Exception as exc:  # rpy2 raises RRuntimeError for an R stop()
+        if "no optimizer fitted the model" in str(exc):
+            raise FitFailedError(str(exc).strip()) from exc
+        raise
     finally:
         callbacks.consolewrite_warnerror = saved
     get = dict(zip(out.names, list(out), strict=True))
@@ -844,6 +855,31 @@ def _check_rules(
         raise ValueError("the jackknife group must be one of the random terms")
 
 
+# Interval labels of the E0 GLMM cells (prereg 0005), which evalstats.validity matches.
+VALIDITY_RANDOM = "parametric_bootstrap"  # random variances
+VALIDITY_JACKKNIFE = "glmm_task_jackknife"  # fixed contributions, task-jackknife boxes
+VALIDITY_PLUGIN = "glmm_plugin_share"  # shares mapped from the component intervals
+
+
+def _check_validity(
+    frame: pd.DataFrame,
+    fixed: Sequence[str],
+    fixed_interval: str,
+    share_interval: str,
+    group: str,
+) -> None:
+    """Warn when a bootstrap decomposition matches a failing E0 cell (evalstats.validity)."""
+    column = group if group in frame.columns else "task"
+    if column not in frame.columns:
+        return
+    n_tasks = int(frame[column].nunique())
+    validity.check("decompose", VALIDITY_RANDOM, n_tasks)
+    if fixed and fixed_interval == "jackknife":
+        validity.check("decompose", VALIDITY_JACKKNIFE, n_tasks)
+    if share_interval == "plugin":
+        validity.check("decompose", VALIDITY_PLUGIN, n_tasks)
+
+
 def _check_options(level: float, method: str, boot_interval: str, nagq: int, n_boot: int) -> None:
     if not 0 < level < 1:
         raise ValueError("level must be in (0, 1)")
@@ -899,6 +935,7 @@ def decompose(
     if method == "parametric_bootstrap":
         if backend != "lme4":
             raise ValueError("the parametric bootstrap needs the lme4 backend")
+        _check_validity(frame, fixed, fixed_interval, share_interval, jackknife_group)
         group = jackknife_group if fixed_interval == "jackknife" else ""
         raw = _fit_lme4_bootstrap(
             data, random, fixed, nagq=nagq, n_boot=n_boot, seed=seed, jackknife=group
@@ -1001,8 +1038,8 @@ def _bootstrap_decomposition(
         estimate: float, values: np.ndarray, rule: str
     ) -> tuple[float | None, float | None]:
         ok = np.isfinite(values) & np.isfinite(totals)
-        if ok.sum() < 2:
-            return None, None
+        if ok.sum() < 2 or not enough(np.where(ok, 0.0, np.nan)):
+            return None, None  # the failed-replicate rule of the components
         ci = boot_variance_interval(estimate, values[ok] / totals[ok], level, rule)
         return (None, None) if ci is None else (ci[0], min(ci[1], 1.0))
 

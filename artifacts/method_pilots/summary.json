@@ -5268,6 +5268,33 @@
      "min_coverage": 0.95,
      "pooled_coverage": 0.9770833333333333,
      "rule": "jackknife"
+    },
+    "fixed-share": {
+     "components": [
+      "share:model",
+      "share:harness",
+      "share:timeout",
+      "share:steps",
+      "share:temperature",
+      "share:concurrency",
+      "share:day",
+      "share:block"
+     ],
+     "coverage": {
+      "share:block": 0.9833333333333333,
+      "share:concurrency": 0.9666666666666667,
+      "share:day": 0.9833333333333333,
+      "share:harness": 0.9666666666666667,
+      "share:model": 1.0,
+      "share:steps": 0.9666666666666667,
+      "share:temperature": 1.0,
+      "share:timeout": 0.95
+     },
+     "headline": true,
+     "kind": "fixed-share",
+     "min_coverage": 0.95,
+     "pooled_coverage": 0.9770833333333333,
+     "rule": "plugin"
     }
    },
    "components": {
@@ -6029,6 +6056,33 @@
      "min_coverage": 0.9166666666666666,
      "pooled_coverage": 0.9708333333333333,
      "rule": "jackknife"
+    },
+    "fixed-share": {
+     "components": [
+      "share:model",
+      "share:harness",
+      "share:timeout",
+      "share:steps",
+      "share:temperature",
+      "share:concurrency",
+      "share:day",
+      "share:block"
+     ],
+     "coverage": {
+      "share:block": 0.9166666666666666,
+      "share:concurrency": 0.9666666666666667,
+      "share:day": 1.0,
+      "share:harness": 0.95,
+      "share:model": 1.0,
+      "share:steps": 0.9666666666666667,
+      "share:temperature": 0.9666666666666667,
+      "share:timeout": 0.95
+     },
+     "headline": true,
+     "kind": "fixed-share",
+     "min_coverage": 0.9166666666666666,
+     "pooled_coverage": 0.9645833333333333,
+     "rule": "plugin"
     }
    },
    "components": {

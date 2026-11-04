@@ -7,7 +7,8 @@ E0) and scored every candidate interval rule on each one. The raw rows are banke
 command and the code it ran. ``python -m noisefloor.method_pilots`` recomputes
 ``summary.json`` from them; ``--check`` exits 1 if the banked summary differs. A pool
 either chooses a rule per kind (``choose``, D-023) or scores a rule fixed in advance
-(``check``, as pilot 7 does for the task jackknife of D-028).
+(``check``, as pilot 7 does for the task jackknife of D-028, and for the plugin shares
+built from it, ``plugin_from``, D-033).
 
 Coverage counts a missing interval as a miss, as G6 does.
 """
@@ -142,9 +143,15 @@ POOLED_FLOOR = 0.935  # and the kind's pooled coverage this (D-028)
 
 
 def kind_members(names: Sequence[str], kind: str) -> list[str]:
-    """Components of one kind of result: random, fixed, share, or mde."""
+    """Components of one kind of result: random, fixed, share, fixed-share, or mde.
+
+    ``fixed-share`` is the shares of the fixed factors only (pilot 7 scores them: its two
+    bootstrap replicates give the random components no interval worth scoring).
+    """
     if kind in KINDS:
         return [n for n in KINDS[kind] if n in names]
+    if kind == "fixed-share":
+        return [f"share:{n}" for n in KINDS["fixed"] if f"share:{n}" in names]
     return [n for n in names if n.startswith(f"{kind}:")]
 
 
@@ -290,6 +297,9 @@ def build(directory: Path = DIR) -> dict[str, Any]:
             key=lambda r: int(r["seed"]),
         )
         entry = {"pilots": pool["pilots"], **summarize(joined)}
+        if pool.get("plugin_from"):  # plugin shares from these rules, before any check
+            source = pool["plugin_from"]
+            joined = with_plugin_shares(joined, source["random"], source["fixed"])
         if pool.get("choose"):
             entry["choice"] = choices(joined, pool["choose"])
         if pool.get("check"):

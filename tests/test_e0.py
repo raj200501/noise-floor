@@ -207,3 +207,26 @@ def test_within_model_contrasts_share_task_effects_and_split_the_timeout() -> No
     assert rep.lo <= rep.estimate <= rep.hi and rep.truth == pytest.approx(
         e0._true_within(0.4, 0.0, c.params)
     )
+
+
+def test_sampling_cell_simulates_discordant_pairs_of_independent_runs() -> None:
+    import numpy as np
+
+    from noisefloor import e0
+
+    params = {
+        "n_tasks": 80,
+        "intercept": 0.0,
+        "task_sd": 2.0,
+        "model_task_sd": 0.7071,
+        "effects": [0.6, 0.0, -0.6],
+    }
+    cell = e0.Cell("S-r-w-x", "sampling_discordance", "cluster_wilson", 0.95, 40, params)
+    reps = [e0.run_replicate(cell, i) for i in range(40)]
+    truth = reps[0].truth
+    assert 0.08 < truth < 0.2 and all(r.truth == truth for r in reps)
+    assert all(0 <= r.lo <= r.estimate <= r.hi <= 0.5 for r in reps)
+    assert abs(float(np.mean([r.estimate for r in reps])) - truth) < 0.02
+    assert sum(r.covered for r in reps) >= 32  # most intervals cover (a sanity check)
+    low = e0._true_discordance({**params, "intercept": 6.0})
+    assert low < 0.03

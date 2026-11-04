@@ -76,3 +76,17 @@ def test_serve_raises_when_not_ready(tmp_path: Path, monkeypatch: pytest.MonkeyP
         models.serve(MODELS["qwen2.5-0.5b"], free_port(), 1),
     ):
         pass
+
+
+def test_server_build_digest_covers_the_shared_libraries(tmp_path) -> None:
+    from noisefloor.models import server_build_sha256
+
+    binary = tmp_path / "llama-server"
+    assert server_build_sha256(binary) is None
+    binary.write_bytes(b"launcher")
+    (tmp_path / "libllama.so.0.5.0").write_bytes(b"code v1")
+    (tmp_path / "libllama.so.0").symlink_to("libllama.so.0.5.0")
+    first = server_build_sha256(binary)
+    assert first is not None and len(first) == 64
+    (tmp_path / "libllama.so.0.5.0").write_bytes(b"code v2")  # a rebuilt library
+    assert server_build_sha256(binary) != first

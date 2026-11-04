@@ -11,9 +11,10 @@ configuration, at most ``batch_size`` runs), and batches are spread evenly, in r
 order, over ``days`` x ``blocks_per_day`` time slots. Each run's ``block`` field is
 ``<slot>/<batch>``, so the orchestrator keeps the planned batches.
 
-Claude slice: each Claude tier runs every task ``claude_runs_per_task`` times, crossing
-harness (minimal-agent or Claude Code) with timeout; the step budget is the turn cap and
-temperature is the CLI's default (neither can vary for Claude here, D-019).
+Claude slice: each Claude tier runs the first ``claude_tasks_per_family`` tasks of each family
+``claude_runs_per_task`` times, crossing harness (minimal-agent or Claude Code) with timeout;
+the step budget is the turn cap and temperature is the CLI's default (neither can vary for
+Claude here, D-019).
 
 All tasks are procedurally generated mock tasks (nf-tools suite version 2).
 """
@@ -35,11 +36,11 @@ from pathlib import Path
 from typing import Any
 
 from noisefloor import jsonl, preregs
-from noisefloor.client import CLAUDE_LEDGER
-from noisefloor.models import CLAUDE_TIERS, MODELS
+from noisefloor.client import CLAUDE_LEDGER, billing_guard_findings
+from noisefloor.models import CLAUDE_TIERS, DEFAULT_CTX, MODELS, RUNTIME, server_build_sha256
 from noisefloor.preregs import REPO, prereg_block, repo_path
-from noisefloor.recovery import TWO_LEVEL, cell_runs, half_fraction_blocks
-from noisefloor.runner import RunSpec
+from noisefloor.recovery import TWO_LEVEL, cell_runs, deal_batches, half_fraction_blocks
+from noisefloor.runner import ABORT_STREAK, RunSpec
 from noisefloor.suite import FAMILY_NAMES, Task, check_disjoint, generate, suite_manifest
 
 PILOT_SEEDS = range(900000, 901000)
@@ -75,9 +76,15 @@ class E1Design:
     # Configurations (0/1 codes in TWO_LEVEL order) that every (model, task) cell runs a
     # second time, phase "e1-rep", to measure run-to-run sampling (D-028 item 3).
     replicates: tuple[tuple[int, ...], ...] = ()
+    # The Claude slice runs the first this many tasks of each family (None: all of them),
+    # because its caps bind while the local arm's size comes from the power analysis.
+    claude_tasks_per_family: int | None = None
 
     def __post_init__(self) -> None:
         """Reject designs E1 cannot run."""
+        per = self.claude_tasks_per_family
+        if per is not None and not 1 <= per <= self.tasks_per_family:
+            raise ValueError("claude_tasks_per_family must be between 1 and tasks_per_family")
         if self.runs_per_cell not in (8, 16):
             raise ValueError("runs_per_cell must be 8 (one block) or 16 (the half fraction)")
         for bits in self.replicates:
@@ -123,6 +130,9 @@ class E1Design:
             max_tokens=int(data["max_tokens"]),
             runs_per_cell=int(data.get("runs_per_cell", 8)),
             replicates=tuple(tuple(int(b) for b in r) for r in data.get("replicates", [])),
+            claude_tasks_per_family=(
+                None if (per := data.get("claude_tasks_per_family")) is None else int(per)
+            ),
         )
 
     def to_json(self) -> dict[str, Any]:
@@ -143,17 +153,31 @@ class E1Design:
             "max_tokens": self.max_tokens,
             "runs_per_cell": self.runs_per_cell,
             "replicates": [list(r) for r in self.replicates],
+            "claude_tasks_per_family": self.claude_tasks_per_family,
         }
+
+
+def _family_tasks(design: E1Design, per_family: int) -> list[Task]:
+    out = []
+    for family in design.families:
+        for j in range(per_family):
+            difficulty = design.difficulties[j % len(design.difficulties)]
+            out.append(generate(family, CONFIRMATORY_SEEDS[j], difficulty))
+    return out
 
 
 def tasks(design: E1Design) -> list[Task]:
     """The confirmatory tasks: per family, seeds in order with difficulties in rotation."""
-    out = []
-    for family in design.families:
-        for j in range(design.tasks_per_family):
-            difficulty = design.difficulties[j % len(design.difficulties)]
-            out.append(generate(family, CONFIRMATORY_SEEDS[j], difficulty))
-    return out
+    return _family_tasks(design, design.tasks_per_family)
+
+
+def claude_tasks(design: E1Design) -> list[Task]:
+    """The Claude slice's tasks: the first ``claude_tasks_per_family`` tasks of each family.
+
+    They are a subset of :func:`tasks` (the same seeds and difficulties), so every Claude
+    task is also a local-arm task.
+    """
+    return _family_tasks(design, design.claude_tasks_per_family or design.tasks_per_family)
 
 
 def manifest(design: E1Design) -> dict[str, Any]:
@@ -168,17 +192,69 @@ def plan_sha256(design: E1Design) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
-def model_pins(design: E1Design) -> dict[str, dict[str, str]]:
-    """Repository, revision, file, and SHA-256 of every local model's weights."""
+def model_pins(design: E1Design) -> dict[str, dict[str, Any]]:
+    """Weights (repository, revision, file, SHA-256) and server settings of every local model.
+
+    The server settings are the model's own llama-server arguments (for the Qwen3 models,
+    thinking off through the chat template) and the context per parallel slot; every server
+    also runs with ``--jinja`` and ``--seed 0`` (:func:`noisefloor.models.server_command`).
+    """
     return {
         m: {
             "repo": MODELS[m].repo,
             "revision": MODELS[m].revision,
             "filename": MODELS[m].filename,
             "sha256": MODELS[m].sha256,
+            "server_args": list(MODELS[m].server_args),
+            "ctx_per_slot": DEFAULT_CTX,
         }
         for m in design.models
     }
+
+
+def server_pin() -> dict[str, Any]:
+    """The llama-server build (:data:`noisefloor.models.RUNTIME`) and its SHA-256.
+
+    The digest covers the binary and the shared libraries beside it
+    (:func:`noisefloor.models.server_build_sha256`).
+    """
+    return {**RUNTIME, "sha256": server_build_sha256()}
+
+
+def run_code(local: bool) -> dict[str, Any]:
+    """The run code a batch would use now (:func:`noisefloor.orchestrate.code_provenance`)."""
+    from noisefloor.orchestrate import code_provenance  # noqa: PLC0415
+
+    found = code_provenance()
+    if not local:
+        found.pop("server_sha256", None)  # the Claude slice starts no model server
+    return found
+
+
+def code_key(code: Mapping[str, Any], local: bool) -> str:
+    """One string for the run code an arm compares across its batches."""
+    parts = [code.get("src_tree"), code.get("uv_lock")]
+    if local:
+        parts.append(code.get("server_sha256"))
+    return ":".join(str(p) for p in parts)
+
+
+def code_change(artifact: Path, stops: Path, current: str, local: bool) -> str | None:
+    """``current`` if it differs from the run code of the arm's first banked run.
+
+    Codes a resumed ``code_changed`` stop recorded are accepted, as for CLI versions.
+    """
+    keys = [
+        code_key(code, local)
+        for row in jsonl.read(artifact, tail_ok=True)
+        if (code := (row.get("provenance") or {}).get("code"))
+    ]
+    if not keys:
+        return None
+    accepted = {keys[0]} | {
+        str(s.get("to")) for s in jsonl.read(stops) if s["kind"] == "code_changed"
+    }
+    return None if current in accepted else current
 
 
 def check_frozen_plan(prereg: Path, design: E1Design) -> None:
@@ -196,9 +272,12 @@ def check_frozen_plan(prereg: Path, design: E1Design) -> None:
         if frozen:
             raise
         return
+    tasks = manifest(design)
     expected = {
         "plan_sha256": (plan_sha256(design), "the run plan from this code differs from"),
         "model_pins": (model_pins(design), "the local model pins differ from"),
+        "task_manifest_sha256": (tasks["sha256"], "the generated tasks differ from"),
+        "suite_version": (tasks["version"], "the task suite version differs from"),
     }
     for key, (value, differs) in expected.items():
         if key not in block:
@@ -271,16 +350,10 @@ def local_plan(design: E1Design) -> list[RunSpec]:
     for spec in runs:
         groups.setdefault((spec.model, spec.concurrency), []).append(spec)
     slots = design.slots
-    planned: list[tuple[str, list[RunSpec]]] = []
-    for key in sorted(groups):
-        members = groups[key]
-        rng.shuffle(members)
-        size = design.batch_size
-        chunks = [members[i : i + size] for i in range(0, len(members), size)]
-        offset = rng.randrange(len(slots))
-        # Each (model, concurrency) group spreads its batches evenly over the slots.
-        for j, chunk in enumerate(chunks):
-            planned.append((slots[(offset + j) % len(slots)], chunk))
+    # Each (model, concurrency) group spreads its batches evenly over the slots, by the
+    # rule the G6 and E0 part 2 simulator uses too.
+    dealt = deal_batches(groups, len(slots), design.batch_size, rng.shuffle, rng.randrange)
+    planned = [(slots[index], chunk) for index, chunk in dealt]
     rng.shuffle(planned)
     plan: list[RunSpec] = []
     for slot in slots:
@@ -385,22 +458,25 @@ def dry_summary(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
 def claude_plan(design: E1Design) -> list[RunSpec]:
     """Every Claude-slice run: harness crossed with timeout, balanced within each task.
 
-    Each task's runs come in pairs that differ in both harness and timeout: tasks
-    alternate between the pairs (minimal, short) + (native, long) and (minimal, long) +
-    (native, short), offset by tier, so harness and timeout are balanced in every tier
-    and within every task. Runs are ordered by complete (tier, task) groups with the tiers
-    interleaved, so a slice that ends early leaves complete pairs balanced over tiers.
+    The slice runs :func:`claude_tasks`. Each task's runs come in pairs that differ in
+    both harness and timeout: tasks alternate between the pairs (minimal, short) +
+    (native, long) and (minimal, long) + (native, short), the same for every tier, so
+    harness and timeout are balanced in every tier and within every task, and two tiers
+    under one harness always ran the same timeout on a task. Runs are ordered by
+    complete (tier, task) groups with the tiers interleaved, so a slice that ends early
+    leaves complete pairs balanced over tiers. ``max_tokens`` is 0 on every Claude run:
+    the reply cap reaches only the local server, and the Claude CLI sets its own.
     """
     if design.claude_runs_per_task % 2:
         raise ValueError("claude_runs_per_task must be even")
     rng = random.Random(f"e1-claude:{design.order_seed}")
     pairs = (((0, 0), (1, 1)), ((0, 1), (1, 0)))
     steps = design.levels["steps"][0]
-    task_list = tasks(design)
+    task_list = claude_tasks(design)
     groups: dict[tuple[int, int], list[RunSpec]] = {}
     for ci, tier in enumerate(design.claude_tiers):
         for ti, task in enumerate(task_list):
-            combos = pairs[(ci + ti) % 2] * (design.claude_runs_per_task // 2)
+            combos = pairs[ti % 2] * (design.claude_runs_per_task // 2)
             group = groups.setdefault((ci, ti), [])
             for k, (h, t) in enumerate(combos):
                 harness = _level(design, "harness", h)
@@ -420,7 +496,7 @@ def claude_plan(design: E1Design) -> list[RunSpec]:
                         max_steps=int(steps),
                         threads=1,
                         concurrency=1,
-                        max_tokens=design.max_tokens,
+                        max_tokens=0,  # not applied: the Claude CLI takes no reply cap
                         factors={
                             "harness": str(harness),
                             "timeout": str(timeout),
@@ -472,6 +548,20 @@ def seconds_to_next_block(
     return max(1.0, (boundary - now).total_seconds())
 
 
+START_GRACE_S = 900.0  # the arm's first batch starts at most this long after 00:00 UTC
+
+
+def seconds_since_midnight(now: datetime) -> float:
+    """Seconds since the last 00:00 of ``now``'s date (UTC for the E1 clock)."""
+    return (now - now.replace(hour=0, minute=0, second=0, microsecond=0)).total_seconds()
+
+
+def seconds_to_midnight(now: datetime) -> float:
+    """Seconds from ``now`` until the next 00:00 (at least 1)."""
+    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+    return max(1.0, (midnight - now).total_seconds())
+
+
 def slot_day(label: str) -> int:
     """Planned day (1-based) of a batch labeled ``day<k>-b<n>/b<NNNN>``."""
     slot = label.split("/", maxsplit=1)[0]
@@ -510,7 +600,17 @@ ARM_DAYS = 7  # the local arm starts no batch after day 7 of the arm
 CLAUDE_END_DAYS = 45  # the Claude slice starts no run 45 days or more after the freeze
 INFRA_STOP_SHARE = 0.05  # an arm stops for repair above this share of infra_error runs ...
 INFRA_STOP_MIN = 5  # ... once at least this many are banked since its start or last resume
-STOP_KINDS = ("batch_failure", "infra_share", "cli_changed", "defect", "day_limit", "end_point")
+STOP_KINDS = (
+    "batch_failure",
+    "infra_share",
+    "cli_changed",
+    "code_changed",
+    "contaminated",
+    "defect",
+    "day_limit",
+    "end_point",
+    "tier_ended",
+)
 FINAL_STOPS = ("day_limit", "end_point")  # stops that end an arm for good
 RESUME_HINT = "after a repair: python -m noisefloor.e1 resume %s --note '<what was repaired>'"
 
@@ -538,9 +638,14 @@ def arm_lock(artifact: Path) -> Iterator[None]:
 
 
 def open_stop(stops: Path) -> dict[str, Any] | None:
-    """The arm's latest stop, unless a resume follows it."""
-    rows = jsonl.read(stops)
+    """The arm's latest stop, unless a resume follows it (``tier_ended`` notes are not stops)."""
+    rows = [r for r in jsonl.read(stops) if r["kind"] != "tier_ended"]
     return rows[-1] if rows and rows[-1]["kind"] != "resume" else None
+
+
+def ended_tiers(stops: Path) -> set[str]:
+    """Claude tiers that start no further run (another model ID served them)."""
+    return {str(r["tier"]) for r in jsonl.read(stops) if r["kind"] == "tier_ended"}
 
 
 def record_stop(stops: Path, kind: str, reason: str, at: datetime, **fields: Any) -> None:
@@ -551,11 +656,34 @@ def record_stop(stops: Path, kind: str, reason: str, at: datetime, **fields: Any
     jsonl.append(stops, [row])
 
 
-def resume(stops: Path, note: str, at: datetime, amendment: Path | None = None) -> None:
+E1_PREREG = "0004"  # the preregistration this module runs (amendments must amend it)
+SMOKE_ARTIFACT = REPO / "artifacts" / "pilot" / "claude-smoke.jsonl"
+
+
+def smoke_passed(version: str | None = None, artifact: Path = SMOKE_ARTIFACT) -> bool:
+    """True if a banked smoke run printed SMOKE: PASS (for ``version`` of the CLI, if given)."""
+    from noisefloor.claude_arm import smoke_report  # noqa: PLC0415
+
+    for record in jsonl.read(artifact, tail_ok=True):
+        same = version is None or (record.get("claude") or {}).get("cli_version") == version
+        if same and smoke_report(record)[-1] == "SMOKE: PASS":
+            return True
+    return False
+
+
+def resume(
+    stops: Path,
+    note: str,
+    at: datetime,
+    amendment: Path | None = None,
+    smoke: Callable[[str | None], bool] = smoke_passed,
+) -> None:
     """Record that the arm resumes after its open stop was repaired.
 
-    A day-limit stop never resumes. A defect stop resumes only under a frozen amendment
-    (``amendment``) that says how the affected runs are handled.
+    A day-limit or end-point stop never resumes. A defect stop resumes only under a frozen
+    amendment of this preregistration (``amendment``) that says how the affected runs are
+    handled. A new Claude Code version is accepted only after a smoke run on it printed
+    SMOKE: PASS (``python -m noisefloor.claude_arm smoke``).
     """
     stop = open_stop(stops)
     if stop is None:
@@ -569,8 +697,29 @@ def resume(stops: Path, note: str, at: datetime, amendment: Path | None = None) 
         if amendment is None:
             raise ValueError("a defect stop resumes only under a frozen amendment")
         preregs.require_frozen(amendment)
+        if preregs.amends(amendment) != E1_PREREG:
+            raise ValueError(f"{amendment.name} does not amend prereg {E1_PREREG}")
         row["amendment"] = repo_path(amendment)
+    if stop["kind"] == "cli_changed":
+        if not smoke(str(stop.get("to"))):
+            raise ValueError(f"no SMOKE: PASS on Claude Code {stop.get('to')}; run the smoke first")
+        row["smoke"] = "pass"
     jsonl.append(stops, [{**row, "after": stop["at"]}])
+
+
+def require_validation(prereg: Path) -> None:
+    """Refuse to start an arm before G6 and E0 part 2 are banked (prereg 0004).
+
+    Then a kind of interval that fails its cells can still change method by a dated
+    amendment before any E1 run exists. A file outside the chain (a fixture) is not checked.
+    """
+    if preregs.chain_entry(prereg) is None:
+        return
+    from noisefloor.analysis.e1 import validation_artifacts  # noqa: PLC0415 - imports e1
+
+    for name, path in validation_artifacts(prereg_block(prereg, "e1-analysis")).items():
+        if not path.exists():
+            raise ValueError(f"{name}: {path.name} is not banked; G6 and E0 part 2 come first")
 
 
 def infra_counts(artifact: Path, stops: Path) -> tuple[int, int]:
@@ -600,6 +749,40 @@ def _infra_stop(artifact: Path, stops: Path, at: datetime, log: Callable[[str], 
     return True
 
 
+def _code_stop(
+    artifact: Path, stops: Path, clock: datetime, log: Callable[[str], None], local: bool
+) -> bool:
+    """True when no batch may start: uncommitted run code, or code the arm did not start with.
+
+    Uncommitted changes under ``src/`` (or to the lock or project file) block every batch
+    until they are committed; run code other than the arm's first banked run's (and, for
+    the local arm, another llama-server binary) stops the arm until a resume accepts it,
+    reported as a deviation (prereg 0004).
+    """
+    arm = "local" if local else "claude"
+    code = run_code(local)
+    if code["dirty"]:
+        log(f"e1 {arm}: src/, uv.lock, or pyproject.toml has uncommitted changes; commit first")
+        return True
+    key = code_key(code, local)
+    changed = code_change(artifact, stops, key, local)
+    if changed is None:
+        return False
+    record_stop(stops, "code_changed", f"the run code changed to {changed}", clock, to=changed)
+    log(f"e1 {arm}: stopped (the run code changed); {RESUME_HINT % arm}")
+    return True
+
+
+def check_server(prereg: Path, artifact: Path) -> None:
+    """Before the local arm's first run, the llama-server binary must be the frozen one."""
+    if arm_start(artifact) is not None or preregs.chain_entry(prereg) is None:
+        return
+    pinned = prereg_block(prereg, "e1-design").get("llama_server", {}).get("sha256")
+    actual = server_pin()["sha256"]
+    if pinned != actual:
+        raise ValueError(f"the llama-server binary ({actual}) is not the frozen one ({pinned})")
+
+
 def run_local(
     prereg: Path,
     *,
@@ -613,8 +796,9 @@ def run_local(
 ) -> int:
     """Run the local arm of the preregistered plan; returns the number of runs banked now.
 
-    The arm's first batch starts in time-of-day block 1 (00:00 to 12:00 UTC), and day 1 is
-    the UTC date on which it starts (before any run is banked, today). A planned batch of
+    The arm's first batch starts at the beginning of time-of-day block 1, at most
+    :data:`START_GRACE_S` after 00:00 UTC (launched later, the runner waits for the next
+    00:00 UTC), and day 1 is the UTC date on which it starts. A planned batch of
     slot ``day<k>-b<n>`` then starts only in block ``n`` of the arm's day ``k`` or later
     (:func:`eligible_batches`); the earliest unfinished eligible batch runs next, so a slot
     that overruns its block continues in the same block of the next day. Without ``wait``,
@@ -625,12 +809,14 @@ def run_local(
     or when a batch would start after day :data:`ARM_DAYS`. A stopped arm starts nothing
     until :func:`resume` records a repair. One runner at a time holds the arm's lock.
     """
-    from noisefloor.orchestrate import BatchFailedError  # noqa: PLC0415
+    from noisefloor.orchestrate import BatchFailedError, RunnerBusyError  # noqa: PLC0415
     from noisefloor.orchestrate import execute as default_execute  # noqa: PLC0415
 
     run = execute or default_execute
     design = E1Design.from_json(prereg_block(prereg, "e1-plan"))
     stamp = _stamp(prereg, design)
+    require_validation(prereg)
+    check_server(prereg, artifact)
     batches = planned_batches(local_plan(design))
     stops = stops_path(artifact)
     banked = 0
@@ -658,6 +844,12 @@ def run_local(
                 record_stop(stops, "batch_failure", exc.reason, now(), batch=step)
                 log(f"e1 local arm: batch {step} failed ({exc.reason}); stopped for repair")
                 return banked
+            except RunnerBusyError as exc:  # a runner left by a killed orchestrator
+                log(f"e1 local arm: {exc}; waiting for it to finish")
+                if not wait:
+                    return banked
+                sleep(60.0)
+                continue
             banked += added
             if added == 0:
                 reason = "a batch banked nothing (a refused model call)"
@@ -694,16 +886,20 @@ def _local_next(
     if stop is not None:
         log(f"e1 local arm: stopped ({stop['kind']}: {stop['reason']}); {RESUME_HINT % 'local'}")
         return None
-    if _infra_stop(artifact, stops, clock, log):
+    if _infra_stop(artifact, stops, clock, log) or _code_stop(artifact, stops, clock, log, True):
         return None
     block = current_block(clock)
-    eligible = eligible_batches(pending, block, day)
-    if start is None and block != 1:
-        eligible = []  # the arm starts at the beginning of a day's first block
+    # The arm starts at the beginning of a day's first block, so day 1 has a full one.
+    first = start is None and seconds_since_midnight(clock) > START_GRACE_S
+    eligible = [] if first else eligible_batches(pending, block, day)
     if eligible:
         return eligible[0]
-    pause = seconds_to_next_block(clock)
-    log(f"e1 local arm: nothing eligible in block b{block}, day {day}; next block in {pause:.0f} s")
+    if first:
+        pause = seconds_to_midnight(clock)
+        log(f"e1 local arm: the first batch starts at 00:00 UTC, in {pause:.0f} s")
+    else:
+        pause = seconds_to_next_block(clock)
+        log(f"e1 local arm: nothing eligible in block b{block}, day {day}; wait {pause:.0f} s")
     return pause
 
 
@@ -724,50 +920,117 @@ def served_models(record: Mapping[str, Any]) -> list[str]:
     return list(dict.fromkeys(ids))
 
 
-def claude_changes(artifact: Path, stops: Path) -> tuple[str | None, str | None]:
-    """(model change, new CLI version) in the banked Claude runs.
+def cli_versions(record: Mapping[str, Any]) -> list[str]:
+    """Claude Code versions a Claude run reported (minimal-agent calls or the Claude child)."""
+    found = [str(v) for v in record.get("cli_versions") or []]
+    child = (record.get("claude") or {}).get("cli_version")
+    if child:
+        found.append(str(child))
+    return list(dict.fromkeys(found))
 
-    A tier's first banked run fixes its model ID for the slice; the change is returned as a
-    reason. The CLI version of the first banked run, and each version that a
-    ``cli_changed`` stop recorded (accepted once resumed), are allowed; the first other
-    version is returned.
+
+def claude_changes(artifact: Path, stops: Path) -> tuple[dict[str, str], str | None]:
+    """(model changes by tier, new CLI version) in the banked Claude runs.
+
+    A tier's first banked run fixes its model ID for the slice; each tier later served by
+    another ID maps to a reason. The CLI version of the first banked run, and each version
+    that a ``cli_changed`` stop recorded (accepted once resumed), are allowed; the first
+    other version is returned.
     """
     rows = jsonl.read(artifact, tail_ok=True)
     first: dict[str, str] = {}
-    model_change = None
+    changes: dict[str, str] = {}
     for row in rows:
+        tier = str(row.get("model", ""))
         for model_id in served_models(row):
-            known = first.setdefault(str(row["model"]), model_id)
-            if model_id != known and model_change is None:
-                model_change = f"{row['model']} was served by {model_id} after {known}"
-    versions = [str(v) for r in rows if (v := (r.get("claude") or {}).get("cli_version"))]
+            known = first.setdefault(tier, model_id)
+            if model_id != known and tier not in changes:
+                changes[tier] = f"{tier} was served by {model_id} after {known}"
+    versions = [v for r in rows for v in cli_versions(r)]
     accepted = {versions[0]} if versions else set()
     accepted |= {str(s.get("to")) for s in jsonl.read(stops) if s["kind"] == "cli_changed"}
-    return model_change, next((v for v in versions if v not in accepted), None)
+    return changes, next((v for v in versions if v not in accepted), None)
+
+
+def since_resume(artifact: Path, stops: Path) -> list[dict[str, Any]]:
+    """Banked runs, in banking order, from the arm's start or last resume on."""
+    resumes = [r["at"] for r in jsonl.read(stops) if r["kind"] == "resume"]
+    since = datetime.fromisoformat(resumes[-1]) if resumes else None
+    rows = jsonl.read(artifact, tail_ok=True)
+    if since is None:
+        return rows
+
+    def after(row: Mapping[str, Any]) -> bool:
+        started = row.get("batch_started_at") or row.get("started_at")
+        return not started or datetime.fromisoformat(str(started)) >= since
+
+    return [r for r in rows if after(r)]
+
+
+def claude_problem(
+    prereg: Path, artifact: Path, stops: Path, at: datetime
+) -> tuple[str, str, dict[str, Any]] | None:
+    """(stop kind, reason, fields) of the first rule that stops the Claude slice now.
+
+    In order: the end point (:data:`CLAUDE_END_DAYS` days after the freeze), a new
+    Claude Code version, a child that did not start clean, and three infra_error runs in a
+    row since the slice started or resumed (the batch-level rule of the local arm, across
+    the two-run Claude batches; those runs stay banked). A tier served by another model ID
+    ends that tier only (:func:`note_tier_changes`).
+    """
+    from noisefloor.orchestrate import banked_ids  # noqa: PLC0415 - orchestrate imports runner
+
+    frozen = frozen_at(prereg)
+    _, new_cli = claude_changes(artifact, stops)
+    count = {"banked": len(banked_ids(artifact))}
+    if frozen is not None and at >= frozen + timedelta(days=CLAUDE_END_DAYS):
+        return "end_point", f"{CLAUDE_END_DAYS} days after the freeze", count
+    if new_cli is not None:
+        return "cli_changed", f"Claude Code {new_cli} in use", {"to": new_cli}
+    recent = since_resume(artifact, stops)
+    dirty = [r["run_id"] for r in recent if (r.get("claude") or {}).get("clean") is False]
+    if dirty:
+        return "contaminated", f"run {dirty[0]} did not start clean", {"runs": dirty}
+    streak = 0
+    for row in reversed(recent):
+        if row.get("status") != "infra_error":
+            break
+        streak += 1
+    if streak >= ABORT_STREAK:
+        return "batch_failure", f"{streak} infra_error runs in a row", {}
+    return None
+
+
+def note_tier_changes(
+    artifact: Path, stops: Path, at: datetime, log: Callable[[str], None]
+) -> set[str]:
+    """Record a ``tier_ended`` note for each tier newly served by another model ID.
+
+    That tier starts no further run, its runs on the other ID are left out of the analyses
+    (counted per tier), and the other tiers go on (prereg 0004). Returns every ended tier.
+    """
+    changes, _ = claude_changes(artifact, stops)
+    ended = ended_tiers(stops)
+    for tier, reason in sorted(changes.items()):
+        if tier not in ended:
+            record_stop(stops, "tier_ended", reason, at, tier=tier)
+            log(f"e1 Claude slice: {reason}; {tier} starts no further run")
+            ended.add(tier)
+    return ended
 
 
 def _claude_ended_or_changed(
     prereg: Path, artifact: Path, stops: Path, at: datetime, log: Callable[[str], None]
 ) -> bool:
     """Record and report why the Claude slice must not run now, if it must not."""
-    from noisefloor.orchestrate import banked_ids  # noqa: PLC0415 - orchestrate imports runner
-
-    frozen = frozen_at(prereg)
-    model_change, new_cli = claude_changes(artifact, stops)
-    if frozen is not None and at >= frozen + timedelta(days=CLAUDE_END_DAYS):
-        reason = f"{CLAUDE_END_DAYS} days after the freeze"
-        record_stop(stops, "end_point", reason, at, banked=len(banked_ids(artifact)))
-        log(f"e1 Claude slice: ended ({reason})")
-        return True
-    if model_change is not None:
-        record_stop(stops, "end_point", model_change, at, banked=len(banked_ids(artifact)))
-        log(f"e1 Claude slice: ended ({model_change})")
-        return True
-    if new_cli is not None:
-        record_stop(stops, "cli_changed", f"Claude Code {new_cli} in use", at, to=new_cli)
-        log(f"e1 Claude slice: stopped (Claude Code {new_cli}); a resume accepts it")
-        return True
-    return _infra_stop(artifact, stops, at, log)
+    problem = claude_problem(prereg, artifact, stops, at)
+    if problem is None:
+        return _infra_stop(artifact, stops, at, log)
+    kind, reason, fields = problem
+    record_stop(stops, kind, reason, at, **fields)
+    ended = kind in FINAL_STOPS
+    log(f"e1 Claude slice: {'ended' if ended else 'stopped'} ({reason})")
+    return True
 
 
 def run_claude(
@@ -781,41 +1044,110 @@ def run_claude(
 ) -> int:
     """Run the Claude slice until it is done or a cap, the guard, or a plan limit stops it.
 
-    A batch-level failure or an infra_error share over the limit stops the slice, as in
-    :func:`run_local`, until :func:`resume` records a repair; so does a change of the
-    Claude Code version. The slice ends for good :data:`CLAUDE_END_DAYS` days after the
-    freeze, or when a tier is served by another model ID than its first run's.
+    The plan runs one (tier, task) group at a time, and before each group the slice's
+    stops are checked again (:func:`_claude_may_start`): a batch-level failure or an
+    infra_error share over the limit stops the slice, as in :func:`run_local`, until
+    :func:`resume` records a repair; so do a change of the Claude Code version or of the
+    run code. The slice ends for good :data:`CLAUDE_END_DAYS` days after the freeze, when
+    a tier is served by another model ID than its first run's, or when every planned run
+    is banked (an ``end_point`` stop the analysis reads). A group left unfinished (a cap or
+    the guard refused a call) ends the call; the next call starts with that group's
+    remaining runs.
     """
-    from noisefloor.orchestrate import BatchFailedError  # noqa: PLC0415
+    from noisefloor.orchestrate import banked_ids  # noqa: PLC0415
     from noisefloor.orchestrate import execute as default_execute  # noqa: PLC0415
 
     run = execute or default_execute
     design = E1Design.from_json(prereg_block(prereg, "e1-plan"))
     stamp = _stamp(prereg, design)
+    require_validation(prereg)
+    if preregs.chain_entry(prereg) is not None and not smoke_passed():
+        raise ValueError(
+            "the slice starts after SMOKE: PASS (python -m noisefloor.claude_arm smoke)"
+        )
     stops = stops_path(artifact)
+    banked = 0
     with arm_lock(artifact):
-        stop = open_stop(stops)
-        if stop is not None:
-            hint = RESUME_HINT % "claude"
-            log(f"e1 Claude slice: stopped ({stop['kind']}: {stop['reason']}); {hint}")
-            return 0
-        if _claude_ended_or_changed(prereg, artifact, stops, now(), log):
-            return 0
-        try:
-            return int(
-                run(
-                    claude_plan(design),
-                    artifact=artifact,
-                    ledger=ledger,
-                    prefix="e1c",
-                    stamp=stamp,
-                    log=log,
-                )
+        for group in claude_groups(claude_plan(design)):
+            if all(s.run_id in banked_ids(artifact) for s in group):
+                continue
+            if group[0].model in note_tier_changes(artifact, stops, now(), log):
+                continue
+            if not _claude_may_start(prereg, artifact, stops, now(), log):
+                return banked
+            added, go_on = _claude_group(
+                run, group, artifact=artifact, ledger=ledger, stamp=stamp, now=now, log=log
             )
-        except BatchFailedError as exc:
-            record_stop(stops, "batch_failure", exc.reason, now(), batch=exc.batch_id)
-            log(f"e1 Claude slice: batch {exc.batch_id} failed ({exc.reason}); stopped for repair")
-            return exc.banked
+            banked += added
+            if not go_on:
+                return banked
+        if open_stop(stops) is None:
+            reason = "every planned run of the tiers still served is banked"
+            record_stop(stops, "end_point", reason, now(), banked=len(banked_ids(artifact)))
+        log("e1 Claude slice: every planned run is banked")
+        return banked
+
+
+def _claude_may_start(
+    prereg: Path, artifact: Path, stops: Path, at: datetime, log: Callable[[str], None]
+) -> bool:
+    """False (after saying why) when the next Claude pair must not start."""
+    stop = open_stop(stops)
+    if stop is not None:
+        hint = RESUME_HINT % "claude"
+        log(f"e1 Claude slice: stopped ({stop['kind']}: {stop['reason']}); {hint}")
+        return False
+    if _claude_ended_or_changed(prereg, artifact, stops, at, log):
+        return False
+    return not _code_stop(artifact, stops, at, log, False)
+
+
+def _claude_group(
+    run: Callable[..., int],
+    group: Sequence[RunSpec],
+    *,
+    artifact: Path,
+    ledger: Path,
+    stamp: Mapping[str, Any],
+    now: Callable[[], datetime],
+    log: Callable[[str], None],
+) -> tuple[int, bool]:
+    """Run one (tier, task) group: (runs banked, whether the slice goes on)."""
+    from noisefloor.orchestrate import (  # noqa: PLC0415
+        BatchFailedError,
+        RunnerBusyError,
+        banked_ids,
+    )
+
+    stops = stops_path(artifact)
+    try:
+        added = int(
+            run(group, artifact=artifact, ledger=ledger, prefix="e1c", stamp=stamp, log=log)
+        )
+    except BatchFailedError as exc:
+        record_stop(stops, "batch_failure", exc.reason, now(), batch=exc.batch_id)
+        log(f"e1 Claude slice: batch {exc.batch_id} failed ({exc.reason}); stopped")
+        return exc.banked, False
+    except RunnerBusyError as exc:  # a runner left by a killed orchestrator
+        log(f"e1 Claude slice: {exc}; run again when it has finished")
+        return 0, False
+    if not all(s.run_id in banked_ids(artifact) for s in group):
+        log("e1 Claude slice: a model call was refused (cap or guard); next call resumes")
+        return added, False
+    return added, True
+
+
+def claude_groups(plan: Sequence[RunSpec]) -> list[list[RunSpec]]:
+    """Consecutive runs of one tier and task in :func:`claude_plan` order."""
+    groups: list[list[RunSpec]] = []
+    for spec in plan:
+        key = (spec.model, spec.family, spec.task_seed, spec.difficulty)
+        last = groups[-1][-1] if groups else None
+        if last is not None and (last.model, last.family, last.task_seed, last.difficulty) == key:
+            groups[-1].append(spec)
+        else:
+            groups.append([spec])
+    return groups
 
 
 def run_dry(
@@ -853,12 +1185,7 @@ def run_dry(
     return fates
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    """``python -m noisefloor.e1 plan|local|claude PREREG``, ``stop|resume ARM``, ``dry-run``.
-
-    Exit codes: 0 done or waiting, 3 the arm is stopped (``resume`` after a repair), 4
-    another runner holds the arm's lock.
-    """
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="E1 factorial study")
     sub = parser.add_subparsers(dest="command", required=True)
     for name in ("plan", "local", "claude"):
@@ -873,26 +1200,50 @@ def main(argv: Sequence[str] | None = None) -> int:
     resume_cmd.add_argument("arm", choices=["local", "claude"])
     resume_cmd.add_argument("--note", required=True, help="what was repaired")
     resume_cmd.add_argument("--amendment", type=Path, help="frozen amendment (defect stops)")
+    end_cmd = sub.add_parser("end", help="end the Claude slice early (a deviation)")
+    end_cmd.add_argument("arm", choices=["claude"])
+    end_cmd.add_argument("--reason", required=True)
     dry_cmd = sub.add_parser("dry-run", help="exploratory dry run at the E1 server settings")
     dry_cmd.add_argument("plan", type=Path, help="a file with the e1-plan block (a draft works)")
     dry_cmd.add_argument("--runs", type=int, default=4, help="runs per model and setting")
     dry_cmd.add_argument("--summary", action="store_true", help="summarize the banked runs only")
-    args = parser.parse_args(list(argv) if argv is not None else None)
+    return parser
+
+
+def _stop_command(args: argparse.Namespace) -> int:
+    """``stop``, ``resume``, or ``end`` of an arm (the Claude slice's only where it runs)."""
+    if args.arm == "claude" and billing_guard_findings():
+        print("e1: the Claude slice's stops are recorded where it runs", file=sys.stderr)
+        return 5
+    stops = stops_path(ARTIFACTS / f"{args.arm}.jsonl")
+    at = datetime.now(UTC)
+    if args.command == "stop":
+        record_stop(stops, "defect", args.reason, at)
+    elif args.command == "end":
+        record_stop(stops, "end_point", f"ended early: {args.reason}", at, early=True)
+    else:
+        resume(stops, args.note, at, args.amendment)
+    print(f"{stops.name}: {args.command} recorded")
+    return 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """``python -m noisefloor.e1 plan|local|claude PREREG``, ``stop|resume|end ARM``, ``dry-run``.
+
+    Exit codes: 0 done or waiting, 3 the arm is stopped (``resume`` after a repair), 4
+    another runner holds the arm's lock, 5 a Claude-slice stop, resume, or end refused on a
+    machine where the billing guard is not clean (the slice's files are written only on
+    the machine that runs it).
+    """
+    args = _parser().parse_args(list(argv) if argv is not None else None)
     if args.command == "dry-run":
         if not args.summary:
             run_dry(args.plan, runs=args.runs, log=lambda m: print(m, flush=True))
         for line in dry_summary(jsonl.read(DRY_ARTIFACT, tail_ok=True)):
             print(json.dumps(line, sort_keys=True))
         return 0
-    if args.command in ("stop", "resume"):
-        stops = stops_path(ARTIFACTS / f"{args.arm}.jsonl")
-        at = datetime.now(UTC)
-        if args.command == "stop":
-            record_stop(stops, "defect", args.reason, at)
-        else:
-            resume(stops, args.note, at, args.amendment)
-        print(f"{stops.name}: {args.command} recorded")
-        return 0
+    if args.command in ("stop", "resume", "end"):
+        return _stop_command(args)
     design = E1Design.from_json(prereg_block(args.prereg, "e1-plan"))
     if args.command == "plan":
         lp, cp = local_plan(design), claude_plan(design)

@@ -14,6 +14,8 @@ import numpy as np
 import numpy.typing as npt
 from scipy import stats
 
+from evalstats import validity
+
 FloatArray = npt.NDArray[np.float64]
 
 BOOTSTRAP_CHUNK = 2000
@@ -194,6 +196,7 @@ def cluster_robust_mean(
         raise ValueError("values and clusters must have the same length")
     uniques, codes = np.unique(groups, return_inverse=True)
     n_groups = len(uniques)
+    validity.check("cluster_robust_mean", "cluster_robust", int(n_groups))
     est = float(y.mean())
     if n_groups < 2:
         return Interval(est, -math.inf, math.inf, level, "cluster_robust_cr1"), math.inf

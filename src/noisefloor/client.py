@@ -158,6 +158,7 @@ class ChatResponse:
     cached: bool = False
     plan_equivalent_usd: float = 0.0
     model_id: str = ""
+    cli_version: str = ""  # Claude Code version a Claude child reported ("" otherwise)
 
 
 def billing_guard_findings(
@@ -678,6 +679,7 @@ class ClaudeStream:
             finish_reason=str(self.result.get("subtype", "")),
             plan_equivalent_usd=self.plan_equivalent_usd(),
             model_id=str(self.init.get("model") or ""),
+            cli_version=str(self.init.get("claude_code_version") or ""),
         )
 
 

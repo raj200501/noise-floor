@@ -85,6 +85,15 @@ def test_seeds_and_settings() -> None:
             "box_interval": "basic",
             "share_interval": "plugin",
             "fixed_interval": "jackknife",
+            "mde": {"designs": [[20, 1], [40, 4]], "interval": "bc"},
         }
     )
     assert s.fixed_interval == "jackknife" and s.random == ("task", "model:task")
+    assert s.mde_designs == ((20, 1), (40, 4)) and s.mde_interval == "bc"  # MDE rows checked
+
+
+def test_a_failed_batch_fit_leaves_the_batch_factors_not_validated() -> None:
+    row = {"components": {"day": {"planted": 0.01, "lo": 0.0, "hi": 0.02}}}
+    out = pc.summarize([row] * 10, 0.95, batch_var=0.0, batch_failed=True)
+    assert out["batch_fit_failed"] and out["not_validated"] == ["block", "concurrency", "day"]
+    assert pc.summarize([row] * 10, 0.95, batch_var=0.0)["not_validated"] == []

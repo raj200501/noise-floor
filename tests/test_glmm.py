@@ -352,3 +352,44 @@ def test_lme4_bootstrap_with_task_jackknife(planted: EvalResults) -> None:
             fixed_interval="jackknife",
             jackknife_group="model",
         )
+
+
+def test_residual_share_follows_the_failed_replicate_rule() -> None:
+    n = 200
+    rng = np.random.default_rng(3)
+    task = rng.uniform(3.0, 5.0, n)
+
+    def raw(failed: int) -> glmm._RawFit:
+        draws = task.copy()
+        draws[:failed] = np.nan
+        return glmm._RawFit(
+            backend="fake",
+            random_var={"task": 4.0},
+            random_ci={},
+            fixed={},
+            fixed_ci={},
+            interval_method="parametric_bootstrap",
+            converged=True,
+            messages=[],
+            boot_random={"task": draws},
+        )
+
+    frame = pd.DataFrame({"task": ["a", "b"], "outcome": [0, 1]})
+
+    def residual(failed: int) -> glmm.VarianceComponent:
+        out = glmm._bootstrap_decomposition(
+            frame,
+            frame,
+            ("task",),
+            (),
+            raw=raw(failed),
+            level=0.95,
+            boot_interval="basic_log",
+            box_interval="basic",
+            share_interval="plugin",
+        )
+        return out.component("residual")
+
+    assert residual(20).share_lo is not None  # 10 percent failed: still an interval
+    gone = residual(21)  # more than 10 percent failed: no interval, as for the components
+    assert gone.share_lo is None and gone.share_hi is None

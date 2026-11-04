@@ -62,6 +62,21 @@ RESAMPLING_TYPES = {
     "glmm",
     "glmm_profile",
     "profile_glmm",
+    "glmm_task_jackknife",  # GLMM fixed contributions (D-033), as D-017 read bca
+    "glmm_plugin_share",  # GLMM shares mapped from the component intervals (D-033)
+}
+# E0 cell method -> the function whose validity check matches it (noisefloor.e0_validity).
+FUNCTION_OF = {
+    "score_interval": "score_interval",
+    "paired_difference": "paired_difference",
+    "contrast_difference": "contrast_difference",
+    "cluster_robust_mean": "cluster_robust_mean",
+    "rank_simultaneous": "rank_confidence",
+    "rank_marginal": "rank_confidence",
+    "bounded_score": "policy_bounds",
+    "glmm_component": "decompose",
+    "glmm_mde": "replicate_mdes",
+    "sampling_discordance": "score_interval",
 }
 G6_MIN_DATASETS = 200
 E1_MIN_RUNS = 1000
@@ -582,19 +597,65 @@ def e0_grids(ctx: Ctx) -> list[tuple[str, str]]:
     return out
 
 
+def chain_frozen_at(ctx: Ctx, prereg: str) -> Any:
+    """When ``prereg`` was frozen (its prereg/CHAIN.jsonl entry)."""
+    for ln in rel(ctx, "prereg/CHAIN.jsonl").read_text().splitlines():
+        if ln.strip() and json.loads(ln).get("file") == prereg:
+            return utc_time(str(json.loads(ln)["frozen_at"]))
+    raise GateError(f"{prereg} is not in prereg/CHAIN.jsonl")
+
+
+def first_e1_run(ctx: Ctx) -> Any:
+    """Start of the earliest confirmatory E1 run, or None before any E1 data exists."""
+    path = rel(ctx, "artifacts/e1/runs.jsonl")
+    if not path.exists():
+        return None
+    rows = [json.loads(ln) for ln in path.read_text().splitlines() if ln.strip()]
+    starts = [utc_time(str(r["started_at"])) for r in rows if r.get("confirmatory")]
+    return min(starts) if starts else None
+
+
 def frozen_headline_cells(ctx: Ctx, grids: list[tuple[str, str]]) -> set[str]:
     """Headline cells named by the frozen preregistrations: the base grid's list and every
-    amendment's ```json headline``` block."""
+    amendment's ```json headline``` block, less the cells of a replaced method.
+
+    An amendment that replaces a kind's method lists the replaced cells in a ```json
+    retired-headline``` block (prereg 0005); they then back no headline interval, so G5
+    needs only their listing and warning. The block counts only from an amendment frozen
+    before the first confirmatory E1 run.
+    """
     base = grids[0][0]
     found = PART1_HEADLINE_RE.search(rel(ctx, base).read_text())
     need(found is not None, f"{base} names no headline cells")
     cells = set(re.findall(r"`([A-Za-z0-9_-]+)`", found.group(1)))
+    retired: set[str] = set()
+    kinds: dict[str, str] = {}
+    first = first_e1_run(ctx)
     for prereg, _ in grids[1:]:
+        own_kinds: dict[str, str] = {}
+        if has_block(ctx, prereg, "headline-kinds"):
+            own_kinds = {
+                str(k): str(v) for k, v in prereg_block(ctx, prereg, "headline-kinds").items()
+            }
         if has_block(ctx, prereg, "headline"):
             block = prereg_block(ctx, prereg, "headline")
             need(isinstance(block, dict), f"{prereg} headline block is not an object")
             cells |= {str(v) for v in block.values()}
-    return cells
+        if has_block(ctx, prereg, "retired-headline"):
+            gone = prereg_block(ctx, prereg, "retired-headline")
+            need(isinstance(gone, list), f"{prereg} retired-headline block is not a list")
+            frozen = chain_frozen_at(ctx, prereg)
+            need(
+                first is None or frozen < first,
+                f"{prereg} retires headline cells after E1 data exist",
+            )
+            # A replaced method's cells retire only beside new headline cells of the same
+            # kind, which G5 then requires to pass (prereg 0005).
+            missing = sorted({kinds.get(str(c), "?") for c in gone} - set(own_kinds.values()))
+            need(not missing, f"{prereg} retires {', '.join(missing)} cells with no replacement")
+            retired |= {str(c) for c in gone}
+        kinds.update(own_kinds)
+    return cells - retired
 
 
 def g5(ctx: Ctx) -> str:
@@ -655,6 +716,30 @@ def g5(ctx: Ctx) -> str:
     unsupported = set(json.loads(res.stdout.strip().splitlines()[-1]))
     missing = sorted(set(failing) - unsupported)
     need(not missing, f"failing cells not marked unsupported: {', '.join(missing[:3])}")
+    if failing:  # each failing cell must also make its own function warn (the library rule)
+        probes = [
+            [
+                FUNCTION_OF.get(str(cells[c]["method"]), "?"),
+                cells[c]["interval_type"],
+                c,
+                int(cells[c]["params"]["n_tasks"]),
+            ]
+            for c in failing
+        ]
+        code = (
+            "import json, sys, warnings, evalstats.validity as v\n"
+            "warnings.simplefilter('ignore')\n"
+            "bad = [c for f, m, c, n in json.loads(sys.argv[1]) if c not in v.check(f, m, n)]\n"
+            "print(json.dumps(bad))"
+        )
+        res = run(
+            ctx,
+            "warnings",
+            ["uv", "run", "--no-sync", "python", "-c", code, json.dumps(probes)],
+        )
+        need(res.code == 0, f"validity warnings: {tail(res.out)}")
+        silent = json.loads(res.stdout.strip().splitlines()[-1])
+        need(not silent, f"failing cells that trigger no warning: {', '.join(silent[:3])}")
     cross = load_json(rel(ctx, "artifacts/e0/crosscheck.json")).get("checks", [])
     need(bool(cross), "no cross-checks banked")
     need(

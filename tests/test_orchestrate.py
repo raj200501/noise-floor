@@ -226,3 +226,42 @@ def test_salvage_banks_completed_runs_of_an_interrupted_batch(tmp_path: Path) ->
         log=lambda m: None,
     )
     assert again == 0 and len(ledger.read_text().splitlines()) == 2
+
+
+def test_no_batch_runs_beside_a_live_runner(tmp_path) -> None:
+    import multiprocessing as mp
+
+    import pytest
+
+    from noisefloor import orchestrate, runner
+
+    workspace = tmp_path / "work" / "p-b0000-deadbeef"
+    assert not runner.running(workspace)
+    ready, release = mp.get_context("spawn").Event(), mp.get_context("spawn").Event()
+    holder = mp.get_context("spawn").Process(target=_hold, args=(workspace, ready, release))
+    holder.start()
+    try:
+        assert ready.wait(30)
+        assert runner.running(workspace)
+        with pytest.raises(orchestrate.RunnerBusyError, match="still running"):
+            orchestrate.execute(
+                [],
+                artifact=tmp_path / "a.jsonl",
+                ledger=tmp_path / "l.jsonl",
+                prefix="p",
+                executor=lambda batch, ws: [],
+                work_root=tmp_path / "work",
+                log=lambda m: None,
+            )
+    finally:
+        release.set()
+        holder.join(30)
+    assert not runner.running(workspace)
+
+
+def _hold(workspace, ready, release) -> None:
+    from noisefloor import runner
+
+    with runner.hold_running(workspace):
+        ready.set()
+        release.wait(30)

@@ -150,6 +150,9 @@ def test_blocks_and_waiting() -> None:
     assert e1.current_block(morning) == 1 and e1.current_block(evening) == 2
     assert e1.seconds_to_next_block(morning) == pytest.approx(8.5 * 3600)
     assert e1.seconds_to_next_block(evening) == pytest.approx(30)
+    assert e1.seconds_since_midnight(morning) == pytest.approx(3.5 * 3600)
+    assert e1.seconds_to_midnight(morning) == pytest.approx(20.5 * 3600)
+    assert e1.seconds_to_midnight(evening) == pytest.approx(30)
     with pytest.raises(ValueError, match="no block"):
         e1.current_block(morning, ((5, 6),))
 
@@ -196,7 +199,7 @@ def test_run_local_follows_day_and_block(tmp_path) -> None:
     prereg = plan_prereg(tmp_path, design)
     artifact = tmp_path / "local.jsonl"
     calls: list = []
-    clock = [datetime(2026, 11, 5, 3, 0, tzinfo=UTC)]
+    clock = [datetime(2026, 11, 5, 0, 5, tzinfo=UTC)]
 
     def go(sleep, wait=True):
         return e1.run_local(
@@ -246,7 +249,7 @@ def test_run_local_stops_when_nothing_is_banked(tmp_path) -> None:
 
     design = e1.E1Design(models=MODELS[:2], families=("config",), tasks_per_family=3)
     prereg = plan_prereg(tmp_path, design)
-    morning = datetime(2026, 11, 5, 3, 0, tzinfo=UTC)
+    morning = datetime(2026, 11, 5, 0, 5, tzinfo=UTC)
     calls: list = []
 
     def nothing(*a, **k):
@@ -294,7 +297,7 @@ def test_a_failed_batch_stops_the_arm_until_a_resume(tmp_path) -> None:
 
     design = e1.E1Design(models=MODELS[:2], families=("config",), tasks_per_family=3, batch_size=2)
     prereg = plan_prereg(tmp_path, design)
-    clock = [datetime(2026, 11, 5, 3, 0, tzinfo=UTC)]
+    clock = [datetime(2026, 11, 5, 0, 5, tzinfo=UTC)]
     calls: list = []
     healthy = fake_execute(calls, clock)
     fail = [True]
@@ -384,7 +387,7 @@ def test_one_runner_at_a_time(tmp_path) -> None:
 
     design = e1.E1Design(models=MODELS[:2], families=("config",), tasks_per_family=3, batch_size=2)
     prereg = plan_prereg(tmp_path, design)
-    clock = [datetime(2026, 11, 5, 3, 0, tzinfo=UTC)]
+    clock = [datetime(2026, 11, 5, 0, 5, tzinfo=UTC)]
     go = local_runner(tmp_path, prereg, clock, fake_execute([], clock))
     with e1.arm_lock(tmp_path / "local.jsonl"), pytest.raises(e1.ArmBusyError):
         go()
@@ -408,6 +411,11 @@ def test_stop_and_resume_commands(tmp_path, monkeypatch, capsys) -> None:
     entry = {"sha256": "0" * 64}
     monkeypatch.setattr(preregs, "require_frozen", lambda p, *a, **k: seen.append(p) or entry)
     amendment = tmp_path / "0009-fix.md"
+    amendment.write_text("---\namends: 0003\n---\n# a fix of another file\n")
+    with pytest.raises(ValueError, match="does not amend prereg 0004"):
+        e1.main(["resume", "local", "--note", "fixed", "--amendment", str(amendment)])
+    amendment.write_text("---\namends: 0004\ndate: 2026-11-20\n---\n# fix\n")
+    seen.clear()
     assert e1.main(["resume", "local", "--note", "fixed", "--amendment", str(amendment)]) == 0
     resumed = e1.jsonl.read(tmp_path / "stops-local.jsonl")[-1]
     assert seen == [amendment] and resumed["kind"] == "resume" and resumed["after"] == stop["at"]
@@ -442,7 +450,13 @@ def test_frozen_plan_and_pins(tmp_path, monkeypatch) -> None:
     design = e1.E1Design(models=MODELS[:1], families=("config",), tasks_per_family=2)
     prereg = plan_prereg(tmp_path, design)
     e1.check_frozen_plan(prereg, design)  # no e1-design block: a fixture, not checked
-    good = {"plan_sha256": e1.plan_sha256(design), "model_pins": e1.model_pins(design)}
+    tasks = e1.manifest(design)
+    good = {
+        "plan_sha256": e1.plan_sha256(design),
+        "model_pins": e1.model_pins(design),
+        "task_manifest_sha256": tasks["sha256"],
+        "suite_version": tasks["version"],
+    }
     text = prereg.read_text()
     prereg.write_text(text + "\n```json e1-design\n" + _json.dumps(good) + "\n```\n")
     e1.check_frozen_plan(prereg, design)
@@ -473,6 +487,10 @@ def test_frozen_plan_and_pins(tmp_path, monkeypatch) -> None:
         e1.check_frozen_plan(prereg, design)
     prereg.write_text(text + "\n```json e1-design\n" + _json.dumps(good) + "\n```\n")
     e1.check_frozen_plan(prereg, design)
+    tasks_changed = {**good, "task_manifest_sha256": "0" * 64}
+    prereg.write_text(text + "\n```json e1-design\n" + _json.dumps(tasks_changed) + "\n```\n")
+    with pytest.raises(ValueError, match="generated tasks differ"):
+        e1.check_frozen_plan(prereg, design)
     other = e1.E1Design(models=MODELS[:1], families=("config",), tasks_per_family=2, order_seed=9)
     assert e1.plan_sha256(other) != e1.plan_sha256(design)
 
@@ -509,9 +527,26 @@ def test_run_local_starts_in_the_first_block(tmp_path) -> None:
         )
 
     assert go(never_sleep, wait=False) == 0  # nothing starts in block 2 of the first day
-    clock[0] = datetime(2026, 11, 6, 0, 5, tzinfo=UTC)
-    assert go(never_sleep, wait=False) == per_slot["day1-b1"]  # the arm's day 1 is Nov 6
+    clock[0] = datetime(2026, 11, 6, 3, 0, tzinfo=UTC)
+    assert go(never_sleep, wait=False) == 0  # nor late in block 1: day 1 gets a full block
+    sleeps: list = []
+
+    class DoneError(Exception):
+        pass
+
+    def until_midnight(seconds):
+        sleeps.append(seconds)
+        if len(sleeps) > 1:
+            raise DoneError  # day 1's first block is done; the arm would now wait for block 2
+        clock[0] = datetime(2026, 11, 7, 0, 0, 30, tzinfo=UTC)
+
+    with pytest.raises(DoneError):
+        go(until_midnight)
+    assert sleeps[0] == 600.0  # a capped sleep, then the arm starts at 00:00 UTC
+    banked = e1.jsonl.read(tmp_path / "local.jsonl")
+    assert len(banked) == per_slot["day1-b1"]
     assert all(prefix.startswith("e1-day1-b1-") for prefix, _ in calls)
+    assert {r["started_at"][:10] for r in banked} == {"2026-11-07"}
 
 
 def test_claude_plan_is_ordered_in_complete_groups(design: e1.E1Design) -> None:
@@ -569,15 +604,23 @@ def test_claude_slice_end_point_and_changes(tmp_path, monkeypatch) -> None:
     assert go() == 0 and calls == []
     stop = e1.open_stop(stops)
     assert stop["kind"] == "cli_changed" and stop["to"] == "2.0.2"
-    e1.resume(stops, "accepted the new CLI as a deviation", clock[0])
-    assert e1.claude_changes(artifact, stops) == (None, None)
+    with pytest.raises(ValueError, match=r"no SMOKE: PASS on Claude Code 2\.0\.2"):
+        e1.resume(stops, "accepted the new CLI", clock[0], smoke=lambda version: False)
+    e1.resume(stops, "accepted the new CLI as a deviation", clock[0], smoke=lambda v: True)
+    assert e1.jsonl.read(stops)[-1]["smoke"] == "pass"
+    assert e1.claude_changes(artifact, stops) == ({}, None)
     assert go() == len(e1.claude_plan(design)) and calls
-    # Another model ID for a tier ends the slice for good.
+    # Another model ID for a tier ends that tier only; the other tiers go on.
     write_rows(artifact, [run("a", "m1", "2.0.1"), run("c", "m2", harness="minimal")])
     stops.unlink()
-    assert go() == 0
-    stop = e1.open_stop(stops)
-    assert stop["kind"] == "end_point" and "served by m2 after m1" in stop["reason"]
+    calls.clear()
+    sonnet = [s for s in e1.claude_plan(design) if s.model == "claude-sonnet"]
+    assert go() == len(sonnet) and calls
+    assert e1.ended_tiers(stops) == {"claude-haiku"}
+    note = next(r for r in e1.jsonl.read(stops) if r["kind"] == "tier_ended")
+    assert "served by m2 after m1" in note["reason"]
+    stop = e1.open_stop(stops)  # every planned run of the tiers still served is banked
+    assert stop["kind"] == "end_point" and "still served" in stop["reason"]
     with pytest.raises(ValueError, match="has ended"):
         e1.resume(stops, "x", clock[0])
     # The slice starts nothing 45 days after the freeze.
@@ -711,3 +754,216 @@ def test_replicate_runs_repeat_two_configurations_per_cell() -> None:
         e1.E1Design(models=MODELS[:1], runs_per_cell=16, replicates=((0, 1, 1, 0, 1),))
     with pytest.raises(ValueError, match="whole half fraction"):
         e1.E1Design(models=MODELS[:1], runs_per_cell=8, replicates=reps)
+
+
+def test_claude_tasks_subset_and_equal_timeouts_across_tiers() -> None:
+    design = e1.E1Design(
+        models=MODELS,
+        claude_tiers=("claude-haiku", "claude-sonnet", "claude-opus"),
+        tasks_per_family=4,
+        claude_tasks_per_family=2,
+    )
+    local, claude = e1.tasks(design), e1.claude_tasks(design)
+    assert len(claude) == 2 * len(design.families) and {t.id for t in claude} <= {
+        t.id for t in local
+    }
+    plan = e1.claude_plan(design)
+    assert len(plan) == 3 * len(claude) * 2 and all(s.max_tokens == 0 for s in plan)
+    timeouts = collections.defaultdict(set)
+    for spec in plan:
+        timeouts[(spec.family, spec.task_seed, spec.factors["harness"])].add(
+            (spec.model, spec.factors["timeout"])
+        )
+    for pairs in timeouts.values():  # every tier ran the same timeout under one harness
+        assert len({t for _, t in pairs}) == 1 and len(pairs) == 3
+    assert e1.E1Design.from_json(design.to_json()) == design
+    with pytest.raises(ValueError, match="claude_tasks_per_family"):
+        e1.E1Design(models=MODELS, tasks_per_family=2, claude_tasks_per_family=3)
+    groups = e1.claude_groups(plan)
+    assert len(groups) == 3 * len(claude) and all(len(g) == 2 for g in groups)
+
+
+@pytest.mark.usefixtures("unfrozen_ok")
+def test_claude_slice_checks_for_changes_before_every_pair(tmp_path, monkeypatch) -> None:
+    import json as _json
+    from datetime import UTC, datetime, timedelta
+
+    design = e1.E1Design(models=MODELS[:1], families=("config",), tasks_per_family=2)
+    prereg = plan_prereg(tmp_path, design)
+    artifact = tmp_path / "claude.jsonl"
+    stops = tmp_path / "stops-claude.jsonl"
+    frozen = datetime(2026, 11, 5, tzinfo=UTC)
+    monkeypatch.setattr(e1, "frozen_at", lambda path: frozen)
+    calls: list = []
+
+    def reporting(specs, *, artifact, ledger, prefix, stamp, log):
+        # The second pair reports a new Claude Code version from its minimal-agent calls.
+        calls.append(len(specs))
+        version = "2.0.1" if len(calls) == 1 else "2.0.2"
+        with artifact.open("a") as fh:
+            for s in specs:
+                rec = {"run_id": s.run_id, "model": s.model, "cli_versions": [version], **stamp}
+                fh.write(_json.dumps(rec) + "\n")
+        return len(specs)
+
+    def go(execute):
+        return e1.run_claude(
+            prereg,
+            artifact=artifact,
+            ledger=tmp_path / "l",
+            now=lambda: frozen + timedelta(days=1),
+            log=lambda m: None,
+            execute=execute,
+        )
+
+    assert go(reporting) == 4 and calls == [2, 2]  # stopped before the third pair
+    stop = e1.open_stop(stops)
+    assert stop["kind"] == "cli_changed" and stop["to"] == "2.0.2"
+    # A refused call leaves a pair unfinished, and the call ends there.
+    e1.resume(stops, "accepted 2.0.2", frozen + timedelta(days=1), smoke=lambda v: True)
+    refused: list = []
+
+    def one_then_refuse(specs, *, artifact, ledger, prefix, stamp, log):
+        refused.append(len(specs))
+        return reporting(
+            specs[:1], artifact=artifact, ledger=ledger, prefix=prefix, stamp=stamp, log=log
+        )
+
+    assert go(one_then_refuse) == 1 and refused == [2]
+    assert e1.cli_versions({"cli_versions": ["a"], "claude": {"cli_version": "b"}}) == ["a", "b"]
+
+
+@pytest.mark.usefixtures("unfrozen_ok")
+def test_a_batch_starts_only_from_the_arm_s_committed_run_code(tmp_path, monkeypatch) -> None:
+    from datetime import UTC, datetime
+
+    design = e1.E1Design(models=MODELS[:2], families=("config",), tasks_per_family=3, batch_size=2)
+    prereg = plan_prereg(tmp_path, design)
+    clock = [datetime(2026, 11, 5, 0, 5, tzinfo=UTC)]
+    code = {"src_tree": "a" * 40, "uv_lock": "l" * 40, "dirty": True, "server_sha256": "s"}
+    monkeypatch.setattr(e1, "run_code", lambda local: dict(code))
+    calls: list = []
+    messages: list = []
+
+    def with_code(specs, *, artifact, ledger, prefix, stamp, log):
+        import json as _json
+
+        calls.append(len(specs))
+        with artifact.open("a") as fh:
+            for s in specs:
+                rec = {"run_id": s.run_id, "started_at": clock[0].isoformat(), **stamp}
+                rec["provenance"] = {"code": dict(code)}
+                fh.write(_json.dumps(rec) + "\n")
+        return len(specs)
+
+    go = local_runner(tmp_path, prereg, clock, with_code, messages)
+    assert go() == 0 and calls == [] and "uncommitted changes" in messages[-1]
+    code["dirty"] = False
+    first = go()
+    assert first > 0 and calls
+    code["src_tree"] = "b" * 40  # a commit changed src/ while the arm ran
+    clock[0] = datetime(2026, 11, 5, 13, 0, tzinfo=UTC)
+    before = len(calls)
+    assert go() == 0 and len(calls) == before
+    stops = tmp_path / "stops-local.jsonl"
+    stop = e1.open_stop(stops)
+    assert stop["kind"] == "code_changed" and stop["to"].startswith("b" * 40)
+    e1.resume(stops, "accepted the fix as a deviation", clock[0])
+    assert go() > 0  # the resumed arm accepts the new code
+    assert e1.code_key({"src_tree": "x", "uv_lock": "y", "server_sha256": "z"}, False) == "x:y"
+
+
+def test_the_local_arm_starts_only_with_the_frozen_server(tmp_path, monkeypatch) -> None:
+    import json as _json
+
+    from noisefloor import preregs
+
+    design = e1.E1Design(models=MODELS[:1], families=("config",), tasks_per_family=2)
+    prereg = plan_prereg(tmp_path, design)
+    block = {"llama_server": {"sha256": "a" * 64}}
+    prereg.write_text(prereg.read_text() + "\n```json e1-design\n" + _json.dumps(block) + "\n```\n")
+    artifact = tmp_path / "local.jsonl"
+    e1.check_server(prereg, artifact)  # outside the chain: not checked
+    monkeypatch.setattr(preregs, "chain_entry", lambda path: {"sha256": "0" * 64})
+    monkeypatch.setattr(e1, "server_pin", lambda: {"sha256": "b" * 64})
+    with pytest.raises(ValueError, match="not the frozen one"):
+        e1.check_server(prereg, artifact)
+    monkeypatch.setattr(e1, "server_pin", lambda: {"sha256": "a" * 64})
+    e1.check_server(prereg, artifact)
+    pins = e1.model_pins(e1.E1Design(models=("qwen3-4b",)))
+    assert pins["qwen3-4b"]["server_args"] and pins["qwen3-4b"]["ctx_per_slot"] == 32768
+
+
+@pytest.mark.usefixtures("unfrozen_ok")
+def test_claude_slice_stops_on_a_failure_streak_and_on_contamination(tmp_path, monkeypatch) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    design = e1.E1Design(models=MODELS[:1], families=("config",), tasks_per_family=2)
+    prereg = plan_prereg(tmp_path, design)
+    artifact = tmp_path / "claude.jsonl"
+    stops = tmp_path / "stops-claude.jsonl"
+    frozen = datetime(2026, 11, 5, tzinfo=UTC)
+    monkeypatch.setattr(e1, "frozen_at", lambda path: frozen)
+    at = frozen + timedelta(days=1)
+    failed = {"model": "claude-haiku", "status": "infra_error"}
+    write_rows(artifact, [{"run_id": f"f{i}", **failed} for i in range(3)])
+    assert e1.claude_problem(prereg, artifact, stops, at)[:2] == (
+        "batch_failure",
+        "3 infra_error runs in a row",
+    )
+    write_rows(
+        artifact,
+        [{"run_id": "f0", **failed}, {"run_id": "ok", "status": "ok", "model": "claude-haiku"}],
+    )
+    assert e1.claude_problem(prereg, artifact, stops, at) is None
+    dirty = {"run_id": "d", "model": "claude-haiku", "status": "ok", "claude": {"clean": False}}
+    write_rows(artifact, [dirty])
+    kind, _reason, fields = e1.claude_problem(prereg, artifact, stops, at)
+    assert kind == "contaminated" and fields["runs"] == ["d"]
+
+
+def test_claude_stops_are_written_only_where_the_slice_runs(tmp_path, monkeypatch, capsys) -> None:
+    monkeypatch.setattr(e1, "ARTIFACTS", tmp_path)  # never the repository's artifacts
+    monkeypatch.setattr(e1, "billing_guard_findings", lambda: ["ANTHROPIC_API_KEY"])
+    assert e1.main(["stop", "claude", "--reason", "x"]) == 5
+    assert e1.main(["end", "claude", "--reason", "x"]) == 5
+    assert "recorded where it runs" in capsys.readouterr().err
+    assert not (tmp_path / "stops-claude.jsonl").exists()
+
+
+def test_smoke_passed_reads_the_banked_smoke_runs(tmp_path) -> None:
+    import json as _json
+
+    smoke = tmp_path / "claude-smoke.jsonl"
+    assert not e1.smoke_passed(artifact=smoke)
+    child = {
+        "api_key_source": "none",
+        "tools": [],
+        "mcp_servers": [],
+        "memory_paths": {},
+        "cli_version": "2.0.1",
+        "model_id": "m",
+    }
+    smoke.write_text(_json.dumps({"run_id": "s", "status": "ok", "claude": child}) + "\n")
+    assert e1.smoke_passed(artifact=smoke) and e1.smoke_passed("2.0.1", artifact=smoke)
+    assert not e1.smoke_passed("2.0.2", artifact=smoke)
+
+
+def test_arms_start_only_after_g6_and_e0_part_2(tmp_path, monkeypatch) -> None:
+    from noisefloor import preregs
+    from noisefloor.analysis import e1 as analysis
+
+    design = e1.E1Design(models=MODELS[:1], families=("config",), tasks_per_family=2)
+    prereg = plan_prereg(tmp_path, design)
+    prereg.write_text(
+        prereg.read_text() + '\n```json e1-analysis\n{"validated_range": "prereg/0005-x.md"}\n```\n'
+    )
+    e1.require_validation(prereg)  # outside the chain: not checked
+    monkeypatch.setattr(preregs, "chain_entry", lambda path: {"sha256": "0" * 64})
+    g6, e0 = tmp_path / "g6.json", tmp_path / "coverage-0005.json"
+    monkeypatch.setattr(analysis, "validation_artifacts", lambda settings: {"g6": g6, "e0": e0})
+    with pytest.raises(ValueError, match="G6 and E0 part 2 come first"):
+        e1.require_validation(prereg)
+    g6.write_text("{}")
+    e0.write_text("{}")
+    e1.require_validation(prereg)

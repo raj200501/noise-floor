@@ -203,13 +203,13 @@ def test_a_failed_health_check_aborts_and_drops_the_failing_run(
     assert note["drop"] == ["b"] and "health" in note["reason"] and len(probes) == 1
 
 
-def test_watch_drops_failures_that_finish_after_the_abort(tmp_path: Path) -> None:
+def test_watch_drops_every_run_that_finishes_after_the_abort(tmp_path: Path) -> None:
     watch = runner._Watch(tmp_path, healthy=None)
     assert not watch.settle("a", "timeout")  # no probe without a server: a timeout is an outcome
     assert [watch.settle(r, "infra_error") for r in "bcd"] == [False, False, True]
-    assert watch.settle("e", "ok") and watch.settle("f", "infra_error")
+    assert watch.settle("e", "ok") and watch.settle("f", "timeout")
     note = json.loads((tmp_path / "aborted.json").read_text())
-    assert note["drop"] == ["b", "c", "d", "f"]
+    assert note["drop"] == ["b", "c", "d", "e", "f"]  # whatever the in-flight runs' status
 
 
 def test_inspect_child_failures(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

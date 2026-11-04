@@ -178,6 +178,14 @@ def test_build_and_verify(tmp_path: Path) -> None:
     bounds = {b["model"]: b for b in e3["entries"]}
     assert set(bounds) == set(DESIGN.models)
     assert all(b["ci_lo"] <= b["lower"] <= b["upper"] <= b["ci_hi"] for b in bounds.values())
+    # Rankings under every policy and bounds on each adjacent pair (RQ4, review brief-6).
+    assert set(e3["rankings"]) == {"as_scored", "fail", "success", "exclude"}
+    assert sorted(e3["rankings"]["as_scored"]) == sorted(DESIGN.models)
+    assert 0 <= e3["ranking_changes"] <= 4 and len(e3["adjacent"]) == len(DESIGN.models) - 1
+    for pair in e3["adjacent"]:
+        assert pair["ci_lo"] <= pair["bound_lo"] <= pair["bound_hi"] <= pair["ci_hi"]
+        assert pair["validated"] is False and pair["identified"] == (pair["bound_lo"] > 0)
+    assert "no run has status flagged" in e3["flagged"]
     runs = [json.loads(ln) for ln in (tmp_path / "runs.jsonl").read_text().splitlines()]
     assert sum(r["confirmatory"] for r in runs) == len(runs)  # both arms are planned
     # Mock-task labels on every output (non-negotiable 4).
@@ -289,9 +297,21 @@ def test_no_outcome_is_read_before_both_arms_end(tmp_path: Path) -> None:
     ]
     (tmp_path / "stops-local.jsonl").write_text('{"kind": "day_limit", "at": "x"}\n')
     later = frozen + timedelta(days=45)
-    assert a.arms_not_ended(recs, planned, tmp_path, frozen, later) == []
+    # The analysis machine's clock never ends the Claude slice; its runner's end point does.
+    assert a.arms_not_ended(recs, planned, tmp_path, frozen, later) == [
+        "the Claude slice has not ended (1 of 2 banked)"
+    ]
     (tmp_path / "stops-claude.jsonl").write_text('{"kind": "end_point", "at": "x"}\n')
     assert a.arms_not_ended(recs, planned, tmp_path, frozen, soon) == []
+    # The local arm ends once the clock passes day 7 of the arm, stopped or not.
+    (tmp_path / "stops-local.jsonl").unlink()
+    local = [{"run_id": "l1", "model": "qwen3-4b", "started_at": "2026-11-06T00:10:00+00:00"}]
+    day7 = datetime(2026, 11, 12, 23, 0, tzinfo=UTC)
+    assert a.arms_not_ended([*local, *recs[1:]], planned, tmp_path, frozen, day7) == [
+        "the local arm has not ended (1 of 2 banked)"
+    ]
+    day8 = datetime(2026, 11, 13, 0, 30, tzinfo=UTC)
+    assert a.arms_not_ended([*local, *recs[1:]], planned, tmp_path, frozen, day8) == []
     everything = [{"run_id": r} for r in planned]
     assert a.arms_not_ended(everything, planned, tmp_path / "none", None, soon) == []
 
@@ -483,3 +503,191 @@ def test_schedule_check_flags_batches_off_their_slot() -> None:
     assert out["batches_off_plan"] == 1 and not out["simulated_design"]
     longer = [*kept, row("e", "day3-b2", "2026-11-09", "b2")]
     assert a.schedule_check(longer)["days"] == 4
+
+
+def test_confirmatory_needs_the_chain_hash_and_batch_term_is_planned() -> None:
+    spec = local_plan(DESIGN)[0]
+    base = {
+        **spec.to_json(),
+        "outcome": 1.0,
+        "status": "ok",
+        "prereg": "p.md",
+        "prereg_sha256": "a" * 64,
+        "started_at": "2026-11-05T03:00:00+00:00",
+        "batch_id": "e1-x-b0001-deadbeef",
+    }
+    planned = {spec.run_id: spec.phase}
+    hours = [[0, 12], [12, 24]]
+
+    def one(rec: dict, digest: str | None) -> dict:
+        return a.runs_table(
+            [rec], prereg="p.md", planned=planned, block_hours=hours, prereg_sha256=digest
+        )[0]
+
+    assert one(base, "a" * 64)["confirmatory"] and one(base, None)["confirmatory"]
+    assert not one(base, "b" * 64)["confirmatory"]  # banked under another prereg hash
+    row = one(base, None)
+    assert row["planned_batch"] == spec.block and spec.block
+    frame = a.analysis_frame([row], ["infra_error"])
+    assert list(frame["batch"]) == [spec.block]  # the planned batch, not the executed one
+    assert a.schedule_check([{**row, "day": "2026-11-05", "block": "b1"}], days=4)["days"] == 1
+
+
+def test_mde_rows_follow_the_failed_replicate_rule(monkeypatch: pytest.MonkeyPatch) -> None:
+    from evalstats.glmm import MAX_FAILED_SHARE
+
+    n = 200
+    bad = int(MAX_FAILED_SHARE * n) + 1  # 21 of 200 replicates failed
+    reps = np.linspace(0.1, 0.2, n)
+    reps[:bad] = np.nan
+
+    def fake_replicates(*args: object, **kwargs: object) -> dict:
+        return {(40, 1): reps, (89, 5): np.linspace(0.05, 0.1, n)}
+
+    monkeypatch.setattr(a.mde_lib, "replicate_mdes", fake_replicates)
+
+    class Comp:
+        def __init__(self, name: str, variance: float) -> None:
+            self.name, self.kind, self.variance = name, "random", variance
+
+    class Decomp:
+        def __init__(self) -> None:
+            self.components = (Comp("task", 4.0), Comp("model:task", 0.5))
+            self.fixed_effects = {"(Intercept)": 0.0, "modelb": 0.3}
+            self.coefficient_replicates: dict = {}
+            self.replicates = {"task": [4.0], "model:task": [0.5]}
+
+    import pandas as pd
+
+    data = pd.DataFrame(
+        {
+            "model": ["a", "b"] * 4,
+            "harness": ["minimal"] * 8,
+            "timeout": ["300.0"] * 8,
+            "steps": ["15"] * 8,
+            "temperature": ["0.0"] * 8,
+            "concurrency": ["1"] * 8,
+            "day": ["d1"] * 8,
+            "block": ["b1"] * 8,
+        }
+    )
+    out = a.mde_tables(Decomp(), data, SETTINGS)  # type: ignore[arg-type]
+    first, second = out["rows"]
+    assert first["lo"] is None and first["hi"] is None  # more than 10 percent failed
+    assert second["lo"] is not None and second["hi"] is not None
+    assert all(r["lo"] is None for r in out["tasks_needed"] if r["runs"] == 1)
+
+
+@needs_r
+def test_a_failed_primary_fit_is_reported_as_not_estimable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from evalstats.glmm import FitFailedError
+
+    prereg = write_prereg(tmp_path / "prereg.md")
+    recs = fake_records(str(prereg))
+    (tmp_path / "local.jsonl").write_text(
+        "".join(json.dumps(r) + "\n" for r in recs if r["phase"] == "e1")
+    )
+    (tmp_path / "claude.jsonl").write_text(
+        "".join(json.dumps(r) + "\n" for r in recs if r["phase"] == "e1-claude")
+    )
+
+    def fail(data: object, settings: object) -> None:
+        raise FitFailedError("no optimizer fitted the model: optimizer bobyqa failed: x")
+
+    monkeypatch.setattr(a, "decomposition", fail)
+    out = a.compute(prereg, tmp_path)
+    vc, mde = json.loads(out["variance_components.json"]), json.loads(out["mde.json"])
+    assert vc["estimable"] is False and vc["components"] == [] and "no optimizer" in vc["message"]
+    assert mde["estimable"] is False and mde["rows"] == [] and mde["tasks_needed"] == []
+    assert json.loads(out["scores.json"])["rows"]  # every other table is still banked
+    sampling = json.loads(out["sampling.json"])["rows"]
+    assert all(r["mde_assumed_within_var"] is None for r in sampling)
+
+
+def test_estimates_outside_their_validated_range_are_flagged() -> None:
+    ranges = {
+        "local-score": {"span": [0.2, 0.8], "compare": "the estimated success rate"},
+        "local-pair": {"span": [0.0, 0.1], "compare": "absolute value of the estimated difference"},
+        "local-harness": {
+            "span": [0.0, 0.2],
+            "compare": "absolute value of the estimated difference",
+        },
+        "local-hdiff": {
+            "span": [0.0, 0.2],
+            "compare": "absolute value of the estimated difference",
+        },
+        "sampling": {"span": [0.05, 0.2], "compare": "the estimated within-configuration variance"},
+        "bounds": {"span": [0.02, 0.6], "compare": "the model's ambiguous share of runs"},
+    }
+    scores = {"rows": [{"backend": "local", "score": 0.9}, {"backend": "local", "score": 0.5}]}
+    contrasts = {
+        "harness": [{"family": "harness-local", "difference": -0.15}],
+        "harness_differences": [{"family": "harness-diff-local", "difference": 0.3}],
+        "models": [{"family": "models-local", "difference": -0.05}],
+    }
+    sampling = {"rows": [{"within_var": 0.12}, {"within_var": 0.01}]}
+    bounds = {"entries": [{"ambiguous_share": 0.7}]}
+    a.mark_ranges(ranges, scores, contrasts, sampling, bounds)
+    assert [r["outside_validated_range"] for r in scores["rows"]] == [True, False]
+    assert contrasts["harness"][0]["outside_validated_range"] is False  # |-0.15| <= 0.2
+    assert contrasts["harness_differences"][0]["outside_validated_range"] is True
+    assert contrasts["models"][0]["outside_validated_range"] is False
+    assert [r["outside_validated_range"] for r in sampling["rows"]] == [False, True]
+    assert bounds["entries"][0]["outside_validated_range"] is True
+    assert a._outside(a._inside(ranges, "local-score", None)) is None
+    assert a.validated_ranges({}) is None
+
+
+def test_the_analysis_refuses_code_that_g6_and_e0_did_not_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from noisefloor import provenance
+
+    prereg = write_prereg(tmp_path / "0004-e1.md")
+    settings = {"validated_range": "prereg/0005-e0-glmm-cells.md"}
+    code = {"hash": "a" * 16, "dirty": False}
+    monkeypatch.setattr(provenance, "analysis_code", lambda: dict(code))
+    # Outside the chain (a test fixture): not checked.
+    assert a.check_analysis_code(prereg, settings)["validated_by"] == {}
+    monkeypatch.setattr(a, "chain_entry", lambda path: {"sha256": "0" * 64})
+    g6 = tmp_path / "g6.json"
+    e0 = tmp_path / "coverage-0005.json"
+    monkeypatch.setattr(a, "validation_artifacts", lambda s: {"g6": g6, "e0": e0})
+    with pytest.raises(ValueError, match="is not banked"):
+        a.check_analysis_code(prereg, settings)
+    g6.write_text(json.dumps({"analysis_code": "a" * 16}))
+    e0.write_text(json.dumps({"analysis_code": "a" * 16}))
+    found = a.check_analysis_code(prereg, settings)
+    assert found["validated_by"] == {"g6": "a" * 16, "e0": "a" * 16}
+    code["hash"] = "b" * 16  # the analysis code changed after G6 and E0 part 2
+    with pytest.raises(ValueError, match="not the code G6 and E0 part 2 ran"):
+        a.check_analysis_code(prereg, settings)
+    monkeypatch.setattr(a, "require_frozen", lambda path: {"sha256": "1" * 64})
+    other = tmp_path / "0009-other.md"
+    other.write_text("---\namends: 0003\n---\n# x\n")
+    with pytest.raises(ValueError, match="does not amend"):
+        a.check_analysis_code(prereg, settings, other)
+    fix = tmp_path / "0009-fix.md"
+    fix.write_text("---\namends: 0004\ndate: 2026-11-20\n---\n# fix\n")
+    assert a.check_analysis_code(prereg, settings, fix)["amendment"] == str(fix)
+    code["dirty"] = True
+    with pytest.raises(ValueError, match="uncommitted changes"):
+        a.check_analysis_code(prereg, settings, fix)
+
+
+def test_independence_reading_labels_the_k_run_mde_rows() -> None:
+    from noisefloor.analysis import mde as mde_lib
+
+    assert mde_lib.bernoulli_variance(0.0, 0.0, 0.0) == pytest.approx(0.25)
+    assert mde_lib.bernoulli_variance(5.0, 1.0, 0.5) < 0.05
+    mde = {
+        "rows": [{"runs": 1}, {"runs": 3}],
+        "tasks_needed": [{"runs": 5}, {"runs": 1}],
+    }
+    a.mark_independence(mde, [{"mde_reference": True, "independence": "violated"}])
+    assert "violated" in mde["rows"][1]["independence"] and "independence" not in mde["rows"][0]
+    assert "violated" in mde["tasks_needed"][0]["independence"]
+    a.mark_independence(mde, [])
+    assert "not checked" in mde["rows"][1]["independence"]

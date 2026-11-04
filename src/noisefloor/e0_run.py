@@ -24,7 +24,13 @@ from typing import Any
 
 from noisefloor import preregs as chain  # bank() takes a 'preregs' argument
 from noisefloor.e0 import Cell, Replicate, cells_from_grid, run_replicate, summarize
-from noisefloor.provenance import process_environment, single_environment, stamp
+from noisefloor.provenance import (
+    check_same_environment,
+    process_environment,
+    single_analysis_code,
+    single_environment,
+    stamp,
+)
 
 REPO = Path(__file__).resolve().parents[2]
 E0_DIR = REPO / "artifacts" / "e0"
@@ -113,6 +119,7 @@ def run_cell(cell: Cell, workers: int = 1, root: Path = E0_DIR, log: Any = print
     todo = [i for i in range(cell.replicates) if i not in done]
     if not todo:
         return 0
+    check_same_environment(read_stamps(cell, root), f"e0 cell {cell.cell}")
     path = raw_path(cell, root)
     record_environment(path.parent)
     spec = {
@@ -175,14 +182,19 @@ def coverage_name(index: int, prereg: Path) -> str:
     return "coverage.json" if index == 0 else f"coverage-{prereg.name[:4]}.json"
 
 
-def bank(preregs: Sequence[Path], root: Path = E0_DIR) -> dict[str, dict[str, Any]]:
+def bank(
+    preregs: Sequence[Path], root: Path = E0_DIR, only: Sequence[Path] | None = None
+) -> dict[str, dict[str, Any]]:
     """Summarize each grid's cells into its own coverage artifact; returns them by name.
 
     The first path is the base grid; each later path is an amendment of it. Every grid
     must be frozen, and the raw lines of a grid's cells must share one environment from a
     clean ``src/`` (:func:`noisefloor.provenance.single_environment`; lines banked before
-    stamps existed carry none), which its artifact names.
+    stamps existed carry none), which its artifact names. With ``only``, every grid is
+    still read (cell ids must not repeat across grids) but only those grids' artifacts are
+    written, so banking an amendment leaves earlier artifacts as they were banked.
     """
+    targets = None if only is None else {p.resolve() for p in only}
     grids = [(path, grid_from_prereg(path)) for path in preregs]
     ids = [c.cell for _, cells in grids for c in cells]
     if len(set(ids)) != len(ids):
@@ -190,6 +202,8 @@ def bank(preregs: Sequence[Path], root: Path = E0_DIR) -> dict[str, dict[str, An
     base = str(preregs[0].resolve().relative_to(REPO))
     out: dict[str, dict[str, Any]] = {}
     for index, (path, cells) in enumerate(grids):
+        if targets is not None and path.resolve() not in targets:
+            continue
         summaries = []
         for cell in cells:
             reps = read_raw(cell, root)
@@ -197,13 +211,16 @@ def bank(preregs: Sequence[Path], root: Path = E0_DIR) -> dict[str, dict[str, An
             summaries.append(summarize(cell, ordered))
         rel = str(path.resolve().relative_to(REPO))
         entry = chain.require_frozen(path)
-        env = single_environment(s for cell in cells for s in read_stamps(cell, root))
+        stamps = [s for cell in cells for s in read_stamps(cell, root)]
+        env = single_environment(stamps)
+        code = single_analysis_code(stamps)
         envs = root / "raw" / "environments.json"
         known = json.loads(envs.read_text()) if env and envs.exists() else {}
         artifact: dict[str, Any] = {
             "prereg": rel,
             "prereg_sha256": entry["sha256"],
             "environment": {"env": env, "key": known.get(env)} if env else None,
+            "analysis_code": code,
             "confirmatory": True,
             "generator": "python -m noisefloor.e0_run bank "
             + " ".join(str(p.resolve().relative_to(REPO)) for p in preregs),
@@ -243,6 +260,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     r.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1))
     b = sub.add_parser("bank")
     b.add_argument("preregs", type=Path, nargs="+")
+    b.add_argument("--only", type=Path, nargs="*", help="write only these grids' artifacts")
     args = parser.parse_args(list(argv) if argv is not None else None)
     if args.command == "run":
         chain.require_frozen(args.prereg)
@@ -255,7 +273,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 continue
             run_cell(cell, args.workers, log=lambda m: print(m, flush=True))
         return 0
-    artifacts = bank(args.preregs)
+    artifacts = bank(args.preregs, only=args.only)
     for name, artifact in artifacts.items():
         print(f"banked {len(artifact['cells'])} cells in artifacts/e0/{name}")
     return 0

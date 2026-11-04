@@ -28,7 +28,7 @@ import json
 import math
 import multiprocessing as mp
 import sys
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -46,6 +46,7 @@ from evalstats.glmm import (
     boot_variance_interval,
     contribution_box,
     decompose,
+    enough,
     jackknife_box,
     level_weights,
 )
@@ -54,7 +55,12 @@ from noisefloor.analysis import mde as mde_lib
 from noisefloor.e0 import expected_sigmoid
 from noisefloor.e0_run import init_worker, record_environment
 from noisefloor.preregs import prereg_block
-from noisefloor.provenance import single_environment, stamp
+from noisefloor.provenance import (
+    check_same_environment,
+    single_analysis_code,
+    single_environment,
+    stamp,
+)
 
 # Run-level two-level factors of the half fraction 2^(5-1) (the runs with an even number of
 # factors at level 1; I = -ABCDE with the first level coded -1), split into two blocks of 8
@@ -75,6 +81,10 @@ class Design:
     batch_size: int = 10
     days: int = 3
     blocks_per_day: int = 2
+    # Configurations (0/1 codes in TWO_LEVEL order) that every cell runs once more, as in
+    # noisefloor.e1.local_plan: they are dealt into batches like any run and then left
+    # out of the dataset, as the E1 decomposition leaves replicate runs out.
+    replicates: tuple[tuple[int, ...], ...] = ()
 
     def __post_init__(self) -> None:
         """Reject shapes the factorial cannot fill."""
@@ -82,6 +92,11 @@ class Design:
             raise ValueError("runs_per_cell must be 8 (one block) or 16 (the half fraction)")
         if min(self.n_models, self.n_tasks, self.batch_size, self.days, self.blocks_per_day) < 1:
             raise ValueError("every design size must be positive")
+        for bits in self.replicates:
+            if len(bits) != len(TWO_LEVEL) or set(bits) - {0, 1} or sum(bits) % 2:
+                raise ValueError(f"replicate {bits} is not a run of the half fraction")
+        if self.replicates and self.runs_per_cell != 16:
+            raise ValueError("replicates need the whole half fraction in every cell")
 
 
 @dataclass(frozen=True)
@@ -107,6 +122,9 @@ class Planted:
     # Task-by-factor variances: each task gets its own N(0, v) effect at each level of the
     # factor, so the factor's effect varies across tasks (not in the analysis model).
     interactions: Mapping[str, float] = field(default_factory=dict)
+    # Model-by-factor effects: model m's extra effect of a factor at level 1, one value per
+    # model (not in the analysis model; the local-arm cells of prereg 0005 only).
+    model_factors: Mapping[str, tuple[float, ...]] = field(default_factory=dict)
 
     def to_json(self) -> dict[str, Any]:
         """Plain-data form."""
@@ -114,6 +132,7 @@ class Planted:
             **asdict(self),
             "factors": dict(self.factors),
             "interactions": dict(self.interactions),
+            "model_factors": {k: list(v) for k, v in self.model_factors.items()},
         }
 
 
@@ -139,6 +158,31 @@ def cell_runs(
     return first if parity % 2 == 0 else second
 
 
+def deal_batches(
+    groups: Mapping[Any, list[Any]],
+    n_slots: int,
+    batch_size: int,
+    shuffle: Callable[[list[Any]], None],
+    randrange: Callable[[int], int],
+) -> list[tuple[int, list[Any]]]:
+    """(slot index, batch) for every batch: the E1 rule for spreading batches over slots.
+
+    Groups in sorted key order; each group's members are shuffled, cut into batches of at
+    most ``batch_size``, and dealt round robin over the slots from a random offset, so
+    every group spreads evenly. :func:`noisefloor.e1.local_plan` and :func:`simulate` both
+    deal batches with this function.
+    """
+    dealt: list[tuple[int, list[Any]]] = []
+    for key in sorted(groups):
+        members = groups[key]
+        shuffle(members)
+        chunks = [members[i : i + batch_size] for i in range(0, len(members), batch_size)]
+        offset = randrange(n_slots)
+        for j, chunk in enumerate(chunks):
+            dealt.append(((offset + j) % n_slots, chunk))
+    return dealt
+
+
 def fixed_contribution(levels: Sequence[float], shares: Sequence[float]) -> float:
     """Variance over runs of a factor's contribution, given level effects and shares."""
     effects = np.asarray(levels, dtype=np.float64)
@@ -152,33 +196,32 @@ def simulate(design: Design, planted: Planted, seed: int) -> pd.DataFrame:
         raise ValueError("planted model and day effects must match the design")
     if len(planted.block) != design.blocks_per_day:
         raise ValueError("planted block effects must match the design")
+    if any(len(v) != design.n_models for v in planted.model_factors.values()):
+        raise ValueError("planted model-by-factor effects need one value per model")
     rng = np.random.default_rng(seed)
     first, second = half_fraction_blocks()
     task_eff = rng.normal(0.0, math.sqrt(planted.task_var), design.n_tasks)
     cell_eff = rng.normal(0.0, math.sqrt(planted.model_task_var), (design.n_models, design.n_tasks))
-    runs = []
+    runs: list[tuple[int, int, dict[str, int], bool]] = []  # (model, task, levels, replicate)
     for m in range(design.n_models):
         for t in range(design.n_tasks):
             half = cell_runs(first, second, m + t, design.runs_per_cell)
-            for bits in half:
-                runs.append((m, t, dict(zip(TWO_LEVEL, bits, strict=True))))
-    order = rng.permutation(len(runs))
-    # Batches: consecutive runs (in random order) of one model and one concurrency level.
+            runs += [(m, t, dict(zip(TWO_LEVEL, b, strict=True)), False) for b in half]
+            runs += [(m, t, dict(zip(TWO_LEVEL, b, strict=True)), True) for b in design.replicates]
+    # Batches of one model and one concurrency level, dealt over the slots exactly as
+    # noisefloor.e1.local_plan deals them (replicate runs included, then left out).
     groups: dict[tuple[int, int], list[int]] = {}
-    for index in order:
-        m, _, levels = runs[int(index)]
-        groups.setdefault((m, levels[BATCH_FACTOR]), []).append(int(index))
-    # As noisefloor.e1.local_plan does: each (model, concurrency) group's batches are dealt
-    # round robin over the slots from a random offset, so every group spreads evenly.
-    slots = design.days * design.blocks_per_day
-    batches: list[list[int]] = []
-    batch_slot: list[int] = []
-    for key in sorted(groups):
-        members = groups[key]
-        offset = int(rng.integers(slots))
-        for j, start in enumerate(range(0, len(members), design.batch_size)):
-            batches.append(members[start : start + design.batch_size])
-            batch_slot.append((offset + j) % slots)
+    for index, (m, _, levels, _) in enumerate(runs):
+        groups.setdefault((m, levels[BATCH_FACTOR]), []).append(index)
+    dealt = deal_batches(
+        groups,
+        design.days * design.blocks_per_day,
+        design.batch_size,
+        shuffle=rng.shuffle,
+        randrange=lambda n: int(rng.integers(n)),
+    )
+    batches = [chunk for _, chunk in dealt]
+    batch_slot = [slot for slot, _ in dealt]
     batch_eff = rng.normal(0.0, math.sqrt(planted.batch_var), len(batches))
     inter = {
         name: rng.normal(0.0, math.sqrt(var), (design.n_tasks, 2))
@@ -188,11 +231,14 @@ def simulate(design: Design, planted: Planted, seed: int) -> pd.DataFrame:
     for b, members in enumerate(batches):
         day, tod = divmod(int(batch_slot[b]), design.blocks_per_day)
         for index in members:
-            m, t, levels = runs[index]
+            m, t, levels, replicate = runs[index]
+            if replicate:
+                continue
             eta = (
                 planted.intercept
                 + planted.model[m]
                 + sum(planted.factors[name] * levels[name] for name in TWO_LEVEL)
+                + sum(effects[m] * levels[name] for name, effects in planted.model_factors.items())
                 + planted.day[day]
                 + planted.block[tod]
                 + task_eff[t]
@@ -214,6 +260,49 @@ def simulate(design: Design, planted: Planted, seed: int) -> pd.DataFrame:
                 }
             )
     return pd.DataFrame(rows)
+
+
+def e1_records(data: pd.DataFrame, models: Sequence[str]) -> list[dict[str, Any]]:
+    """A simulated dataset as E1 run records (synthetic), for the E1 analysis code itself.
+
+    Model ``m<i>`` becomes ``models[i]`` (give them in sorted order, so pairs and reference
+    levels keep their order), factor codes become the E1 levels of
+    :data:`noisefloor.e1.DEFAULT_LEVELS`, day ``d<k>`` a UTC date and block ``b<j>`` a start
+    in that time-of-day block, and run ids and task labels sort in the dataset's order (R
+    draws bootstrap random effects in level order). The records go
+    through :func:`noisefloor.analysis.e1.runs_table` like banked runs, so a test can check
+    that the E1 analysis and :func:`recover` give the same intervals on one dataset.
+    """
+    from noisefloor.e1 import DEFAULT_LEVELS, NATIVE  # noqa: PLC0415 - e1 imports this module
+
+    out: list[dict[str, Any]] = []
+    for i, r in enumerate(data.to_dict(orient="records")):
+        day, block = int(str(r["day"])[1:]), int(str(r["block"])[1:])
+        start = f"2026-11-{5 + day:02d}T{12 * block:02d}:30:00+00:00"
+        factors = {name: str(DEFAULT_LEVELS[name][int(r[name])]) for name in TWO_LEVEL}
+        task = 1000 + int(str(r["task"])[1:])  # task labels sort as t000, t001, ... do
+        out.append(
+            {
+                "run_id": f"sim-{i:06d}",
+                "phase": "e1",
+                "model": models[int(str(r["model"])[1:])],
+                "family": "config",
+                "difficulty": 1,
+                "task_seed": task,
+                "harness": NATIVE["local"] if factors["harness"] == "native" else "minimal",
+                "factors": factors,
+                "block": f"day{day + 1}-b{block + 1}/{r['batch']}",
+                "batch_id": str(r["batch"]),
+                "batch_started_at": start,
+                "started_at": start,
+                "outcome": float(r["outcome"]),
+                "outcome_strict": float(r["outcome"]),
+                "status": "ok",
+                "prereg": "synthetic",
+                "synthetic": True,
+            }
+        )
+    return out
 
 
 # MDE reference configuration (simulation coding): minimal harness, the long timeout, the
@@ -282,9 +371,15 @@ def mde_components(
 
 
 def planted_values(design: Design, planted: Planted, data: pd.DataFrame) -> dict[str, float]:
-    """The planted value of every component, with fixed shares taken from ``data``."""
+    """The planted value of every component, with fixed shares taken from ``data``.
+
+    With task-by-factor variances planted, the task truth is the variance the analysis
+    model (which has no such terms) targets: the planted task variance plus half of each
+    task-by-factor variance, the part of a task's two level effects that its mean over the
+    two levels carries (each factor is balanced within a task). Shares follow from it.
+    """
     values = {
-        "task": planted.task_var,
+        "task": planted.task_var + sum(planted.interactions.values()) / 2,
         "model:task": planted.model_task_var,
         "batch": planted.batch_var,
     }
@@ -346,9 +441,12 @@ class AnalysisSettings:
 def run_fixed_eta(data: pd.DataFrame, planted: Planted) -> np.ndarray:
     """Each run's planted linear predictor without its task, model:task, or batch effect."""
     eta = np.full(len(data), planted.intercept, dtype=np.float64)
-    eta += np.array([planted.model[int(str(m)[1:])] for m in data["model"]])
+    index = np.array([int(str(m)[1:]) for m in data["model"]])
+    eta += np.asarray(planted.model, dtype=np.float64)[index]
     for name in TWO_LEVEL:
         eta += planted.factors[name] * data[name].astype(int).to_numpy()
+    for name, effects in planted.model_factors.items():
+        eta += np.asarray(effects, dtype=np.float64)[index] * data[name].astype(int).to_numpy()
     eta += np.array([planted.day[int(str(d)[1:])] for d in data["day"]])
     eta += np.array([planted.block[int(str(b)[1:])] for b in data["block"]])
     return eta
@@ -513,11 +611,11 @@ def recover(
         found = mde_components(decomp, data, design, settings.mde_designs, settings.level)
         for (t, k), value in true_mde.items():
             entry = found[f"mde:T{t}:k{k}"]
-            ci = boot_coef_interval(
-                entry["estimate"],
-                np.asarray(entry["replicates"]),
-                settings.level,
-                settings.mde_interval,
+            draws = np.asarray(entry["replicates"], dtype=float)
+            ci = (  # the failed-replicate rule of the E1 analysis (mde_tables)
+                boot_coef_interval(entry["estimate"], draws, settings.level, settings.mde_interval)
+                if enough(draws)
+                else None
             )
             components[f"mde:T{t}:k{k}"] = {
                 "planted": value,
@@ -690,6 +788,9 @@ def config_from(block: Mapping[str, Any]) -> tuple[Design, Planted, AnalysisSett
         model_task_var=float(p["model_task_var"]),
         batch_var=float(p["batch_var"]),
         interactions={str(k): float(v) for k, v in p.get("interactions", {}).items()},
+        model_factors={
+            str(k): tuple(float(x) for x in v) for k, v in p.get("model_factors", {}).items()
+        },
     )
     st = block["settings"]
     settings = AnalysisSettings(
@@ -706,7 +807,9 @@ def config_from(block: Mapping[str, Any]) -> tuple[Design, Planted, AnalysisSett
         contrast_interval=str(st.get("contrast_interval", "cluster_t")),
         fixed_interval=str(st.get("fixed_interval", "box")),
     )
-    return Design(**block["design"]), planted, settings
+    shape = dict(block["design"])
+    shape["replicates"] = tuple(tuple(int(b) for b in r) for r in shape.get("replicates", []))
+    return Design(**shape), planted, settings
 
 
 def _pilot_job(job: tuple[Design, Planted, AnalysisSettings, int]) -> dict[str, Any]:
@@ -746,7 +849,9 @@ def run_g6(prereg: Path, raw: Path, workers: int = 1, log: Any = print) -> int:
     block = prereg_block(prereg, CONFIG_BLOCK)
     seeds = [int(s) for s in prereg_block(prereg, "g6-seeds")]
     jsonl.repair_tail(raw)
-    done = {int(r["seed"]) for r in jsonl.read(raw)}
+    present = jsonl.read(raw)
+    check_same_environment((r.get("stamp") for r in present), "g6")
+    done = {int(r["seed"]) for r in present}
     jobs = [(block, s) for s in seeds if s not in done]
     record_environment(raw.parent)
     added = 0
@@ -772,6 +877,7 @@ def bank_g6(prereg: Path, raw: Path, out: Path) -> dict[str, Any]:
     if missing:
         raise ValueError(f"{len(missing)} preregistered datasets are not run yet")
     env = single_environment(rows[s].get("stamp") for s in seeds)
+    code = single_analysis_code(rows[s].get("stamp") for s in seeds)
     known = json.loads((raw.parent / "environments.json").read_text()) if env else {}
     commits = sorted({str(rows[s]["stamp"]["commit"]) for s in seeds if rows[s].get("stamp")})
     datasets = [
@@ -801,6 +907,7 @@ def bank_g6(prereg: Path, raw: Path, out: Path) -> dict[str, Any]:
         "confirmatory": True,
         "nominal": nominal,
         "environment": {"env": env, "key": known.get(env), "commits": commits},
+        "analysis_code": code,
         "config": block,
         "datasets": datasets,
         "failed_fits": sum(1 for d in datasets if d["error"]),
@@ -863,10 +970,10 @@ def run_e0_glmm(amendment: Path, workers: int = 1, root: Path = E0_DIR, log: Any
             str(c["params"]["component"]): root / "raw" / f"{c['cell']}.jsonl" for c in members
         }
         done = None
-        for path in paths.values():
-            have = set()
-            if path.exists():
-                have = {json.loads(ln)["i"] for ln in path.read_text().splitlines() if ln.strip()}
+        for name, path in paths.items():
+            lines = jsonl.read(path) if path.exists() else []
+            check_same_environment((ln.get("stamp") for ln in lines), f"e0 {group} {name}")
+            have = {int(ln["i"]) for ln in lines}
             done = have if done is None else done & have
         todo = [i for i in range(reps) if i not in (done or set())]
         jobs = [(group_block, e0_glmm_seed(group, i)) for i in todo]

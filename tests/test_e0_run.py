@@ -87,6 +87,14 @@ def test_run_bank_and_resume(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     with pytest.raises(ValueError, match="2 environments"):
         e0_run.bank([prereg, amend], root)
     assert json.loads((root / "coverage-0004.json").read_text())["prereg"] == "0004-more.md"
+    # Banking only the amendment leaves the base artifact as it was banked.
+    before = (root / "coverage.json").read_text()
+    only = e0_run.bank([prereg, amend], root, only=[amend])
+    assert list(only) == ["coverage-0004.json"] and (root / "coverage.json").read_text() == before
+    # A run refuses to add replicates beside lines from another environment.
+    bigger = e0_run.Cell(**{**cells[0].__dict__, "replicates": 8})
+    with pytest.raises(ValueError, match="rows from environment ffff"):
+        e0_run.run_cell(bigger, 1, root, log=lambda m: None)
     with pytest.raises(ValueError, match="repeat"):
         e0_run.bank([prereg, prereg], root)
 
@@ -127,7 +135,9 @@ def test_grid_errors_and_cli(
         "G-x: skipped; run it with python -m noisefloor.recovery e0-run" in capsys.readouterr().out
     )
     assert not (tmp_path / "e0" / "raw" / "G-x.jsonl").exists()
-    monkeypatch.setattr(e0_run, "bank", lambda paths, root=None: {"coverage.json": {"cells": [1]}})
+    monkeypatch.setattr(
+        e0_run, "bank", lambda paths, root=None, only=None: {"coverage.json": {"cells": [1]}}
+    )
     assert e0_run.main(["bank", str(prereg)]) == 0
     assert "banked 1 cells in artifacts/e0/coverage.json" in capsys.readouterr().out
     assert e0_run._clean({"x": [float("nan"), 1.0]}) == {"x": [None, 1.0]}

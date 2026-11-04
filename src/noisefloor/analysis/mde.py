@@ -11,6 +11,7 @@ MDEs, hence intervals.
 from __future__ import annotations
 
 import itertools
+import math
 from collections.abc import Mapping, Sequence
 
 import numpy as np
@@ -45,6 +46,19 @@ def reference_eta(
             sum(share * coefs.get(f"{factor}{lvl}", 0.0) for lvl, share in shares.items())
         )
     return {m: base + float(coefs.get(f"model{m}", 0.0)) for m in models}
+
+
+def bernoulli_variance(eta: float, task_var: float, model_task_var: float) -> float:
+    """``E[p (1 - p)]`` of one run of a model at linear predictor ``eta`` over the tasks.
+
+    ``p = sigmoid(eta + u + v)`` with task effect ``u`` and model-by-task effect ``v``
+    (normal, variances as given), by Gauss-Hermite quadrature: the within-task Bernoulli
+    variance a paired MDE assumes for that model, if repeated runs are independent.
+    """
+    x, w = np.polynomial.hermite_e.hermegauss(40)
+    w = w / w.sum()
+    p = 1.0 / (1.0 + np.exp(-(eta + math.sqrt(task_var + model_task_var) * x)))
+    return float(np.sum(w * p * (1 - p)))
 
 
 def pooled_design(

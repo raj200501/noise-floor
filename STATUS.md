@@ -18,7 +18,7 @@ Last fast ship-check (does not count) at dea4149: 8/14.
 | G4 Offline demo | PASS | runs in a network namespace in seconds, matches golden |
 | G5 Library validity | PASS (part 1) | E0 part 2 (0005) cells must run and pass once 0005 is frozen |
 | G6 Orchestrator validity | FAIL | 0006 to freeze, then 200 datasets (`runs/e0g6/driver.sh`) |
-| G7 Factorial study | FAIL | 0004 in final review; local arm after G6 and E0 part 2; Claude slice needs Raj |
+| G7 Factorial study | FAIL | 0004 in final review (80 local tasks, 4 days); local arm after G6 and E0 part 2; Claude slice needs Raj |
 | G8 Leaderboards and bounds | FAIL | E2 and both reports done; E3 on E1 comes with the E1 analysis |
 | G9 Library shipped | PASS | wheel installs in a clean venv; 5 examples run; API reference generated |
 | G10 Claim integrity | FAIL | README and docs/REPORT.md not written yet |
@@ -29,24 +29,25 @@ Last fast ship-check (does not count) at dea4149: 8/14.
 
 ## Now
 
-goal_turn 3: the response to the E1 preregistration review is nearly done. Pilot 7 (banked,
-D-029) supports task-jackknife intervals for fixed contributions. Code now covers batch-level
-failures and arm stops with a resume step and lock (D-029), the Claude-slice rules (pair order,
-turn-cap refusal, CLI and model changes, own ledger, end point; D-030), replicate runs with a
-sampling table, harness-effect differences and tier pairs, provenance stamps on simulation rows,
-E3 on E1 as its own artifact, the post-E1 check, and per-group planted overrides (D-031). The E1
-dry run on pilot seeds is running; `tools/prereg_blocks.py` generates the prereg blocks, and the
-second drafts of 0004 to 0006 are assembled and pass the consistency check.
+goal_turn 3: the second review of the 0004 to 0006 drafts (five lenses, adversarially
+verified) is answered in code and text (D-033). The power analysis now sets the local sample:
+80 tasks (16 per family, the smallest count at which every local harness contrast and model pair
+has power 0.8 under the Holm reading), over 4 days; the Claude slice keeps 30 tasks. New: code
+pins from G6 and E0 part 2 to the E1 analysis, run-code checks before every batch, server
+settings in the pins, a runner lock, per-pair Claude checks (failure streak, contamination,
+smoke, per-tier end), cell labels that make every failing cell's function warn, replicates in
+the simulator with a test that the G6 and E1 analysis code agree, validated ranges per kind,
+and a sampling simulator. A final review of the third drafts is running before the freeze.
 
 ## Next three actions
 
-1. Read the dry run's infrastructure summary, record D-032, run the full tests, commit; then an
-   independent review of the assembled 0004 to 0006, fix what it confirms, freeze in one commit,
+1. Read the final review, fix what it confirms, freeze 0004 to 0006 in one commit,
    `make prepush`, push.
-2. Run G6 and E0 part 2 (about 1,200 Laplace-bootstrap datasets with jackknife, roughly 18 hours
-   on 4 CPUs), bank them; then launch the E1 local arm (at least 3 UTC days), with check-ins.
-3. Ask Raj to start the Claude slice on his machine once 0004 is frozen (docs/PLAN.md); the
-   slice takes about 30 days at 6 runs a day.
+2. Run G6 and E0 part 2 (1,200 GLMM datasets at about 8 core-minutes each, about 40 hours on 4
+   workers), commit raw rows at check-ins, bank both; then launch the E1 local arm at 00:00 UTC
+   (at least 4 UTC days), with check-ins.
+3. Ask Raj to start the Claude slice on his machine once G6 and E0 part 2 are banked
+   (docs/PLAN.md); the slice takes about 30 days at 6 runs a day.
 
 ## Usage to date
 

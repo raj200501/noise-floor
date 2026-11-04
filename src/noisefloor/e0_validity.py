@@ -25,14 +25,18 @@ REPO = Path(__file__).resolve().parents[2]
 COVERAGE = REPO / "artifacts" / "e0" / "coverage.json"
 VALIDITY = REPO / "src" / "evalstats" / "data" / "validity.json"
 HEADLINE = REPO / "artifacts" / "headline_cells.json"
+# E0 cell method -> the function whose validity check matches the cell's interval type.
 FUNCTIONS = {
     "score_interval": "score_interval",
     "paired_difference": "paired_difference",
+    "contrast_difference": "contrast_difference",
     "cluster_robust_mean": "cluster_robust_mean",
     "rank_simultaneous": "rank_confidence",
     "rank_marginal": "rank_confidence",
     "bounded_score": "policy_bounds",
     "glmm_component": "decompose",
+    "glmm_mde": "replicate_mdes",  # noisefloor.analysis.e1.mde_tables checks it
+    "sampling_discordance": "score_interval",  # the sampling table's interval
 }
 ALTERNATIVES = {
     "bootstrap": "method='cluster_t'",

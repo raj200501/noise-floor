@@ -42,7 +42,13 @@ def test_environment_hashes_code_and_libraries(tmp_path: Path) -> None:
 
 def test_stamp_reads_the_process_environment_once(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[int] = []
-    fake = {"env": "e" * 16, "key": {}, "commit": "c" * 40, "src_dirty": False}
+    fake = {
+        "env": "e" * 16,
+        "key": {},
+        "analysis": "f" * 16,
+        "commit": "c" * 40,
+        "src_dirty": False,
+    }
 
     def environment() -> dict[str, object]:
         calls.append(1)
@@ -52,6 +58,7 @@ def test_stamp_reads_the_process_environment_once(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(provenance, "environment", environment)
     a, b = provenance.stamp(), provenance.stamp()
     assert calls == [1] and a["env"] == b["env"] == "e" * 16 and a["commit"] == "c" * 12
+    assert a["analysis"] == "f" * 16
     assert a["src_dirty"] is False and a["at"].endswith("+00:00")
 
 
@@ -80,3 +87,27 @@ def test_library_versions_without_r(monkeypatch: pytest.MonkeyPatch) -> None:
     out = provenance.library_versions()
     assert out["r"] is None and out["lme4"] is None and out["python"]
     json.dumps(out)
+
+
+def test_analysis_code_and_code_identity(tmp_path: Path) -> None:
+    repo = git_repo(tmp_path / "r")
+    versions = {"python": "3", "r": None}
+    first = provenance.analysis_code(repo, versions)
+    assert len(first["hash"]) == 16 and not first["dirty"]
+    assert provenance.analysis_code(repo, {**versions, "r": "4.3"})["hash"] != first["hash"]
+    ident = provenance.code_identity(repo)
+    assert ident["src_tree"] and ident["uv_lock"] and not ident["dirty"]
+    (repo / "src" / "a.py").write_text("x = 3\n")
+    assert provenance.code_identity(repo)["dirty"]
+    assert provenance.environment(repo)["analysis"]
+
+
+def test_check_same_environment_and_analysis_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(provenance, "_PROCESS", {"env": "a" * 16, "analysis": "x"})
+    provenance.check_same_environment([{"env": "a" * 16}, None], "cell C")
+    with pytest.raises(ValueError, match="cell C: rows from environment bbbb"):
+        provenance.check_same_environment([{"env": "b" * 16}], "cell C")
+    assert provenance.single_analysis_code([{"analysis": "x"}, None, {"analysis": "x"}]) == "x"
+    assert provenance.single_analysis_code([None]) is None
+    with pytest.raises(ValueError, match="2 versions of the analysis code"):
+        provenance.single_analysis_code([{"analysis": "x"}, {"analysis": "y"}])

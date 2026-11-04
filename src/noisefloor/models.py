@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -191,9 +193,36 @@ def is_claude(model: str) -> bool:
     return model in CLAUDE_TIERS
 
 
+def with_parent_death(cmd: list[str]) -> list[str]:
+    """``cmd`` under ``setpriv --pdeathsig TERM`` where available (Linux, util-linux).
+
+    The server then gets SIGTERM when the runner that started it dies, so a killed runner
+    leaves no model server behind. The recorded command line stays ``cmd``.
+    """
+    setpriv = shutil.which("setpriv")
+    if sys.platform != "linux" or setpriv is None:
+        return cmd
+    return [setpriv, "--pdeathsig", "TERM", "--", *cmd]
+
+
 def server_binary() -> Path:
     """Path of the llama-server binary."""
     return Path(os.environ.get("NOISEFLOOR_LLAMA_SERVER", DEFAULT_SERVER))
+
+
+def server_build_sha256(binary: Path | None = None) -> str | None:
+    """SHA-256 of the llama-server build: the binary and every shared library beside it.
+
+    The binary is a small launcher and the server's code is in the ``lib*.so*`` files of its
+    directory (loaded through ``LD_LIBRARY_PATH``), so the digest covers each regular file
+    there by name and content. None where the binary is not installed.
+    """
+    path = binary or server_binary()
+    if not path.exists():
+        return None
+    files = [path, *sorted(f for f in path.parent.glob("lib*.so*") if not f.is_symlink())]
+    lines = [f"{f.name}:{hashlib.sha256(f.read_bytes()).hexdigest()}\n" for f in files]
+    return hashlib.sha256("".join(lines).encode()).hexdigest()
 
 
 def server_command(
@@ -263,7 +292,7 @@ def serve(
     env = dict(os.environ)
     env["LD_LIBRARY_PATH"] = str(server_binary().parent)
     log = (log_path or Path(os.devnull)).open("ab")
-    proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, env=env)
+    proc = subprocess.Popen(with_parent_death(cmd), stdout=log, stderr=subprocess.STDOUT, env=env)
     if info is not None:
         info["pid"] = proc.pid
     try:

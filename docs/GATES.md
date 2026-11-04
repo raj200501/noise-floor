@@ -47,13 +47,17 @@ dead proxies (evidence says `env-only`), plus `UV_OFFLINE=1`, `NOISEFLOOR_OFFLIN
   match. A replicate with a missing bound counts as not covered.
 - Replicates at least 2,000 per cell, or 500 when `interval_type` is a bootstrap (`bootstrap`,
   `bca`, `bootstrap_max_t`, `parametric_bootstrap`) or GLMM (`glmm`, `glmm_profile`,
-  `profile_glmm`) type.
+  `profile_glmm`, `glmm_task_jackknife`, `glmm_plugin_share`; D-033) type.
 - Rule: coverage >= nominal - 0.015 - 2 * sqrt(c(1 - c)/R), with c the observed coverage.
 - Headline cells come from the frozen preregistrations: the base grid's "Headline cells (...)"
-  list and every amendment's ` ```json headline ` block. All must pass, and all must appear in
-  `artifacts/headline_cells.json` (`{"cells": [...]}`, written by `python -m
-  noisefloor.e0_validity`). Every failing cell must be in `evalstats.validity.UNSUPPORTED_CELLS`
-  (the library warns on those).
+  list and every amendment's ` ```json headline ` block, less the cells an amendment frozen
+  before the first confirmatory E1 run lists in a ` ```json retired-headline ` block, which it
+  may do only beside new headline cells of the same kinds (its ` ```json headline-kinds `). All
+  must pass, and all must appear in `artifacts/headline_cells.json` (`{"cells": [...]}`, written
+  by `python -m noisefloor.e0_validity`). Every failing cell must be in
+  `evalstats.validity.UNSUPPORTED_CELLS`, and `evalstats.validity.check` with the cell's own
+  function (`noisefloor.e0_validity.FUNCTIONS`), interval type, and task count must name it (the
+  library warns on those).
 - `artifacts/e0/crosscheck.json`: `{"checks": [{"name", "value", "reference", "tolerance",
   "reference_impl"}]}`, at least one against statsmodels, each within its stated tolerance.
 - Property-based suite: `pytest -m property` runs at least one test and all pass.
@@ -65,8 +69,9 @@ value}}`. At least 200 datasets; seeds equal the prereg's ` ```json g6-seeds ` l
 equals its ` ```json recovery-config ` block and `nominal` that block's level; the components are
 exactly its ` ```json g6-components ` list, and each one's coverage meets the G5 rule (a dataset
 without an interval, such as a failed fit, counts as a miss); `environment.env` names the one
-environment every row ran in (`noisefloor.provenance`); reported bias equals the recomputed mean
-of estimate minus planted.
+environment every row ran in (`noisefloor.provenance`), and `analysis_code` the one analysis-code
+hash, which prereg 0004's analysis requires; reported bias equals the recomputed mean of
+estimate minus planted.
 
 ## G7 Factorial study (E1)
 - Prereg ` ```json e1-design ` block: `{"factors": {name: [levels]}, "models": [{"id", "family",
@@ -83,15 +88,17 @@ of estimate minus planted.
 - `artifacts/e1/variance_components.json` (`components`: `estimate`, `lo`, `hi`, `share`,
   `share_lo`, `share_hi`) and `artifacts/e1/mde.json` (`rows`: `mde`, `lo`, `hi`), all finite
   with lo <= estimate <= hi.
-- Full mode: `python -m noisefloor.analysis.e1 --verify` recomputes the tables.
+- Full mode: `python -m noisefloor.analysis.e1 --verify` recomputes the tables; it refuses
+  analysis code other than the code G6 and E0 part 2 ran (their `analysis_code`), unless the
+  manifest names a frozen amendment of the E1 preregistration that allows it.
 
 ## G8 Leaderboards and bounds (E2, E3)
 At least 2 `artifacts/e2/<board>/manifest.json` with `source_url`, `retrieved`, `license`,
 `snapshot`, `sha256` (snapshot hash checked unless the snapshot is under `private/`, where the
 private manifest covers it); `docs/leaderboards/<board>.md` for each; `artifacts/e3/bounds.json`
 `entries` with `source` covering every board; and E3 on E1, `artifacts/e1/e3_bounds.json`
-(`source` `e1`, non-empty `entries`), written by the E1 analysis under the E1 preregistration,
-which must predate it. Full mode: `python -m noisefloor.reanalysis --verify` (E1's file is
+(`source` `e1`, non-empty `entries`, with `rankings` and `adjacent`), written by the E1 analysis
+under the E1 preregistration, which must predate it. Full mode: `python -m noisefloor.reanalysis --verify` (E1's file is
 recomputed by G7's verify).
 
 ## G9 Library shipped

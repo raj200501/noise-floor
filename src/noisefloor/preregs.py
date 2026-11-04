@@ -38,6 +38,15 @@ def file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def amends(path: Path) -> str | None:
+    """The four-digit number in the file's ``amends:`` front matter, if it has one."""
+    match = re.match(r"---\n(.*?)\n---\n", path.read_text(), re.S)
+    if match is None:
+        return None
+    found = re.search(r"^amends:\s*(\d{4})\s*$", match.group(1), re.M)
+    return found.group(1) if found else None
+
+
 def chain_entry(path: Path, chain: Path = CHAIN) -> dict[str, Any] | None:
     """The prereg/CHAIN.jsonl entry of a preregistration file, if it is frozen."""
     if not chain.exists():

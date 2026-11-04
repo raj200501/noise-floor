@@ -346,3 +346,54 @@ def test_g6_checks_components_config_and_coverage(tmp_path: Path) -> None:
     low = _g6_repo(tmp_path / "low", ["task", "harness"], rows_ok=False)
     with pytest.raises(ship_check.GateError, match="coverage"):
         ship_check.g6(_ctx(low))
+
+
+def test_retired_headline_cells_count_only_before_e1_data(tmp_path: Path) -> None:
+    import json
+
+    pre = tmp_path / "prereg"
+    pre.mkdir()
+    (pre / "0003-grid.md").write_text(
+        "# 0003\n\nHeadline cells (E2): `S-a`. Every headline cell must\npass.\n\n"
+        '```json e0-grid\n[{"cell": "S-a"}]\n```\n'
+    )
+    (pre / "0005-more.md").write_text(
+        "---\namends: 0003\n---\n# 0005\n\n"
+        '```json e0-grid\n[{"cell": "G-c"}, {"cell": "G-d"}]\n```\n\n'
+        '```json headline\n{"e1 c": "G-c", "e1 d": "G-d"}\n```\n\n'
+        '```json headline-kinds\n{"G-c": "share", "G-d": "mde"}\n```\n'
+    )
+    swap = (
+        "---\namends: 0003\n---\n# 0007\n\n"
+        '```json e0-grid\n[{"cell": "G-e"}]\n```\n\n'
+        '```json headline\n{"e1 c": "G-e"}\n```\n\n'
+        '```json headline-kinds\n{"G-e": "%s"}\n```\n\n'
+        '```json retired-headline\n["G-c"]\n```\n'
+    )
+    (pre / "0007-swap.md").write_text(swap % "share")
+    chain = [
+        {"file": "prereg/0003-grid.md", "frozen_at": "2026-11-01T00:00:00Z"},
+        {"file": "prereg/0005-more.md", "frozen_at": "2026-11-02T00:00:00Z"},
+        {"file": "prereg/0007-swap.md", "frozen_at": "2026-11-06T00:00:00Z"},
+    ]
+    (pre / "CHAIN.jsonl").write_text("".join(json.dumps(e) + "\n" for e in chain))
+    ctx = _ctx(tmp_path)
+    grids = ship_check.e0_grids(ctx)
+    assert ship_check.frozen_headline_cells(ctx, grids) == {"S-a", "G-d", "G-e"}
+    (pre / "0007-swap.md").write_text(swap % "mde")  # no replacement share cell
+    with pytest.raises(ship_check.GateError, match="retires share cells with no replacement"):
+        ship_check.frozen_headline_cells(ctx, grids)
+    (pre / "0007-swap.md").write_text(swap % "share")
+    e1 = tmp_path / "artifacts" / "e1"
+    e1.mkdir(parents=True)
+    run = {"confirmatory": True, "started_at": "2026-11-05T00:01:00+00:00"}
+    (e1 / "runs.jsonl").write_text(json.dumps(run) + "\n")
+    with pytest.raises(ship_check.GateError, match="after E1 data exist"):
+        ship_check.frozen_headline_cells(ctx, grids)
+
+
+def test_ship_check_and_generator_map_cells_to_the_same_functions() -> None:
+    from noisefloor import e0_validity
+
+    assert ship_check.FUNCTION_OF == e0_validity.FUNCTIONS
+    assert {"glmm_task_jackknife", "glmm_plugin_share"} <= ship_check.RESAMPLING_TYPES

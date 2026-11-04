@@ -410,3 +410,172 @@ def test_e0_groups_take_planted_overrides(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="unknown planted values"):
         rc.run_e0_glmm(odd, root=tmp_path, log=lambda m: None)
+
+
+REPS = ((0, 1, 1, 0, 0), (0, 1, 1, 1, 1))
+
+
+def test_simulated_batches_hold_replicate_runs_as_the_plan_does() -> None:
+    import collections
+
+    from noisefloor import e1
+
+    design = rc.Design(n_models=3, n_tasks=10, runs_per_cell=16, days=4, replicates=REPS)
+    planted = rc.Planted(model=(0.6, 0.0, -0.6), day=(0.0, 0.1, -0.1, 0.05), batch_var=0.0)
+    data = rc.simulate(design, planted, 3)
+    assert len(data) == 3 * 10 * 16  # replicate runs are dealt into batches, then left out
+    sizes = data.groupby("batch").size()
+    assert sizes.max() <= 10 and (sizes < 10).sum() > 0  # replicates took some seats
+    per_group = data.groupby(["model", "concurrency"])["batch"].nunique()
+    assert set(per_group) == {9}  # (10 tasks x 8 runs + 10 replicates) / 10 per batch
+    plan_design = e1.E1Design(
+        models=("granite-4.0-micro", "qwen3-1.7b", "qwen3-4b"),
+        families=("config", "pointer"),
+        tasks_per_family=5,
+        runs_per_cell=16,
+        days=4,
+        replicates=REPS,
+    )
+    batches = e1.planned_batches(e1.local_plan(plan_design))
+    planned = collections.Counter((s[0].model, s[0].concurrency) for s in batches.values())
+    assert set(planned.values()) == {9}  # the plan deals the same number per group
+    with pytest.raises(ValueError, match="half fraction"):
+        rc.Design(runs_per_cell=16, replicates=((1, 0, 0, 0, 0),))
+    with pytest.raises(ValueError, match="whole half fraction"):
+        rc.Design(runs_per_cell=8, replicates=REPS)
+    order: list = []
+    dealt = rc.deal_batches(
+        {"b": [1, 2, 3], "a": [4, 5]}, 2, 2, shuffle=lambda xs: None, randrange=lambda n: 1
+    )
+    order = [(slot, chunk) for slot, chunk in dealt]
+    assert order == [(1, [4, 5]), (1, [1, 2]), (0, [3])]
+
+
+@needs_r
+def test_g6_analysis_equals_the_e1_analysis() -> None:
+    """recover's analysis and noisefloor.analysis.e1 agree on one dataset (review brief-14)."""
+    from noisefloor.analysis import e1 as analysis
+
+    design = rc.Design(n_models=3, n_tasks=12, runs_per_cell=16, days=2, replicates=REPS)
+    planted = rc.Planted(model=(0.6, 0.0, -0.6), day=(0.0, 0.1), task_var=1.0, batch_var=0.0)
+    settings = rc.AnalysisSettings(
+        n_boot=4,
+        nagq=0,
+        boot_interval="basic_log",
+        random=("task", "model:task"),
+        box_interval="basic",
+        share_interval="plugin",
+        fixed_interval="jackknife",
+        mde_designs=((20, 1), (40, 4)),
+        mde_interval="bc",
+    )
+    seed = 31
+    data = rc.simulate(design, planted, seed)
+    models = ("granite-4.0-micro", "qwen3-1.7b", "qwen3-4b")
+    block = {
+        "random": list(settings.random),
+        "fixed": list(rc.FIXED_TERMS),
+        "level": settings.level,
+        "n_boot": settings.n_boot,
+        "nagq": settings.nagq,
+        "boot_interval": settings.boot_interval,
+        "box_interval": settings.box_interval,
+        "share_interval": settings.share_interval,
+        "fixed_interval": settings.fixed_interval,
+        "score_interval": {"local": "cluster_t"},
+        "contrast_interval": {
+            "harness-local": "cluster_t",
+            "harness-claude": "mover_wilson",
+            "harness-diff-local": "cluster_t",
+            "models-local": "cluster_t",
+            "tiers-claude": "mover_wilson",
+            "models-claude": "mover_wilson",
+        },
+        "seed": seed,
+        "exclude_status": ["infra_error"],
+        "block_hours": [[0, 12], [12, 24]],
+        "mde": {
+            "designs": [list(d) for d in settings.mde_designs],
+            "reference": {
+                "harness": "minimal",
+                "timeout": "300.0",
+                "steps": "15",
+                "temperature": "0.0",
+                "concurrency": "1",
+            },
+            "averaged": ["day", "block"],
+            "interval": settings.mde_interval,
+        },
+    }
+    records = rc.e1_records(data, models)
+    planned = {r["run_id"]: "e1" for r in records}
+    rows = analysis.runs_table(
+        records, prereg="synthetic", planned=planned, block_hours=block["block_hours"]
+    )
+    frame = analysis.analysis_frame(rows, block["exclude_status"])
+    theirs = analysis.decomposition(frame, block)
+    ours = rc.analyze(data, settings, seed)
+    close = {"rel": 1e-3, "abs": 1e-6}
+    for mine in ours.components:
+        other = theirs.component(mine.name)
+        for key in ("variance", "lo", "hi", "share", "share_lo", "share_hi"):
+            a, b = getattr(mine, key), getattr(other, key)
+            assert (a is None) == (b is None), (mine.name, key)
+            if a is not None:
+                assert a == pytest.approx(b, **close), (mine.name, key)
+    mde_rows = analysis.mde_tables(theirs, frame, block)["rows"]
+    found = rc.mde_components(ours, data, design, settings.mde_designs, settings.level)
+    for row in mde_rows:
+        entry = found[f"mde:T{row['tasks']}:k{row['runs']}"]
+        assert row["mde"] == pytest.approx(entry["estimate"], **close)
+        ci = rc.boot_coef_interval(
+            entry["estimate"], np.asarray(entry["replicates"]), settings.level, "bc"
+        )
+        assert ci is not None
+        assert (row["lo"], row["hi"]) == pytest.approx((max(0.0, ci[0]), ci[1]), **close)
+    local = rc.local_intervals(data, planted, settings)
+    names = {f"m{i}": m for i, m in enumerate(models)}
+    scores = {r["model"]: r for r in analysis.scores_table(rows, block)}
+    contrasts = analysis.contrasts_table(rows, block)
+    harness = {r["contrast"]: r for r in contrasts["harness"]}
+    diffs = {r["contrast"]: r for r in contrasts["harness_differences"]}
+    pairs = {r["contrast"]: r for r in contrasts["models"]}
+    for key, entry in local.items():
+        kind, who = key.split(":")
+        if kind == "score":
+            row = scores[names[who]]
+            got = (row["score"], row["lo"], row["hi"])
+        elif kind == "harness":
+            row = harness[f"harness:{names[who]}"]
+            got = (row["difference"], row["lo"], row["hi"])
+        else:
+            a, b = (names[w] for w in who.split("-"))
+            table = diffs if kind == "hdiff" else pairs
+            label = f"harness-difference:{a}-{b}" if kind == "hdiff" else f"model:{a}-{b}"
+            row = table[label]
+            got = (row["difference"], row["lo"], row["hi"])
+        assert got == pytest.approx((entry["estimate"], entry["lo"], entry["hi"]), **close), key
+
+
+def test_task_truth_includes_half_of_each_task_by_factor_variance() -> None:
+    design = rc.Design(n_models=2, n_tasks=4, runs_per_cell=16, days=2, blocks_per_day=1)
+    planted = rc.Planted(
+        model=(0.3, -0.3),
+        day=(0.0, 0.1),
+        block=(0.0,),
+        task_var=2.0,
+        interactions={"harness": 0.2, "steps": 0.4},
+    )
+    data = rc.simulate(design, planted, 2)
+    assert rc.planted_values(design, planted, data)["task"] == pytest.approx(2.0 + 0.3)
+    faster = rc.Planted(model=(0.3, -0.3), model_factors={"harness": (0.0, 1.0)})
+    eta = rc.run_fixed_eta(
+        rc.simulate(rc.Design(n_models=2, n_tasks=2, runs_per_cell=16), faster, 3), faster
+    )
+    assert eta.max() > eta.min()
+    with pytest.raises(ValueError, match="one value per model"):
+        rc.simulate(
+            rc.Design(n_models=2),
+            rc.Planted(model=(0.0, 0.0), model_factors={"harness": (1.0,)}),
+            1,
+        )

@@ -30,6 +30,7 @@ import numpy.typing as npt
 import pandas as pd
 from scipy import optimize, stats
 
+from evalstats import validity
 from evalstats.schema import OUTCOME, EvalResults, SchemaError
 
 FloatArray = npt.NDArray[np.float64]
@@ -192,6 +193,7 @@ def policy_bounds(
         raise SchemaError(f"no {status_col!r} column; adapters add it")
     table = _task_table(frame, status_col, ambiguous)
     models = results.models
+    validity.check("policy_bounds", "imbens_manski", int(frame["task"].nunique()))
     bounded: dict[str, BoundedScore] = {}
     for model in models:
         t = table.loc[model]

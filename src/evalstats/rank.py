@@ -28,6 +28,7 @@ import numpy as np
 import numpy.typing as npt
 from scipy import stats
 
+from evalstats import validity
 from evalstats.schema import EvalResults, SchemaError
 
 FloatArray = npt.NDArray[np.float64]
@@ -141,6 +142,7 @@ def rank_confidence(
     n_tasks, n_models = scores.shape
     if n_models < 2:
         raise SchemaError("need at least 2 models")
+    validity.check("rank_confidence", "bootstrap_max_t", int(n_tasks))
     mean, se = _pairwise(scores)
     rng = np.random.default_rng(seed)
     draws = _max_t(scores, mean, se, n_boot, rng)

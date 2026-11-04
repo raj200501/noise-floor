@@ -37,6 +37,8 @@ def design_problems(plan: E1Design, config: Mapping[str, Any]) -> list[str]:
     )
     for key in ("runs_per_cell", "batch_size", "days", "blocks_per_day"):
         _same(out, key, design[key], getattr(plan, key))
+    replicates = [list(r) for r in design.get("replicates", [])]
+    _same(out, "replicate configurations", replicates, [list(r) for r in plan.replicates])
     _same(out, "planted model effects per model", len(planted["model"]), design["n_models"])
     _same(out, "planted day effects per day", len(planted["day"]), design["days"])
     _same(out, "planted block effects per block", len(planted["block"]), design["blocks_per_day"])
@@ -80,6 +82,21 @@ def settings_problems(
     return out
 
 
+CLAUDE_CELLS = ("S-c-", "P-c-", "P-cw-", "P-cl-")  # cells of the Claude slice's shape
+
+
+def grid_problems(plan: E1Design, grid: list[Mapping[str, Any]]) -> list[str]:
+    """Cells whose task count is not that of the arm they validate."""
+    local = len(plan.families) * plan.tasks_per_family
+    claude = len(plan.families) * (plan.claude_tasks_per_family or plan.tasks_per_family)
+    out: list[str] = []
+    for cell in grid:
+        name = str(cell["cell"])
+        want = claude if name.startswith(CLAUDE_CELLS) else local
+        _same(out, f"{name} tasks", int(cell["params"]["n_tasks"]), want)
+    return out
+
+
 def problems(e1: Path, e0: Path, g6: Path) -> list[str]:
     """Every mismatch among preregistrations 0004 (``e1``), 0005 (``e0``), and 0006 (``g6``)."""
     plan = E1Design.from_json(prereg_block(e1, "e1-plan"))
@@ -91,4 +108,8 @@ def problems(e1: Path, e0: Path, g6: Path) -> list[str]:
         out.append("the recovery-config blocks of 0005 and 0006 differ")
     out += design_problems(plan, g6_config)
     out += settings_problems(plan, g6_config["settings"], analysis)
+    out += grid_problems(plan, prereg_block(e0, "e0-grid"))
+    source = analysis.get("validated_range")
+    if source is not None and Path(str(source)).name != e0.name:
+        out.append(f"e1-analysis validated_range names {source}, not {e0.name}")
     return out

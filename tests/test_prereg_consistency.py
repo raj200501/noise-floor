@@ -38,10 +38,23 @@ def test_generated_blocks_agree_and_mutations_are_caught(tmp_path: Path) -> None
     rules = tool.pilot_rules()
     e1 = tool.e1_blocks(4, rules)
     config = tool.recovery_config(rules)
+    grid = tool.e0_grid(rules)[0]
     p4 = write(tmp_path / "0004.md", e1)
-    p5 = write(tmp_path / "0005.md", {"recovery-config": config})
+    p5 = write(tmp_path / "0005-e0-glmm-cells.md", {"recovery-config": config, "e0-grid": grid})
     p6 = write(tmp_path / "0006.md", {"recovery-config": config})
     assert pc.problems(p4, p5, p6) == []
+    # A Claude-slice cell at the local arm's task count, and a grid with the wrong days.
+    bad_grid = json.loads(json.dumps(grid))
+    claude_cell = next(c for c in bad_grid if c["cell"].startswith("S-c-w"))
+    claude_cell["params"]["n_tasks"] = 70
+    p5b = write(tmp_path / "0005b.md", {"recovery-config": config, "e0-grid": bad_grid})
+    found = pc.problems(p4, p5b, p6)
+    assert any(p.startswith(f"{claude_cell['cell']} tasks") for p in found)
+    assert any("validated_range names" in p for p in found)  # 0004 names the 0005 file
+    days = json.loads(json.dumps(config))
+    days["design"]["days"] = 3
+    p6c = write(tmp_path / "0006c.md", {"recovery-config": days})
+    assert any(p.startswith("days") for p in pc.problems(p4, p5, p6c))
     wrong = json.loads(json.dumps(config))
     wrong["design"]["n_models"] = 4
     wrong["settings"]["boot_interval"] = "percentile"

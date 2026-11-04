@@ -32,6 +32,7 @@ the orchestrator must not bank, and starts no further runs.
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import socket
@@ -39,9 +40,9 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import ExitStack, suppress
+from contextlib import ExitStack, contextmanager, suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -137,7 +138,15 @@ def run_minimal(spec: RunSpec, client: Client) -> dict[str, Any]:
     episode = run_episode(env, client, config)
     reason = episode.end_reason or "step_limit"
     grade = task.grade_env(env)
-    extra = {"max_steps_used": max_steps, "model_ids": episode.model_ids} if claude else {}
+    extra = (
+        {
+            "max_steps_used": max_steps,
+            "model_ids": episode.model_ids,
+            "cli_versions": episode.cli_versions,
+        }
+        if claude
+        else {}
+    )
     return {
         **extra,
         "end_reason": reason,
@@ -297,8 +306,8 @@ class _Watch:
 
     The batch aborts on :data:`ABORT_STREAK` infra_error runs in a row, or when a run ends
     other than ``ok`` and the server then fails its health check (a crashed or hung
-    server). The failing runs are dropped, and so is every later run that ends other than
-    ``ok`` (runs already in flight when the batch aborted).
+    server). The failing runs are dropped, and so is every run recorded after the abort
+    (runs already in flight), whatever its status, so the rule never depends on an outcome.
     """
 
     def __init__(self, out_dir: Path, healthy: Callable[[], bool] | None) -> None:
@@ -315,9 +324,8 @@ class _Watch:
         server_ok = status == "ok" or self.healthy is None or self.healthy()
         with self.lock:
             if self.drop is not None:
-                if status != "ok":
-                    self.drop.append(run_id)
-                    abort(self.out_dir, self.reason, self.drop)
+                self.drop.append(run_id)
+                abort(self.out_dir, self.reason, self.drop)
                 return True
             self.streak = [*self.streak, run_id] if status == "infra_error" else []
             if len(self.streak) >= ABORT_STREAK:
@@ -459,9 +467,41 @@ def main(argv: list[str] | None = None) -> int:
         print("usage: python -m noisefloor.runner BATCH.json OUT_DIR", file=sys.stderr)
         return 2
     batch = json.loads(Path(args[0]).read_text())
-    n = run_batch(batch, Path(args[1]))
+    out = Path(args[1])
+    with hold_running(out.parent):
+        n = run_batch(batch, out)
     print(f"recorded {n} runs")
     return 0
+
+
+RUNNING = ".running"  # held by a live runner for its whole life (review ops-6)
+
+
+@contextmanager
+def hold_running(workspace: Path) -> Iterator[None]:
+    """Hold an exclusive lock on ``workspace/.running`` while the batch runs.
+
+    The orchestrator refuses to salvage or start a batch while any runner of the plan holds
+    its lock, so a relaunch never runs beside a live runner left by a killed orchestrator.
+    """
+    workspace.mkdir(parents=True, exist_ok=True)
+    with (workspace / RUNNING).open("a") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        yield
+
+
+def running(workspace: Path) -> bool:
+    """True while a runner holds ``workspace/.running``."""
+    path = workspace / RUNNING
+    if not path.exists():
+        return False
+    with path.open("a") as fh:
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        fcntl.flock(fh, fcntl.LOCK_UN)
+    return False
 
 
 if __name__ == "__main__":

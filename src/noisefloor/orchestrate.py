@@ -31,8 +31,15 @@ from typing import Any
 
 from noisefloor import jsonl, sandbox
 from noisefloor.client import claude_child_env
-from noisefloor.models import CLAUDE_TIERS, MODELS, RUNTIME, is_claude, server_binary
-from noisefloor.runner import RunSpec, abort, batch_key
+from noisefloor.models import (
+    CLAUDE_TIERS,
+    MODELS,
+    RUNTIME,
+    is_claude,
+    server_binary,
+    server_build_sha256,
+)
+from noisefloor.runner import RunSpec, abort, batch_key, running
 
 REPO = Path(__file__).resolve().parents[2]
 DEFAULT_WORK = Path.home() / ".cache" / "noisefloor" / "work"
@@ -44,6 +51,10 @@ class Batch:
 
     batch_id: str
     runs: tuple[RunSpec, ...]
+
+
+class RunnerBusyError(RuntimeError):
+    """A runner of the plan, left by an earlier orchestrator, is still running."""
 
 
 class BatchFailedError(RuntimeError):
@@ -112,10 +123,22 @@ def provenance(spec: RunSpec, batch: Batch, base: Mapping[str, Any]) -> dict[str
     }
 
 
+def code_provenance() -> dict[str, Any]:
+    """The run code of a batch: ``src/`` and ``uv.lock`` at HEAD, ``dirty``, and more.
+
+    Also the SHA-256 of the llama-server build, the binary and its shared libraries (None
+    where it is not installed; :func:`noisefloor.models.server_build_sha256`).
+    """
+    from noisefloor.provenance import code_identity  # noqa: PLC0415
+
+    return {**code_identity(), "server_sha256": server_build_sha256()}
+
+
 def base_provenance() -> dict[str, Any]:
     """Run-independent provenance: code version, environment, runtime."""
     return {
         "git": git_state(),
+        "code": code_provenance(),
         "python": sys.version.split()[0],
         "platform": f"{platform.system()} {platform.release()} {platform.machine()}",
         "cpus": os.cpu_count(),
@@ -356,6 +379,9 @@ def execute(
     done = banked_ids(artifact)
     run_batch = executor or default_executor(ledger)
     root = work_root or Path(os.environ.get("NOISEFLOOR_WORK", DEFAULT_WORK))
+    live = sorted(ws.name for ws in root.glob(f"{prefix}-b*") if running(ws))
+    if live:
+        raise RunnerBusyError(f"a runner of this plan is still running in {live[0]}")
     base = base_provenance()
     artifact.parent.mkdir(parents=True, exist_ok=True)
     banked = 0

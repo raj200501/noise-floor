@@ -162,6 +162,46 @@ def _sim_score(cell: Cell, rng: np.random.Generator, seed: int) -> Replicate:
     return Replicate(_true_score(effects[0], p), iv.lo, iv.hi, iv.estimate)
 
 
+def expected_bernoulli_variance(mu: float, sd: float) -> float:
+    """E[p (1 - p)] for p = sigmoid(mu + sd * Z), Z standard normal (Gauss-Hermite)."""
+    prob = 1.0 / (1.0 + np.exp(-(mu + sd * _GH_X)))
+    return float(np.sum(_GH_W * prob * (1.0 - prob)))
+
+
+def _true_discordance(p: Mapping[str, Any]) -> float:
+    """Mean over the models of E[p (1 - p)], half the expected discordant share of a pair."""
+    sd = math.sqrt(float(p["task_sd"]) ** 2 + float(p.get("model_task_sd", 0.0)) ** 2)
+    base = float(p.get("intercept", 0.0))
+    effects = [float(e) for e in p["effects"]]
+    return float(np.mean([expected_bernoulli_variance(base + e, sd) for e in effects]))
+
+
+def _sim_sampling(cell: Cell, rng: np.random.Generator, seed: int) -> Replicate:
+    """The E1 sampling table: two independent runs per model and task at one configuration.
+
+    Each model's runs on a task share its task and model-by-task effects. The pair is
+    discordant when the two outcomes differ; the interval is the task-clustered interval
+    of the discordant share over the (model, task) pairs, halved, for the mean over models
+    of E[p (1 - p)] (``noisefloor.analysis.e1.sampling_table``).
+    """
+    p = cell.params
+    n_tasks = int(p["n_tasks"])
+    effects = [float(e) for e in p["effects"]]
+    task = rng.normal(0.0, float(p["task_sd"]), n_tasks)
+    inter = rng.normal(0.0, float(p.get("model_task_sd", 0.0)), (len(effects), n_tasks))
+    rows = []
+    for m, effect in enumerate(effects):
+        prob = 1.0 / (1.0 + np.exp(-(float(p.get("intercept", 0.0)) + effect + task + inter[m])))
+        first, second = rng.random(n_tasks) < prob, rng.random(n_tasks) < prob
+        for t in range(n_tasks):
+            rows.append(("pairs", f"t{t}", f"m{m}", float(first[t] != second[t])))
+    frame = pd.DataFrame(rows, columns=["model", "task", "run", "outcome"])
+    iv = score_interval(
+        EvalResults.from_frame(frame), "pairs", method=cell.interval_type, level=cell.nominal
+    ).interval
+    return Replicate(_true_discordance(p), iv.lo / 2, iv.hi / 2, iv.estimate / 2)
+
+
 def _draw_within(
     rng: np.random.Generator, p: Mapping[str, Any], effects: Sequence[float]
 ) -> pd.DataFrame:
@@ -359,6 +399,7 @@ SIMULATORS: dict[str, Callable[[Cell, np.random.Generator, int], Replicate]] = {
     "rank_marginal": _sim_rank,
     "bounded_score": _sim_bounded,
     "glmm_component": _sim_glmm,
+    "sampling_discordance": _sim_sampling,
 }
 
 
