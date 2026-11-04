@@ -6,7 +6,8 @@ G5 rule to every cell, and writes:
 * ``src/evalstats/data/validity.json``: the failing cells, each with the function,
   interval method, and largest task count it covers, and a supported alternative;
 * ``artifacts/headline_cells.json``: the E0 cells behind each headline interval
-  (the list frozen in prereg/0003, extended by the E1 amendment).
+  (the list frozen in prereg/0003, extended by the ```json headline``` block of each
+  amendment the coverage artifact banks, such as the E1 cells of E0 part 2).
 """
 
 from __future__ import annotations
@@ -16,6 +17,8 @@ import math
 import sys
 from pathlib import Path
 from typing import Any
+
+from noisefloor.preregs import prereg_block
 
 REPO = Path(__file__).resolve().parents[2]
 COVERAGE = REPO / "artifacts" / "e0" / "coverage.json"
@@ -79,10 +82,22 @@ def build(
     return validity, headline
 
 
+def amendment_headlines(coverage: dict[str, Any], repo: Path = REPO) -> dict[str, str]:
+    """Headline sources added by the banked amendments (their ```json headline``` blocks)."""
+    out: dict[str, str] = {}
+    for rel in coverage.get("amendments", []):
+        try:
+            block = prereg_block(repo / rel, "headline")
+        except ValueError:  # an amendment without headline intervals
+            continue
+        out.update({str(k): str(v) for k, v in block.items()})
+    return out
+
+
 def main() -> int:
     """Write both files from the banked coverage artifact."""
     coverage = json.loads(COVERAGE.read_text())
-    validity, headline = build(coverage)
+    validity, headline = build(coverage, amendment_headlines(coverage))
     VALIDITY.parent.mkdir(parents=True, exist_ok=True)
     VALIDITY.write_text(json.dumps(validity, indent=1, sort_keys=True) + "\n")
     HEADLINE.write_text(json.dumps(headline, indent=1, sort_keys=True) + "\n")

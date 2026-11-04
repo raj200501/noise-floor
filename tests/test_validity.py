@@ -1,4 +1,5 @@
 import warnings
+from pathlib import Path
 
 import pytest
 
@@ -68,3 +69,15 @@ def test_generator_applies_the_g5_rule() -> None:
     assert data["unsupported"]["bad"]["function"] == "paired_difference"
     assert "G-1" in headline["cells"] and headline["prereg"] == "prereg/0003-x.md"
     assert e0_validity.passes(1900, 2000, 0.95) and not e0_validity.passes(440, 500, 0.95)
+
+
+def test_amendment_headlines(tmp_path: Path) -> None:
+    amend = tmp_path / "prereg" / "0009-x.md"
+    amend.parent.mkdir()
+    amend.write_text('# x\n\n```json headline\n{"e1 task variance": "G-e1-task"}\n```\n')
+    plain = tmp_path / "prereg" / "0010-y.md"
+    plain.write_text("# no headline block\n")
+    coverage = {"amendments": ["prereg/0009-x.md", "prereg/0010-y.md"]}
+    found = e0_validity.amendment_headlines(coverage, tmp_path)
+    assert found == {"e1 task variance": "G-e1-task"}
+    assert e0_validity.amendment_headlines({}, tmp_path) == {}
