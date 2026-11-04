@@ -29,6 +29,8 @@ def main() -> int:
             ["git", "-C", str(clone), "checkout", "--quiet", "--detach", head], check=True
         )
         env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
+        # pytest gets its own temp root, so a concurrent pytest session cannot prune it.
+        env["PYTEST_ADDOPTS"] = f"--basetemp={tmp / 'pytest'}"
         for step in ("setup", "ci"):
             proc = subprocess.run(
                 ["make", "-s", "--no-print-directory", step],

@@ -359,7 +359,8 @@ def g1(ctx: Ctx) -> str:
     logs = ctx.tmp / "logs"
     env = dict(ctx.env)
     env["PYTEST_ADDOPTS"] = (
-        f"--junitxml={logs / 'junit.xml'} --cov-report=json:{logs / 'coverage.json'}"
+        f"--junitxml={logs / 'junit.xml'} --cov-report=json:{logs / 'coverage.json'} "
+        f"--basetemp={ctx.tmp / 'pytest-g1'}"  # its own temp root: no other pytest prunes it
     )
     res = make(ctx, "test", timeout=3600, env=env)
     need(res.code == 0, f"make test exit {res.code}: {tail(res.out)}")
@@ -471,7 +472,8 @@ def g3(ctx: Ctx) -> str:
         need(all(r is not None and r.code == 0 for r in parts), "fast: a ci component failed")
         return "ci.yml runs make ci on 3.11, 3.12; make ci not run (fast: components pass)"
     need_setup(ctx)
-    res = make(ctx, "ci", timeout=3600)
+    env = {**ctx.env, "PYTEST_ADDOPTS": f"--basetemp={ctx.tmp / 'pytest-g3'}"}
+    res = make(ctx, "ci", timeout=3600, env=env)
     need(res.code == 0, f"make ci exit {res.code}: {tail(res.out)}")
     return f"ci.yml runs make ci on 3.11, 3.12; make ci passes locally ({res.seconds:.0f}s)"
 
@@ -618,6 +620,7 @@ def g5(ctx: Ctx) -> str:
             "-p",
             "no:cacheprovider",
             f"--junitxml={logs / 'property.xml'}",
+            f"--basetemp={ctx.tmp / 'pytest-property'}",
         ],
     )
     tests, bad = junit_counts(logs / "property.xml")
