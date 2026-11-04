@@ -149,3 +149,15 @@ reported as exploratory. Purpose: choose models and a difficulty mix so that eve
 configuration's mean success lies in [0.2, 0.8], measure run times to set the timeout levels,
 and estimate variance inputs for the E1 power analysis. Batches run as split plots (one server
 configuration per batch), so the E1 analysis will include a batch random effect.
+
+## D-017 2026-11-04 E0 grid in two parts; bootstrap interval types
+- E0 is frozen in two parts: prereg 0003 (score, paired, CR1, rank, and bounded-score cells,
+  including cells shaped like the two E2 boards) now, and a dated amendment of 0003 (the logit
+  GLMM variance-component cells, shaped like the E1 design) once the pilot fixes that design and
+  before E0 part 2 or any E1 data. `artifacts/e0/coverage.json` cites 0003 as `prereg` and the
+  amendment(s) under `amendments`; ship-check G5 checks the union of the base grid and its
+  amendments' grids, and that each of those files is committed strictly before the artifact.
+- The G5 rule allows 500 replicates "for bootstrap or GLMM intervals". BCa and the rank
+  intervals (task bootstrap of the maximum studentized deviation) are bootstrap intervals, so
+  their interval types (`bca`, `bootstrap_max_t`) get the 500-replicate floor, like `bootstrap`
+  and the GLMM profile type.
