@@ -704,6 +704,8 @@ def g6(ctx: Ctx) -> str:
     data = load_json(rel(ctx, art))
     prereg = str(data.get("prereg", ""))
     seeds = prereg_block(ctx, prereg, "g6-seeds")
+    config = prereg_block(ctx, prereg, "recovery-config")
+    listed = prereg_block(ctx, prereg, "g6-components")
     check_prereg_link(ctx, prereg, art)
     datasets = data.get("datasets", [])
     need(len(datasets) >= G6_MIN_DATASETS, f"{len(datasets)} datasets < {G6_MIN_DATASETS}")
@@ -711,9 +713,14 @@ def g6(ctx: Ctx) -> str:
         sorted(int(d["seed"]) for d in datasets) == sorted(int(s) for s in seeds),
         "dataset seeds differ from prereg",
     )
+    need(data.get("config") == config, "artifact config differs from the prereg's")
     nominal = float(data["nominal"])
+    need(nominal == float(config["settings"]["level"]), "nominal level differs from the prereg's")
+    need(bool((data.get("environment") or {}).get("env")), "rows carry no single environment")
     names = sorted({n for d in datasets for n in d["components"]})
     need(bool(names), "no variance components")
+    # Every preregistered component, and only those, decides the gate (prereg 0006).
+    need(names == sorted(listed), "components differ from the prereg's g6-components list")
     reported_bias = data.get("bias", {})
     parts = []
     for name in names:
@@ -733,7 +740,9 @@ def g6(ctx: Ctx) -> str:
             f"reported bias for {name} does not match recomputation",
         )
         parts.append(f"{name} {cov:.3f}")
-    return f"{len(datasets)} datasets; coverage " + ", ".join(parts)[:90]
+    failed = sum(1 for d in datasets if d.get("error"))
+    head = f"{len(datasets)} datasets ({failed} failed fits); coverage "
+    return head + ", ".join(parts)[:90]
 
 
 def g7(ctx: Ctx) -> str:
@@ -837,9 +846,12 @@ def g8(ctx: Ctx) -> str:
         boards.append(board)
     bounds = load_json(rel(ctx, "artifacts/e3/bounds.json"))
     sources = {str(e.get("source")) for e in bounds.get("entries", [])}
-    need("e1" in sources, "E3 bounds do not cover E1")
     missing = [b for b in boards if b not in sources]
     need(not missing, f"E3 bounds missing for {', '.join(missing)}")
+    # E3 on E1 comes from the E1 analysis under the E1 preregistration (prereg 0004).
+    on_e1 = load_json(rel(ctx, "artifacts/e1/e3_bounds.json"))
+    need(on_e1.get("source") == "e1" and bool(on_e1.get("entries")), "E3 bounds do not cover E1")
+    check_prereg_link(ctx, str(on_e1.get("prereg", "")), "artifacts/e1/e3_bounds.json")
     note = ""
     if ctx.fast:
         note = "; recompute skipped (fast)"

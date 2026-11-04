@@ -11,6 +11,12 @@ when present) and writes under ``artifacts/e1/``:
   runs, settings from the ``e1-analysis`` block of the preregistration;
 * ``mde.json``: minimum detectable effects of paired comparisons for leaderboard designs,
   and the tasks needed for given gaps, derived from the fitted model;
+* ``scores.json`` and ``contrasts.json``: each model's success rate and the paired
+  contrasts, with the preregistered intervals and Holm-adjusted p-values;
+* ``sampling.json``: the within-configuration outcome variance from the replicate runs,
+  beside the variance the MDE assumes at its reference configuration;
+* ``sensitivity.json``: the preregistered sensitivity analyses, reported beside these;
+* ``e3_bounds.json``: E3, each local model's score under every policy for ambiguous runs;
 * ``manifest.json``: the preregistration and the SHA-256 of every input and output.
 
 ``python -m noisefloor.analysis.e1 --verify`` recomputes every output from the inputs and
@@ -31,12 +37,20 @@ from typing import Any
 
 import pandas as pd
 
-from evalstats import EvalResults, paired_difference, policy_bounds, score_interval, tasks_needed
+from evalstats import (
+    EvalResults,
+    contrast_difference,
+    paired_difference,
+    policy_bounds,
+    score_interval,
+    tasks_needed,
+)
 from evalstats.glmm import LOGISTIC_RESIDUAL_VAR, Decomposition, boot_coef_interval, decompose
 from noisefloor import jsonl
 from noisefloor.analysis import mde as mde_lib
 from noisefloor.e1 import (
     CLAUDE_END_DAYS,
+    REPLICATE_PHASE,
     E1Design,
     check_frozen_plan,
     claude_plan,
@@ -45,11 +59,26 @@ from noisefloor.e1 import (
 )
 from noisefloor.models import MODELS, is_claude
 from noisefloor.preregs import chain_entry, prereg_block
+from noisefloor.suite import SUITE_VERSION
 
 REPO = Path(__file__).resolve().parents[3]
 E1_DIR = REPO / "artifacts" / "e1"
 INPUTS = ("local.jsonl", "claude.jsonl")
-OUTPUTS = ("runs.jsonl", "variance_components.json", "mde.json", "scores.json", "contrasts.json")
+OUTPUTS = (
+    "runs.jsonl",
+    "variance_components.json",
+    "mde.json",
+    "scores.json",
+    "contrasts.json",
+    "sampling.json",
+    "sensitivity.json",
+    "e3_bounds.json",
+)
+STOP_LOGS = ("stops-local.jsonl", "stops-claude.jsonl")  # hashed into the manifest too
+MOCK_TASKS = (
+    f"every task is a procedurally generated mock task (nf-tools suite version {SUITE_VERSION}); "
+    "results are model results on these mock tasks, not on real-world work"
+)
 GAPS = (0.02, 0.05, 0.10)
 
 
@@ -110,7 +139,7 @@ def arms_not_ended(
     """
     banked = {str(r["run_id"]) for r in records}
     out = []
-    local = {rid for rid, phase in planned.items() if phase == "e1"}
+    local = {rid for rid, phase in planned.items() if phase in ("e1", REPLICATE_PHASE)}
     local_stops = jsonl.read(directory / "stops-local.jsonl")
     if not local <= banked and not any(s["kind"] == "day_limit" for s in local_stops):
         out.append(f"the local arm has not ended ({len(local & banked)} of {len(local)} banked)")
@@ -193,6 +222,7 @@ def runs_table(
                 "end_reason": rec.get("end_reason"),
                 "confirmatory": bool(planned_run and cites and in_time),
                 "excluded": left_out.get(str(rec["run_id"])),
+                "replicate": rec.get("phase") == REPLICATE_PHASE,
             }
         )
     return rows
@@ -244,7 +274,12 @@ def analysis_frame(
 
 
 def decomposition(data: pd.DataFrame, settings: Mapping[str, Any]) -> Decomposition:
-    """The preregistered decomposition (a fixed factor held constant is left out)."""
+    """The preregistered decomposition (a fixed factor held constant is left out).
+
+    The same call as :func:`noisefloor.recovery.analyze`, so G6 and E0 part 2 validate
+    exactly this procedure: ``fixed_interval`` ``jackknife`` gives the fixed contributions
+    task-jackknife boxes (D-028 item 1).
+    """
     fixed = [f for f in settings["fixed"] if data[f].nunique() > 1]
     return decompose(
         EvalResults(data),
@@ -258,6 +293,8 @@ def decomposition(data: pd.DataFrame, settings: Mapping[str, Any]) -> Decomposit
         boot_interval=str(settings["boot_interval"]),
         box_interval=str(settings["box_interval"]),
         share_interval=str(settings.get("share_interval", "percentile")),
+        fixed_interval=str(settings.get("fixed_interval", "box")),
+        jackknife_group="task",
         seed=int(settings["seed"]),
     )
 
@@ -371,13 +408,107 @@ def holm(p_values: Sequence[float]) -> list[float]:
     return adjusted
 
 
-def _usable(rows: Sequence[Mapping[str, Any]], exclude: Sequence[str]) -> list[Mapping[str, Any]]:
-    """Confirmatory runs the primary analyses use: no excluded status, not left out."""
+def _usable(
+    rows: Sequence[Mapping[str, Any]], exclude: Sequence[str], *, replicates: bool = False
+) -> list[Mapping[str, Any]]:
+    """Confirmatory runs an analysis uses: no excluded status and not left out.
+
+    Replicate runs serve only the sampling table (``replicates=True`` keeps them).
+    """
     return [
         r
         for r in rows
-        if r["confirmatory"] and r["status"] not in exclude and not r.get("excluded")
+        if r["confirmatory"]
+        and r["status"] not in exclude
+        and not r.get("excluded")
+        and (replicates or not r.get("replicate"))
     ]
+
+
+def sampling_table(
+    rows: Sequence[Mapping[str, Any]],
+    settings: Mapping[str, Any],
+    reference: Mapping[str, str] | None = None,
+    assumed: float | None = None,
+) -> list[dict[str, Any]]:
+    """Run-to-run sampling, from the replicate runs, on the probability scale (D-028 item 3).
+
+    Each replicate pairs with the planned run of the same model, task, and configuration
+    (run id without ``-rep``), when both are usable. Per configuration, the mean of
+    ``(y1 - y2)**2 / 2`` over pairs estimates the within-configuration outcome variance,
+    which equals ``E[p (1 - p)]`` when repeated runs are independent; its interval is the
+    task-clustered Wilson interval (``settings["sampling_interval"]``, default
+    ``cluster_wilson``) of the share of discordant pairs, halved. The row of the
+    ``reference`` configuration (the MDE's) also gives ``assumed``, the per-model
+    ``E[p (1 - p)]`` the MDE uses there; a measured value well below it means repeated
+    runs of that configuration are not independent draws.
+    """
+    usable = {
+        str(r["run_id"]): r for r in _usable(rows, settings["exclude_status"], replicates=True)
+    }
+    pairs: dict[tuple[tuple[str, str], ...], list[tuple[Mapping[str, Any], int]]] = {}
+    for run_id, rep in usable.items():
+        original = usable.get(run_id.removesuffix("-rep"))
+        if not rep.get("replicate") or original is None or original is rep:
+            continue
+        config = tuple(sorted((str(k), str(v)) for k, v in rep["factors"].items()))
+        pairs.setdefault(config, []).append((rep, int(rep["outcome"] != original["outcome"])))
+    method = str(settings.get("sampling_interval", "cluster_wilson"))
+    level = float(settings["level"])
+    out = []
+    for config, members in sorted(pairs.items()):
+        label = ",".join(f"{k}={v}" for k, v in config)
+        frame = pd.DataFrame(
+            [
+                {"model": label, "task": r["task"], "run": r["model_id"], "outcome": float(d)}
+                for r, d in members
+            ]
+        )
+        si = score_interval(EvalResults(frame), label, method=method, level=level)
+        factors = dict(config)
+        is_reference = reference is not None and all(
+            factors.get(k) == str(v) for k, v in reference.items()
+        )
+        out.append(
+            {
+                "configuration": factors,
+                "pairs": len(members),
+                "discordant": sum(d for _, d in members),
+                "within_var": si.interval.estimate / 2,
+                "lo": None if si.interval.lo is None else si.interval.lo / 2,
+                "hi": None if si.interval.hi is None else si.interval.hi / 2,
+                "interval_method": f"half of {si.interval.method}",
+                "mde_reference": is_reference,
+                "mde_assumed_within_var": assumed if is_reference else None,
+            }
+        )
+    return out
+
+
+def schedule_check(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Whether the local arm kept the simulated schedule: 3 days, every batch on its slot.
+
+    G6 and E0 part 2 simulate exactly 3 days x 2 blocks with each batch on its planned
+    slot. A batch runs off its slot when its realized day (the rank of its start date among
+    the arm's dates) or block differs from the planned ``day<k>-b<n>``. If the arm used
+    another number of days or any batch ran off its slot, the day and block intervals rest
+    on a design the validation did not simulate (prereg 0004).
+    """
+    local = [r for r in rows if r["confirmatory"] and r["backend"] == "local"]
+    days = sorted({str(r["day"]) for r in local})
+    rank = {d: i + 1 for i, d in enumerate(days)}
+    batches: dict[str, tuple[str, str, str]] = {}
+    for r in local:
+        batches[str(r["batch_id"])] = (str(r["planned_slot"]), str(r["day"]), str(r["block"]))
+    off = sorted(
+        b for b, (slot, day, block) in batches.items() if slot != f"day{rank[day]}-{block}"
+    )
+    return {
+        "days": len(days),
+        "batches": len(batches),
+        "batches_off_plan": len(off),
+        "simulated_design": len(days) == 3 and not off,
+    }
 
 
 def exclusion_counts(
@@ -431,7 +562,9 @@ def scores_table(
     """Each model's success rate with its preregistered interval (confirmatory runs).
 
     The interval method is ``settings["score_interval"]`` (default ``cluster_t``), one
-    method or one per arm.
+    method or one per arm. Each row also counts the model's runs that ended at a limit
+    (status ``timeout``) and how many of them have outcome 1 (D-021: a derive run is graded on
+    its final file whatever the end reason).
     """
     usable = _usable(rows, settings["exclude_status"])
     if not usable:
@@ -439,7 +572,8 @@ def scores_table(
     results = _results(usable, "model_id")
     out = []
     for model in sorted({r["model_id"] for r in usable}):
-        backend = next(r["backend"] for r in usable if r["model_id"] == model)
+        mine = [r for r in usable if r["model_id"] == model]
+        backend = mine[0]["backend"]
         method = interval_method(settings, "score_interval", backend, "cluster_t")
         si = score_interval(results, model, method=method, level=float(settings["level"]))
         out.append(
@@ -452,6 +586,10 @@ def scores_table(
                 "n_tasks": si.n_tasks,
                 "runs_per_task": si.runs_per_task,
                 "interval_method": si.interval.method,
+                "timeout_runs": sum(1 for r in mine if r["status"] == "timeout"),
+                "timeout_runs_with_outcome_1": sum(
+                    1 for r in mine if r["status"] == "timeout" and int(r["outcome"]) == 1
+                ),
             }
         )
     return out
@@ -480,12 +618,15 @@ def contrasts_table(
 ) -> dict[str, list[dict[str, Any]]]:
     """Paired harness contrasts per model and model comparisons, Holm-adjusted per family.
 
-    Harness: native minus minimal for every model, on its own confirmatory runs. Models:
-    every pair of local models on minimal-agent runs, and every Claude tier against every
-    local model on minimal-agent runs with the Claude step budget (temperature-confounded).
-    Holm families: local harness contrasts, Claude harness contrasts, local model pairs,
-    and Claude-local pairs. The interval method is ``settings["contrast_interval"]``
-    (default ``cluster_t``), one method or one per family.
+    Harness: native minus minimal for every model, on its own confirmatory runs. Harness
+    differences (D-028 item 6): for every pair of local models, the first model's harness
+    contrast minus the second's, paired by task (:func:`evalstats.contrast_difference`).
+    Models: every pair of local models on minimal-agent runs; every pair of Claude tiers
+    under each harness; and every Claude tier against every local model on minimal-agent
+    runs with the Claude step budget (temperature-confounded). Holm families: local harness
+    contrasts, Claude harness contrasts, local harness differences, local model pairs,
+    Claude tier pairs, and Claude-local pairs. The interval method is
+    ``settings["contrast_interval"]`` (default ``cluster_t``), one method or one per family.
     """
     level = float(settings["level"])
 
@@ -510,6 +651,7 @@ def contrasts_table(
                     family=family,
                 )
             )
+    differences = _harness_differences(usable, level, method("harness-diff-local"))
     minimal = [r for r in usable if r["factors"].get("harness") == "minimal"]
     local_models = sorted({r["model_id"] for r in minimal if r["backend"] == "local"})
     claude_models = sorted({r["model_id"] for r in minimal if r["backend"] == "claude"})
@@ -528,6 +670,7 @@ def contrasts_table(
                     family="models-local",
                 )
             )
+    models += _tier_pairs(usable, level, method("tiers-claude"))
     claude_steps = {r["factors"].get("steps") for r in minimal if r["backend"] == "claude"}
     matched = [
         r for r in minimal if r["backend"] == "claude" or r["factors"].get("steps") in claude_steps
@@ -547,15 +690,96 @@ def contrasts_table(
                 )
                 row["label"] = "temperature-confounded"
                 models.append(row)
-    for name in sorted({r["family"] for r in (*harness, *models)}):
-        members = [r for r in (*harness, *models) if r["family"] == name]
+    every = (*harness, *differences, *models)
+    for name in sorted({r["family"] for r in every}):
+        members = [r for r in every if r["family"] == name]
         for row, adj in zip(members, holm([r["p_value"] for r in members]), strict=True):
             row["p_holm"] = adj
             # The confirmatory reading: Holm-adjusted p below 0.05 within the family. The
             # 95% interval is per comparison (unadjusted) and reported beside it.
             row["supported"] = bool(adj < 0.05)
             row["interval_excludes_zero"] = bool(row["lo"] > 0 or row["hi"] < 0)
-    return {"harness": harness, "models": models}
+    return {"harness": harness, "harness_differences": differences, "models": models}
+
+
+def _tier_pairs(
+    usable: Sequence[Mapping[str, Any]], level: float, method: str
+) -> list[dict[str, Any]]:
+    """Every pair of Claude tiers under each harness, paired by task (D-028 item 6)."""
+    out: list[dict[str, Any]] = []
+    for harness_level in ("minimal", "native"):
+        tier_runs = [
+            r
+            for r in usable
+            if r["backend"] == "claude" and r["factors"].get("harness") == harness_level
+        ]
+        tiers = sorted({r["model_id"] for r in tier_runs})
+        if len(tiers) < 2:
+            continue
+        tier_results = _results(tier_runs, "model_id")
+        for i, a in enumerate(tiers):
+            for b in tiers[i + 1 :]:
+                out.append(
+                    _paired_row(
+                        tier_results,
+                        a,
+                        b,
+                        level,
+                        label=f"tiers:{harness_level}:{a}-{b}",
+                        method=method,
+                        family="tiers-claude",
+                    )
+                )
+    return out
+
+
+def _harness_differences(
+    usable: Sequence[Mapping[str, Any]], level: float, method: str
+) -> list[dict[str, Any]]:
+    """For each pair of local models, harness contrast of the first minus the second's."""
+    local = [r for r in usable if r["backend"] == "local"]
+    frame = pd.DataFrame(
+        [
+            {
+                "model": f"{r['model_id']}:{r['factors'].get('harness')}",
+                "task": r["task"],
+                "run": r["run_id"],
+                "outcome": float(r["outcome"]),
+            }
+            for r in local
+        ]
+    )
+    if frame.empty:
+        return []
+    results = EvalResults(frame)
+    models = sorted({str(r["model_id"]) for r in local})
+    out = []
+    for i, a in enumerate(models):
+        for b in models[i + 1 :]:
+            cd = contrast_difference(
+                results,
+                f"{a}:native",
+                f"{a}:minimal",
+                f"{b}:native",
+                f"{b}:minimal",
+                method=method,
+                level=level,
+            )
+            out.append(
+                {
+                    "contrast": f"harness-difference:{a}-{b}",
+                    "family": "harness-diff-local",
+                    "a": a,
+                    "b": b,
+                    "difference": cd.difference.estimate,
+                    "lo": cd.difference.lo,
+                    "hi": cd.difference.hi,
+                    "p_value": cd.p_value,
+                    "n_tasks": cd.n_tasks,
+                    "interval_method": cd.difference.method,
+                }
+            )
+    return out
 
 
 def _dump(obj: Any) -> str:
@@ -602,29 +826,56 @@ def compute(prereg: Path, directory: Path = E1_DIR, now: datetime | None = None)
         "n_runs": len(data),
         "excluded_runs": excluded,
         "exclusions": left_out,
+        "schedule": schedule_check(rows),
         "backend": decomp.backend,
         "formula": decomp.formula,
         "converged": decomp.converged,
         "messages": list(decomp.messages),
         "settings": settings,
         "components": components_json(decomp),
+        "fixed_effects": {str(k): float(v) for k, v in decomp.fixed_effects.items()},
     }
     mde = {"prereg": _rel(prereg), **mde_tables(decomp, data, settings)}
-    scores = {"prereg": _rel(prereg), "rows": scores_table(rows, settings)}
-    contrasts = {"prereg": _rel(prereg), **contrasts_table(rows, settings)}
+    sampling = {
+        "prereg": _rel(prereg),
+        "label": "within-configuration outcome variance from replicate runs (D-028 item 3)",
+        "rows": sampling_table(
+            rows,
+            settings,
+            reference=settings["mde"]["reference"],
+            assumed=float(mde["within_task_var"]) / 2,
+        ),
+    }
+    scores = {
+        "prereg": _rel(prereg),
+        "excluded": left_out,
+        "rows": scores_table(rows, settings),
+    }
+    contrasts = {"prereg": _rel(prereg), "excluded": left_out, **contrasts_table(rows, settings)}
     sensitivity = {
         "prereg": _rel(prereg),
         "label": "sensitivity analyses, reported beside the primary results",
         **sensitivity_tables(rows, settings),
-        "e3_bounds": bounds_table(rows, settings),
     }
+    bounds = {
+        "prereg": _rel(prereg),
+        "source": "e1",
+        "label": "E3 policy-sensitivity bounds on each local model's score",
+        "entries": bounds_table(rows, settings),
+    }
+    tables = {
+        "variance_components.json": variance,
+        "mde.json": mde,
+        "scores.json": scores,
+        "contrasts.json": contrasts,
+        "sampling.json": sampling,
+        "sensitivity.json": sensitivity,
+        "e3_bounds.json": bounds,
+    }
+    marked = [{**r, "mock_tasks": True} for r in rows]
     return {
-        "runs.jsonl": "".join(json.dumps(r, sort_keys=True) + "\n" for r in rows),
-        "variance_components.json": _dump(variance),
-        "mde.json": _dump(mde),
-        "scores.json": _dump(scores),
-        "contrasts.json": _dump(contrasts),
-        "sensitivity.json": _dump(sensitivity),
+        "runs.jsonl": "".join(json.dumps(r, sort_keys=True) + "\n" for r in marked),
+        **{name: _dump({**table, "tasks": MOCK_TASKS}) for name, table in tables.items()},
     }
 
 
@@ -635,7 +886,9 @@ def bounds_table(rows: Sequence[Mapping[str, Any]], settings: Mapping[str, Any])
     (``evalstats.policy_bounds``), with Imbens and Manski intervals for the worst-case
     bounds, on the confirmatory local-arm runs.
     """
-    local = [r for r in rows if r["confirmatory"] and r["backend"] == "local"]
+    local = [
+        r for r in rows if r["confirmatory"] and r["backend"] == "local" and not r.get("replicate")
+    ]
     if not local:
         return []
     frame = pd.DataFrame(
@@ -710,7 +963,7 @@ def build(prereg: Path, directory: Path = E1_DIR) -> dict[str, Any]:
     """Write every output and the manifest; returns the manifest."""
     outputs = compute(prereg, directory)
     files = {}
-    for name in INPUTS:
+    for name in (*INPUTS, *STOP_LOGS):
         path = directory / name
         if path.exists():
             files[_rel(path)] = hashlib.sha256(path.read_bytes()).hexdigest()

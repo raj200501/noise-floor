@@ -151,3 +151,77 @@ def paired_difference(
         unpaired_tasks_a=n_a - len(pair.tasks),
         unpaired_tasks_b=n_b - len(pair.tasks),
     )
+
+
+@dataclass(frozen=True)
+class ContrastDifference:
+    """Difference of two paired contrasts, ``(a1 - a0) - (b1 - b0)``, paired by task.
+
+    For example the harness effect of one model minus that of another: does a scaffold
+    help one model more than the other? ``n_tasks`` counts the tasks with runs under all
+    four labels; ``labels`` is ``(a1, a0, b1, b0)``.
+    """
+
+    labels: tuple[str, str, str, str]
+    n_tasks: int
+    difference: Interval
+    se: float
+    t_stat: float
+    p_value: float
+
+    @property
+    def supported(self) -> bool:
+        """True if the interval excludes zero (the contrasts differ at its level)."""
+        return self.difference.lo > 0 or self.difference.hi < 0
+
+
+def contrast_difference(
+    results: EvalResults,
+    a1: str,
+    a0: str,
+    b1: str,
+    b0: str,
+    *,
+    method: str = "cluster_t",
+    level: float = 0.95,
+    n_boot: int = 10_000,
+    seed: int | None = None,
+) -> ContrastDifference:
+    """Interval for ``(a1 - a0) - (b1 - b0)``, the difference of two contrasts, by task.
+
+    ``results`` labels each run by one of the four groups in its ``model`` column (for
+    example ``"m1:native"``). On every task with runs in all four groups, the per-task
+    value is the difference of the two groups' per-task contrasts (each a difference of
+    per-task means); the interval is for the mean of these values (``cluster_t`` by
+    default, or a bootstrap method of :func:`evalstats.intervals.interval_for_mean`), and
+    the p-value is the two-sided one-sample t-test on them.
+    """
+    labels = (a1, a0, b1, b0)
+    if len(set(labels)) != 4:
+        raise ValueError("the four groups must be different")
+    scores = [results.task_scores(label) for label in labels]
+    tasks = sorted(set.intersection(*(set(s.index) for s in scores)))
+    if not tasks:
+        raise ValueError("no task has runs in all four groups")
+    v = [s.reindex(tasks).to_numpy(dtype=np.float64) for s in scores]
+    values = (v[0] - v[1]) - (v[2] - v[3])
+    validity.check("contrast_difference", method, int(values.size))
+    interval = interval_for_mean(values, method=method, level=level, n_boot=n_boot, seed=seed)
+    se = mean_se(values)
+    if values.size < 2:
+        t_stat, p_value = math.nan, math.nan
+    elif se == 0.0:
+        mean = float(values.mean())
+        t_stat = math.copysign(math.inf, mean) if mean != 0 else 0.0
+        p_value = 0.0 if mean != 0 else 1.0
+    else:
+        t_stat = float(values.mean() / se)
+        p_value = float(2 * stats.t.sf(abs(t_stat), df=values.size - 1))
+    return ContrastDifference(
+        labels=labels,
+        n_tasks=len(tasks),
+        difference=interval,
+        se=se,
+        t_stat=t_stat,
+        p_value=p_value,
+    )

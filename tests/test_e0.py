@@ -175,3 +175,35 @@ def test_bounded_cells_with_truth_at_a_bound() -> None:
     assert run_replicate(cell("bounded_score", "imbens_manski", **plain), 2) == run_replicate(
         cell("bounded_score", "imbens_manski", ambiguous_among="any", **plain), 2
     )
+
+
+def test_within_model_contrasts_share_task_effects_and_split_the_timeout() -> None:
+    p = {"n_tasks": 3000, "runs": 1, "intercept": 0.0, "task_sd": 1.4, "model_task_sd": 0.7}
+    frame = e0._draw_within(np.random.default_rng(9), {**p, "split_shift": 0.0}, [0.0, 0.0])
+    wide = frame.pivot(index="task", columns="model", values="outcome")
+    apart = e0._draw(np.random.default_rng(9), [0.0, 0.0], **p)  # independent model:task
+    wide_apart = apart.pivot(index="task", columns="model", values="outcome")
+    # Sharing the model-by-task effect raises the per-task correlation of the two sides.
+    assert wide["m0"].corr(wide["m1"]) > wide_apart["m0"].corr(wide_apart["m1"]) + 0.05
+    sd = math.sqrt(1.4**2 + 0.7**2)
+    shifted = {**p, "split_shift": 0.6}
+    expected = 0.5 * (
+        (expected_sigmoid(0.4 + 0.6, sd) - expected_sigmoid(0.0, sd))
+        + (expected_sigmoid(0.4, sd) - expected_sigmoid(0.6, sd))
+    )
+    assert e0._true_within(0.4, 0.0, shifted) == pytest.approx(expected)
+    assert e0._true_within(0.4, 0.0, p) == pytest.approx(e0._true_difference(0.4, 0.0, p))
+    c = cell(
+        "paired_difference",
+        "mover_wilson",
+        effect_a=0.4,
+        effect_b=0.0,
+        runs=1,
+        within=True,
+        split_shift=0.4,
+        model_task_sd=0.7,
+    )
+    rep = run_replicate(c, 0)
+    assert rep.lo <= rep.estimate <= rep.hi and rep.truth == pytest.approx(
+        e0._true_within(0.4, 0.0, c.params)
+    )

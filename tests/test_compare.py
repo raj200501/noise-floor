@@ -86,3 +86,43 @@ def test_paired_difference_mover_wilson(results: EvalResults) -> None:
     assert got.p_value == pytest.approx(mover_wilson_p_value(*args))
     t_only = paired_difference(results, "a", "b")
     assert got.t_stat == t_only.t_stat and got.se == t_only.se
+
+
+def test_contrast_difference_is_a_paired_t_on_per_task_interactions() -> None:
+    from evalstats import contrast_difference
+
+    rng = np.random.default_rng(3)
+    rows = []
+    for t in range(9):
+        for label in ("a1", "a0", "b1", "b0"):
+            for r in range(3):
+                rows.append(
+                    {
+                        "model": label,
+                        "task": f"t{t}",
+                        "run": f"{label}{r}",
+                        "outcome": rng.random() < 0.5,
+                    }
+                )
+    rows.append({"model": "a1", "task": "lonely", "run": "x", "outcome": 1.0})  # not all four
+    rows.append({"model": "solo", "task": "lonely", "run": "y", "outcome": 0.0})
+    results = EvalResults(pd.DataFrame(rows))
+    cd = contrast_difference(results, "a1", "a0", "b1", "b0")
+    means = {k: results.task_scores(k) for k in ("a1", "a0", "b1", "b0")}
+    tasks = [f"t{t}" for t in range(9)]
+    values = np.array(
+        [(means["a1"][t] - means["a0"][t]) - (means["b1"][t] - means["b0"][t]) for t in tasks]
+    )
+    se = values.std(ddof=1) / math.sqrt(values.size)
+    half = stats.t.ppf(0.975, values.size - 1) * se
+    assert cd.n_tasks == 9 and cd.labels == ("a1", "a0", "b1", "b0")
+    assert cd.difference.estimate == pytest.approx(values.mean())
+    assert cd.difference.lo == pytest.approx(values.mean() - half)
+    assert cd.difference.hi == pytest.approx(values.mean() + half)
+    t_stat = values.mean() / se
+    assert cd.p_value == pytest.approx(2 * stats.t.sf(abs(t_stat), values.size - 1))
+    assert cd.supported == (cd.difference.lo > 0 or cd.difference.hi < 0)
+    with pytest.raises(ValueError, match="different"):
+        contrast_difference(results, "a1", "a1", "b1", "b0")
+    with pytest.raises(ValueError, match="all four"):
+        contrast_difference(results, "a1", "a0", "b1", "solo")

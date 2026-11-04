@@ -49,9 +49,12 @@ days) and the Claude arm is rate-capped per day.
 ## E1 schedule and operations (this hosted session)
 
 Order: freeze preregistrations 0004 (E1), 0005 (E0 part 2), and 0006 (G6) in one commit; run
-G6 and E0 part 2 (synthetic, CPU only, Laplace bootstrap: roughly 3 to 4 core-minutes per
-dataset, 700 datasets, so most of a day on 4 cores); then the E1 local arm. Nothing else runs
-on the CPU while E1 runs, because its runs have wall-clock limits.
+G6 and E0 part 2 (synthetic, CPU only, Laplace bootstrap with task-jackknife refits: roughly 3 to
+4 core-minutes per dataset, 1,200 GLMM datasets (G6 200, E0 groups `e1` and `e1-het` 500 each),
+so about 18 hours on 4 cores, plus the cheap local-arm and non-GLMM cells); then the E1 local arm.
+Running G6 and E0 part 2 first lets a failing kind of interval be changed by a dated amendment
+before any E1 data exist. Nothing else runs on the CPU while E1 runs, because its runs have
+wall-clock limits.
 
 - The local arm runs as `python -m noisefloor.e1 local prereg/0004-e1-factorial.md`, detached
   (`setsid nohup`, PID file and log under `runs/e1/`), with a watcher. It is resumable: a

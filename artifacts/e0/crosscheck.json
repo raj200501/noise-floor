@@ -100,49 +100,103 @@
    "value": 0.6944444444444444
   },
   {
-   "abs_diff": 4.199934844351105e-11,
+   "abs_diff": 0.0,
+   "name": "cluster_wilson lower bound (Wilson core)",
+   "note": "",
+   "reference": 0.4488182410699997,
+   "reference_impl": "statsmodels 0.15.0 proportion_confint(method='wilson') at the design-effect n",
+   "tolerance": 1e-10,
+   "value": 0.4488182410699997
+  },
+  {
+   "abs_diff": 0.0,
+   "name": "cluster_wilson upper bound (Wilson core)",
+   "note": "",
+   "reference": 0.6921112883302636,
+   "reference_impl": "statsmodels 0.15.0 proportion_confint(method='wilson') at the design-effect n",
+   "tolerance": 1e-10,
+   "value": 0.6921112883302636
+  },
+  {
+   "abs_diff": 0.0,
+   "name": "mover_wilson lower bound, uncorrelated rates (Newcombe hybrid score)",
+   "note": "",
+   "reference": -0.21788123935443368,
+   "reference_impl": "statsmodels 0.15.0 confint_proportions_2indep(method='newcomb')",
+   "tolerance": 1e-10,
+   "value": -0.21788123935443368
+  },
+  {
+   "abs_diff": 0.0,
+   "name": "mover_wilson upper bound, uncorrelated rates (Newcombe hybrid score)",
+   "note": "",
+   "reference": 0.21788123935443368,
+   "reference_impl": "statsmodels 0.15.0 confint_proportions_2indep(method='newcomb')",
+   "tolerance": 1e-10,
+   "value": 0.21788123935443368
+  },
+  {
+   "abs_diff": 2.886751637731777e-07,
+   "name": "paired MDE, 40 tasks x 1 runs",
+   "note": "statsmodels counts the far rejection tail; the formula does not",
+   "reference": 0.25058111102320313,
+   "reference_impl": "statsmodels 0.15.0 NormalIndPower.solve_power (one sample), times the per-task sd",
+   "tolerance": 1e-05,
+   "value": 0.2505813996983669
+  },
+  {
+   "abs_diff": 5.722950550263173e-08,
+   "name": "paired MDE, 200 tasks x 5 runs",
+   "note": "statsmodels counts the far rejection tail; the formula does not",
+   "reference": 0.05603164713275387,
+   "reference_impl": "statsmodels 0.15.0 NormalIndPower.solve_power (one sample), times the per-task sd",
+   "tolerance": 1e-05,
+   "value": 0.05603170436225937
+  },
+  {
+   "abs_diff": 4.069550252339127e-11,
    "name": "GLMM harness coefficient, rpy2 path versus direct R",
    "note": "",
-   "reference": 0.4872382101,
+   "reference": 0.4872383405,
    "reference_impl": "R lme4 glmer called directly with Rscript",
    "tolerance": 1e-06,
-   "value": 0.48723821005800066
+   "value": 0.4872383405406955
   },
   {
-   "abs_diff": 2.3508750501832765e-11,
+   "abs_diff": 4.0912828680461644e-11,
    "name": "GLMM task variance, rpy2 path versus direct R",
    "note": "",
-   "reference": 1.5881426019,
+   "reference": 1.5881427191,
    "reference_impl": "R lme4 glmer called directly with Rscript",
    "tolerance": 1e-06,
-   "value": 1.5881426019235088
+   "value": 1.588142719059087
   },
   {
-   "abs_diff": 3.6085578969391463e-12,
+   "abs_diff": 4.1030290276466985e-11,
    "name": "GLMM model variance, rpy2 path versus direct R",
    "note": "",
-   "reference": 0.1701301798,
+   "reference": 0.1701301678,
    "reference_impl": "R lme4 glmer called directly with Rscript",
    "tolerance": 1e-06,
-   "value": 0.17013017980360856
+   "value": 0.17013016775896972
   },
   {
-   "abs_diff": 0.000541100441381559,
+   "abs_diff": 0.0005409650225121077,
    "name": "GLMM harness coefficient, lme4 (Laplace) versus statsmodels (variational Bayes)",
    "note": "different estimators; tolerance on the logit scale",
-   "reference": 0.4877793104993822,
+   "reference": 0.4877793055632076,
    "reference_impl": "statsmodels 0.15.0 BinomialBayesMixedGLM",
    "tolerance": 0.05,
-   "value": 0.48723821005800066
+   "value": 0.4872383405406955
   },
   {
-   "abs_diff": 0.02239749117584222,
+   "abs_diff": 0.022397423705266206,
    "name": "GLMM task variance, lme4 versus statsmodels",
    "note": "different estimators; tolerance on the variance scale",
-   "reference": 1.610540093099351,
+   "reference": 1.6105401427643533,
    "reference_impl": "statsmodels 0.15.0 BinomialBayesMixedGLM",
    "tolerance": 0.25,
-   "value": 1.5881426019235088
+   "value": 1.588142719059087
   }
  ],
  "generator": "python -m noisefloor.e0_crosscheck",

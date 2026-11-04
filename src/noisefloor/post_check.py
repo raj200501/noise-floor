@@ -1,0 +1,301 @@
+"""Post-E1 check at the fitted values (D-028 item 4; synthetic data only).
+
+G6 and E0 part 2 validate the primary analysis at planted values chosen before E1. This
+check asks whether the analysis also holds where E1 landed: it simulates
+:data:`POST_DATASETS` datasets (seeds :data:`POST_SEEDS`, fixed in the E1 preregistration)
+from the E1 fit, analyzes each with the unchanged primary analysis
+(:func:`noisefloor.recovery.recover`), and holds every component's coverage to the G5 rule
+(coverage at least nominal minus 0.015 minus twice its Monte Carlo standard error).
+
+The planted values are the E1 estimates: the intercept, model, factor, day, and block
+effects and the task and model:task variances of the primary fit
+(``artifacts/e1/variance_components.json``); the batch variance of the batch-term
+sensitivity fit (``sensitivity.json``); and task-by-harness, task-by-steps, and
+task-by-timeout variances from one auxiliary fit with those random terms added
+(:func:`auxiliary_interactions`). A component whose coverage fails the rule is reported
+as resting on an unsupported method; if the batch variance exceeds :data:`BATCH_RULE`, the
+concurrency, day, and block intervals are also reported as not validated.
+
+``python -m noisefloor.post_check run PREREG`` appends one row per dataset to
+``artifacts/e1/post_check/raw.jsonl`` (resumable, stamped as G6 rows are);
+``bank PREREG`` writes ``artifacts/e1/post_check.json``.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import sys
+from collections.abc import Mapping, Sequence
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+
+from evalstats import EvalResults
+from evalstats.glmm import decompose
+from noisefloor import jsonl, preregs
+from noisefloor.e0_run import record_environment
+from noisefloor.e1 import E1Design
+from noisefloor.preregs import prereg_block
+from noisefloor.provenance import single_environment, stamp
+from noisefloor.recovery import TWO_LEVEL, AnalysisSettings, Design, Planted, recover
+
+REPO = Path(__file__).resolve().parents[2]
+E1_DIR = REPO / "artifacts" / "e1"
+POST_SEEDS = range(980000, 980200)  # never used by G6 (970000 on) or the pilots (990000 on)
+POST_DATASETS = len(POST_SEEDS)
+BATCH_RULE = 0.05  # batch variance above which concurrency, day, and block are not validated
+BATCH_FACTORS = ("concurrency", "day", "block")
+INTERACTION_FACTORS = ("harness", "steps", "timeout")
+
+
+def g5_rule(covered: int, n: int, nominal: float) -> tuple[bool, float, float]:
+    """(passes, coverage, threshold) under the G5 rule."""
+    coverage = covered / n
+    threshold = nominal - 0.015 - 2 * math.sqrt(coverage * (1 - coverage) / n)
+    return coverage >= threshold - 1e-12, coverage, threshold
+
+
+def settings_from(analysis: Mapping[str, Any]) -> AnalysisSettings:
+    """The primary analysis settings of the ``e1-analysis`` block, for :func:`recover`."""
+    return AnalysisSettings(
+        n_boot=int(analysis["n_boot"]),
+        nagq=int(analysis["nagq"]),
+        boot_interval=str(analysis["boot_interval"]),
+        level=float(analysis["level"]),
+        random=tuple(analysis["random"]),
+        box_interval=str(analysis["box_interval"]),
+        share_interval=str(analysis.get("share_interval", "percentile")),
+        fixed_interval=str(analysis.get("fixed_interval", "box")),
+    )
+
+
+def auxiliary_interactions(data: pd.DataFrame, analysis: Mapping[str, Any]) -> dict[str, float]:
+    """Task-by-factor variances from one fit of the primary model plus those random terms."""
+    fixed = tuple(f for f in analysis["fixed"] if data[f].nunique() > 1)
+    random = (*analysis["random"], *(f"task:{f}" for f in INTERACTION_FACTORS))
+    fit = decompose(
+        EvalResults(data),
+        random=random,
+        fixed=fixed,
+        intervals=False,
+        backend="lme4",
+        nagq=int(analysis["nagq"]),
+    )
+    found = {c.name: c.variance for c in fit.components if c.kind == "random"}
+    return {f: float(found[f"task:{f}"]) for f in INTERACTION_FACTORS}
+
+
+def planted_from_fit(
+    fixed_effects: Mapping[str, float],
+    variances: Mapping[str, float],
+    *,
+    batch_var: float,
+    interactions: Mapping[str, float],
+    design: E1Design,
+    data: pd.DataFrame,
+) -> tuple[Design, Planted]:
+    """The simulation design and planted values that reproduce the E1 fit.
+
+    The analysis uses treatment coding with the first sorted level as reference; the
+    simulator codes each two-level factor 0 and 1 in the order of the design's levels, so
+    a factor's planted effect is the coefficient of its level 1 minus that of its level 0,
+    and the planted intercept is the fit's linear predictor with every factor at level 0,
+    the first sorted model, and the first day and block.
+    """
+    models = sorted(str(m) for m in data["model"].unique())
+    days = sorted(str(d) for d in data["day"].unique())
+    blocks = sorted(str(b) for b in data["block"].unique())
+
+    def coef(name: str, level: Any) -> float:
+        return float(fixed_effects.get(f"{name}{level}", 0.0))
+
+    intercept = float(fixed_effects["(Intercept)"])
+    factors = {}
+    for name in TWO_LEVEL:
+        level0, level1 = (str(v) for v in design.levels[name])
+        intercept += coef(name, level0)
+        factors[name] = coef(name, level1) - coef(name, level0)
+    simulated = Design(
+        n_models=len(models),
+        n_tasks=int(data["task"].nunique()),
+        runs_per_cell=design.runs_per_cell,
+        batch_size=design.batch_size,
+        days=len(days),
+        blocks_per_day=len(blocks),
+    )
+    planted = Planted(
+        intercept=intercept,
+        model=tuple(coef("model", m) for m in models),
+        factors=factors,
+        day=tuple(coef("day", d) for d in days),
+        block=tuple(coef("block", b) for b in blocks),
+        task_var=float(variances["task"]),
+        model_task_var=float(variances["model:task"]),
+        batch_var=float(batch_var),
+        interactions=dict(interactions),
+    )
+    return simulated, planted
+
+
+def _config_path(directory: Path) -> Path:
+    return directory / "post_check" / "config.json"
+
+
+def prepare(prereg: Path, directory: Path = E1_DIR) -> dict[str, Any]:
+    """Derive the planted configuration from the banked E1 results and write it once.
+
+    The configuration is written to ``post_check/config.json`` beside the E1 artifacts and
+    reused by every later call, so a resumed run simulates from the same values.
+    """
+    from noisefloor.analysis import e1 as analysis  # noqa: PLC0415 - analysis imports e1
+
+    path = _config_path(directory)
+    if path.exists():
+        return dict(json.loads(path.read_text()))
+    preregs.require_frozen(prereg)
+    settings = prereg_block(prereg, "e1-analysis")
+    design = E1Design.from_json(prereg_block(prereg, "e1-plan"))
+    rows = [json.loads(ln) for ln in (directory / "runs.jsonl").read_text().splitlines()]
+    data = analysis.analysis_frame(rows, settings["exclude_status"])
+    variance = json.loads((directory / "variance_components.json").read_text())
+    sensitivity = json.loads((directory / "sensitivity.json").read_text())
+    batch_fit = sensitivity["batch_random_effect"]
+    # A failed batch-term fit leaves no batch variance to plant: 0, and the config says so.
+    batch = next(
+        (c["estimate"] for c in batch_fit.get("components", []) if c["name"] == "batch"), 0.0
+    )
+    variances = {c["name"]: c["estimate"] for c in variance["components"]}
+    simulated, planted = planted_from_fit(
+        variance["fixed_effects"],
+        variances,
+        batch_var=float(batch),
+        interactions=auxiliary_interactions(data, settings),
+        design=design,
+        data=data,
+    )
+    config = {
+        "design": simulated.__dict__,
+        "planted": planted.to_json(),
+        "settings": settings_from(settings).__dict__,
+        "seeds": [POST_SEEDS[0], POST_SEEDS[-1]],
+        "batch_rule": BATCH_RULE,
+        "batch_fit_error": batch_fit.get("error"),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(config, indent=1, sort_keys=True) + "\n")
+    return dict(json.loads(path.read_text()))  # the same value every later call reads
+
+
+def _job(job: tuple[dict[str, Any], int]) -> dict[str, Any]:
+    from noisefloor.recovery import config_from  # noqa: PLC0415 - spawned workers
+
+    block, seed = job
+    design, planted, settings = config_from(block)
+    return {**recover(design, planted, settings, seed), "stamp": stamp()}
+
+
+def run(
+    prereg: Path,
+    directory: Path = E1_DIR,
+    workers: int = 1,
+    log: Any = print,
+    seeds: Sequence[int] = POST_SEEDS,
+) -> int:
+    """Append a row for every post-check seed not yet run (resumable)."""
+    from noisefloor.recovery import _pool_map, dumps  # noqa: PLC0415
+
+    config = prepare(prereg, directory)
+    raw = directory / "post_check" / "raw.jsonl"
+    jsonl.repair_tail(raw)
+    done = {int(r["seed"]) for r in jsonl.read(raw)}
+    block = {k: config[k] for k in ("design", "planted", "settings")}
+    jobs = [(block, s) for s in seeds if s not in done]
+    record_environment(raw.parent)
+    added = 0
+    for row in _pool_map(jobs, _job, workers):
+        jsonl.append(raw, [json.loads(dumps(row))])
+        added += 1
+        if added % 10 == 0:
+            log(f"post-E1 check: {len(done) + added}/{len(seeds)} datasets")
+    return added
+
+
+def summarize(
+    rows: Sequence[Mapping[str, Any]], nominal: float, batch_var: float
+) -> dict[str, Any]:
+    """Per component, coverage under the G5 rule; and which intervals are not validated."""
+    names = sorted({n for r in rows for n in r["components"]})
+    components = {}
+    for name in names:
+        comps = [r["components"][name] for r in rows if name in r["components"]]
+        covered = sum(
+            1
+            for c in comps
+            if c["lo"] is not None and c["hi"] is not None and c["lo"] <= c["planted"] <= c["hi"]
+        )
+        ok, coverage, threshold = g5_rule(covered, len(comps), nominal)
+        components[name] = {
+            "datasets": len(comps),
+            "coverage": coverage,
+            "threshold": threshold,
+            "passes": ok,
+        }
+    failing = sorted(n for n, c in components.items() if not c["passes"])
+    batch = batch_var > BATCH_RULE
+    unsupported = sorted({*failing, *(BATCH_FACTORS if batch else ())})
+    return {
+        "components": components,
+        "failing": failing,
+        "batch_var": batch_var,
+        "batch_rule_exceeded": batch,
+        "not_validated": unsupported,
+    }
+
+
+def bank(
+    prereg: Path, directory: Path = E1_DIR, seeds: Sequence[int] = POST_SEEDS
+) -> dict[str, Any]:
+    """Write ``post_check.json`` from the rows of every post-check seed."""
+    entry = preregs.require_frozen(prereg)
+    config = prepare(prereg, directory)
+    rows = {int(r["seed"]): r for r in jsonl.read(directory / "post_check" / "raw.jsonl")}
+    missing = [s for s in seeds if s not in rows]
+    if missing:
+        raise ValueError(f"{len(missing)} post-check datasets are not run yet")
+    ordered = [rows[s] for s in seeds]
+    env = single_environment(r.get("stamp") for r in ordered)
+    artifact = {
+        "prereg": preregs.repo_path(prereg),
+        "prereg_sha256": entry["sha256"],
+        "synthetic": True,
+        "label": "post-E1 check at the fitted values (D-028 item 4)",
+        "environment": env,
+        "config": config,
+        **summarize(ordered, float(config["settings"]["level"]), config["planted"]["batch_var"]),
+    }
+    (directory / "post_check.json").write_text(
+        json.dumps(artifact, indent=1, sort_keys=True) + "\n"
+    )
+    return artifact
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """``python -m noisefloor.post_check run|bank PREREG [--workers N]``."""
+    parser = argparse.ArgumentParser(description="post-E1 check at the fitted values")
+    parser.add_argument("command", choices=["run", "bank"])
+    parser.add_argument("prereg", type=Path)
+    parser.add_argument("--workers", type=int, default=1)
+    args = parser.parse_args(list(argv) if argv is not None else None)
+    if args.command == "run":
+        print(f"added {run(args.prereg, workers=args.workers)} datasets")
+    else:
+        result = bank(args.prereg)
+        print(f"not validated: {', '.join(result['not_validated']) or 'none'}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

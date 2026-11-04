@@ -72,11 +72,19 @@ class E1Design:
     order_seed: int = 1
     max_tokens: int = 384
     runs_per_cell: int = 8
+    # Configurations (0/1 codes in TWO_LEVEL order) that every (model, task) cell runs a
+    # second time, phase "e1-rep", to measure run-to-run sampling (D-028 item 3).
+    replicates: tuple[tuple[int, ...], ...] = ()
 
     def __post_init__(self) -> None:
         """Reject designs E1 cannot run."""
         if self.runs_per_cell not in (8, 16):
             raise ValueError("runs_per_cell must be 8 (one block) or 16 (the half fraction)")
+        for bits in self.replicates:
+            if len(bits) != len(TWO_LEVEL) or set(bits) - {0, 1} or sum(bits) % 2:
+                raise ValueError(f"replicate {bits} is not a run of the half fraction")
+        if self.replicates and self.runs_per_cell != 16:
+            raise ValueError("replicates need the whole half fraction in every cell")
         unknown = [m for m in self.models if m not in MODELS]
         if unknown:
             raise ValueError(f"not pinned local models: {unknown}")
@@ -114,6 +122,7 @@ class E1Design:
             order_seed=int(data["order_seed"]),
             max_tokens=int(data["max_tokens"]),
             runs_per_cell=int(data.get("runs_per_cell", 8)),
+            replicates=tuple(tuple(int(b) for b in r) for r in data.get("replicates", [])),
         )
 
     def to_json(self) -> dict[str, Any]:
@@ -133,6 +142,7 @@ class E1Design:
             "order_seed": self.order_seed,
             "max_tokens": self.max_tokens,
             "runs_per_cell": self.runs_per_cell,
+            "replicates": [list(r) for r in self.replicates],
         }
 
 
@@ -235,8 +245,15 @@ def _local_spec(
     )
 
 
+REPLICATE_PHASE = "e1-rep"
+
+
 def local_plan(design: E1Design) -> list[RunSpec]:
-    """Every local-arm run, in execution order (slot by slot, batch by batch)."""
+    """Every local-arm run, in execution order (slot by slot, batch by batch).
+
+    A replicate run (phase ``e1-rep``, run id ``<planned run id>-rep``) repeats one cell
+    configuration with its own sampling seed and is batched like any other run.
+    """
     rng = random.Random(f"e1-local:{design.order_seed}")
     first, second = half_fraction_blocks()
     task_list = tasks(design)
@@ -246,6 +263,10 @@ def local_plan(design: E1Design) -> list[RunSpec]:
             half = cell_runs(first, second, mi + ti, design.runs_per_cell)
             for bits in half:
                 runs.append(_local_spec(design, model, task, bits, rng.randrange(2**31)))
+            for bits in design.replicates:
+                rep = _local_spec(design, model, task, bits, rng.randrange(2**31)).to_json()
+                rep.update(run_id=f"{rep['run_id']}-rep", phase=REPLICATE_PHASE)
+                runs.append(RunSpec.from_json(rep))
     groups: dict[tuple[str, int], list[RunSpec]] = {}
     for spec in runs:
         groups.setdefault((spec.model, spec.concurrency), []).append(spec)
@@ -833,7 +854,7 @@ def run_dry(
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """``python -m noisefloor.e1 plan|local|claude PREREG``, ``stop|resume ARM``, or ``dry-run PLAN``.
+    """``python -m noisefloor.e1 plan|local|claude PREREG``, ``stop|resume ARM``, ``dry-run``.
 
     Exit codes: 0 done or waiting, 3 the arm is stopped (``resume`` after a repair), 4
     another runner holds the arm's lock.

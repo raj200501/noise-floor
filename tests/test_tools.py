@@ -277,3 +277,72 @@ def test_budget_counts_both_ledgers(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert budget.main() == 0  # 4 agent runs, cap 6 at cap share 0.2
     b.write_text("".join(json.dumps(r) + "\n" for r in runs))
     assert budget.main() == 1  # 8 on one day across the two ledgers
+
+
+def _g6_repo(root: Path, components: list[str], *, rows_ok: bool = True) -> Path:
+    import hashlib
+    import json
+    import subprocess
+
+    def git(*args: str) -> None:
+        env = {
+            "GIT_AUTHOR_NAME": "t",
+            "GIT_AUTHOR_EMAIL": "t@example.invalid",
+            "GIT_COMMITTER_NAME": "t",
+            "GIT_COMMITTER_EMAIL": "t@example.invalid",
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "PATH": "/usr/bin:/bin",
+        }
+        subprocess.run(["git", *args], cwd=root, check=True, capture_output=True, env=env)
+
+    config = {"design": {"n_tasks": 30}, "settings": {"level": 0.95}}
+    seeds = list(range(200))
+    (root / "prereg").mkdir(parents=True)
+    text = "# G6\n\n"
+    for name, value in (
+        ("recovery-config", config),
+        ("g6-seeds", seeds),
+        ("g6-components", ["task", "harness"]),
+    ):
+        text += f"```json {name}\n{json.dumps(value)}\n```\n\n"
+    (root / "prereg" / "0006-g6.md").write_text(text)
+    git("init", "-q")
+    git("add", "-A")
+    git("commit", "-q", "-m", "freeze")
+
+    def comp(i: int) -> dict[str, float]:
+        hit = rows_ok or i % 4  # a quarter of misses when not ok
+        return {"planted": 1.0, "estimate": 1.0, "lo": 0.5, "hi": 1.5 if hit else 0.9}
+
+    datasets = [
+        {"seed": s, "components": {c: comp(s) for c in components}, "error": None} for s in seeds
+    ]
+    bias = {c: 0.0 for c in components}
+    artifact = {
+        "prereg": "prereg/0006-g6.md",
+        "nominal": 0.95,
+        "config": config,
+        "environment": {"env": hashlib.sha256(b"e").hexdigest()[:16]},
+        "datasets": datasets,
+        "bias": bias,
+    }
+    (root / "artifacts" / "g6").mkdir(parents=True)
+    (root / "artifacts" / "g6" / "recovery.json").write_text(json.dumps(artifact))
+    git("add", "-A")
+    git("commit", "-q", "-m", "bank")
+    return root
+
+
+def test_g6_checks_components_config_and_coverage(tmp_path: Path) -> None:
+    good = _g6_repo(tmp_path / "good", ["task", "harness"])
+    assert ship_check.g6(_ctx(good)).startswith("200 datasets (0 failed fits)")
+    extra = _g6_repo(tmp_path / "extra", ["task", "harness", "score:m0"])
+    with pytest.raises(ship_check.GateError, match="g6-components"):
+        ship_check.g6(_ctx(extra))
+    short = _g6_repo(tmp_path / "short", ["task"])
+    with pytest.raises(ship_check.GateError, match="g6-components"):
+        ship_check.g6(_ctx(short))
+    low = _g6_repo(tmp_path / "low", ["task", "harness"], rows_ok=False)
+    with pytest.raises(ship_check.GateError, match="coverage"):
+        ship_check.g6(_ctx(low))

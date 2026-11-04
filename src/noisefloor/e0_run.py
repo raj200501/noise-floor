@@ -22,7 +22,9 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
+from noisefloor import preregs as chain  # bank() takes a 'preregs' argument
 from noisefloor.e0 import Cell, Replicate, cells_from_grid, run_replicate, summarize
+from noisefloor.provenance import process_environment, single_environment, stamp
 
 REPO = Path(__file__).resolve().parents[2]
 E0_DIR = REPO / "artifacts" / "e0"
@@ -61,6 +63,27 @@ def read_raw(cell: Cell, root: Path = E0_DIR) -> dict[int, Replicate]:
     return out
 
 
+def read_stamps(cell: Cell, root: Path = E0_DIR) -> list[dict[str, Any] | None]:
+    """The provenance stamp of each banked replicate of a cell (None for older lines)."""
+    path = raw_path(cell, root)
+    if not path.exists():
+        return []
+    rows = [json.loads(ln) for ln in path.read_text().splitlines() if ln.strip()]
+    return [r.get("stamp") for r in rows if int(r["i"]) < cell.replicates]
+
+
+def record_environment(directory: Path) -> str:
+    """Add this process's environment to ``directory/environments.json``; returns its hash."""
+    found = process_environment()
+    path = directory / "environments.json"
+    known = json.loads(path.read_text()) if path.exists() else {}
+    if known.get(found["env"]) != found["key"]:
+        known[found["env"]] = found["key"]
+        directory.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(known, indent=1, sort_keys=True) + "\n")
+    return str(found["env"])
+
+
 def _num(value: Any) -> float:
     return float("nan") if value is None else float(value)
 
@@ -80,6 +103,7 @@ def _work(args: tuple[dict[str, Any], int]) -> tuple[int, dict[str, Any]]:
         "hi": _json_num(rep.hi),
         "estimate": _json_num(rep.estimate),
         "hit": rep.hit,
+        "stamp": stamp(),
     }
 
 
@@ -90,7 +114,7 @@ def run_cell(cell: Cell, workers: int = 1, root: Path = E0_DIR, log: Any = print
     if not todo:
         return 0
     path = raw_path(cell, root)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    record_environment(path.parent)
     spec = {
         "cell": cell.cell,
         "method": cell.method,
@@ -144,7 +168,10 @@ def coverage_name(index: int, prereg: Path) -> str:
 def bank(preregs: Sequence[Path], root: Path = E0_DIR) -> dict[str, dict[str, Any]]:
     """Summarize each grid's cells into its own coverage artifact; returns them by name.
 
-    The first path is the base grid; each later path is an amendment of it.
+    The first path is the base grid; each later path is an amendment of it. Every grid
+    must be frozen, and the raw lines of a grid's cells must share one environment from a
+    clean ``src/`` (:func:`noisefloor.provenance.single_environment`; lines banked before
+    stamps existed carry none), which its artifact names.
     """
     grids = [(path, grid_from_prereg(path)) for path in preregs]
     ids = [c.cell for _, cells in grids for c in cells]
@@ -159,8 +186,14 @@ def bank(preregs: Sequence[Path], root: Path = E0_DIR) -> dict[str, dict[str, An
             ordered = [reps[i] for i in sorted(reps) if i < cell.replicates]
             summaries.append(summarize(cell, ordered))
         rel = str(path.resolve().relative_to(REPO))
+        entry = chain.require_frozen(path)
+        env = single_environment(s for cell in cells for s in read_stamps(cell, root))
+        envs = root / "raw" / "environments.json"
+        known = json.loads(envs.read_text()) if env and envs.exists() else {}
         artifact: dict[str, Any] = {
             "prereg": rel,
+            "prereg_sha256": entry["sha256"],
+            "environment": {"env": env, "key": known.get(env)} if env else None,
             "confirmatory": True,
             "generator": "python -m noisefloor.e0_run bank "
             + " ".join(str(p.resolve().relative_to(REPO)) for p in preregs),
@@ -202,6 +235,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     b.add_argument("preregs", type=Path, nargs="+")
     args = parser.parse_args(list(argv) if argv is not None else None)
     if args.command == "run":
+        chain.require_frozen(args.prereg)
         for cell in grid_from_prereg(args.prereg):
             if args.cells and cell.cell not in args.cells:
                 continue

@@ -8,7 +8,14 @@ policy-sensitivity bounds for model evaluation results.
 from __future__ import annotations
 
 from evalstats.bounds import BoundedPair, BoundedScore, PolicyReport, policy_bounds
-from evalstats.compare import PairedComparison, ScoreInterval, paired_difference, score_interval
+from evalstats.compare import (
+    ContrastDifference,
+    PairedComparison,
+    ScoreInterval,
+    contrast_difference,
+    paired_difference,
+    score_interval,
+)
 from evalstats.glmm import Decomposition, VarianceComponent, decompose
 from evalstats.intervals import (
     Interval,
@@ -38,6 +45,7 @@ __all__ = [
     "AdjacentPair",
     "BoundedPair",
     "BoundedScore",
+    "ContrastDifference",
     "Decomposition",
     "EvalResults",
     "Interval",
@@ -54,6 +62,7 @@ __all__ = [
     "bca_interval",
     "cluster_robust_mean",
     "cluster_wilson_interval",
+    "contrast_difference",
     "decompose",
     "design_from_logit",
     "design_from_results",

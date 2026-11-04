@@ -37,7 +37,19 @@ def write_prereg(path: Path, grid: list[dict[str, object]], extra: str = "") -> 
     return path
 
 
+def lenient(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bank rows stamped in a working tree under edit (the dirty check has its own test)."""
+    import functools
+
+    from noisefloor import provenance
+
+    lax = functools.partial(provenance.single_environment, allow_dirty=True)
+    monkeypatch.setattr(e0_run, "single_environment", lax)
+
+
+@pytest.mark.usefixtures("unfrozen_ok")
 def test_run_bank_and_resume(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    lenient(monkeypatch)
     monkeypatch.setattr(e0_run, "REPO", tmp_path)
     prereg = write_prereg(tmp_path / "0003-grid.md", GRID)
     cells = e0_run.grid_from_prereg(prereg)
@@ -63,11 +75,23 @@ def test_run_bank_and_resume(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert 0 <= by_id["T-r"]["covered"] <= 3
     text = (root / "coverage.json").read_text()
     assert "NaN" not in text and json.loads(text)["confirmatory"] is True
+    # Every raw line carries a stamp; the artifact names the one environment behind them.
+    lines = [json.loads(ln) for ln in (root / "raw" / "T-a.jsonl").read_text().splitlines()]
+    assert all(len(ln["stamp"]["env"]) == 16 and ln["stamp"]["at"] for ln in lines)
+    env = base["environment"]["env"]
+    assert env == lines[0]["stamp"]["env"] and base["environment"]["key"]["src_tree"]
+    assert base["prereg_sha256"] == "0" * 64
+    other = {**lines[0], "i": 0, "stamp": {**lines[0]["stamp"], "env": "f" * 16}}
+    with (root / "raw" / "T-a.jsonl").open("a") as fh:
+        fh.write(json.dumps(other) + "\n")
+    with pytest.raises(ValueError, match="2 environments"):
+        e0_run.bank([prereg, amend], root)
     assert json.loads((root / "coverage-0004.json").read_text())["prereg"] == "0004-more.md"
     with pytest.raises(ValueError, match="repeat"):
         e0_run.bank([prereg, prereg], root)
 
 
+@pytest.mark.usefixtures("unfrozen_ok")
 def test_grid_errors_and_cli(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

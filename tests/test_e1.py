@@ -693,3 +693,21 @@ def test_run_dry_keeps_going_after_a_failed_batch(tmp_path) -> None:
     assert first["wall_median_s"] == 30.0 and first["wall_max_s"] == 40.0
     assert first["load_max"] == 6.5 and first["mem_available_min_mb"] == 8997
     assert first["server_peak_rss_mb"] == 2400
+
+
+def test_replicate_runs_repeat_two_configurations_per_cell() -> None:
+    reps = ((0, 1, 1, 0, 0), (0, 1, 1, 1, 1))
+    full = e1.E1Design(models=MODELS[:2], tasks_per_family=1, runs_per_cell=16, replicates=reps)
+    plan = e1.local_plan(full)
+    replicates = [s for s in plan if s.phase == e1.REPLICATE_PHASE]
+    assert len(replicates) == 2 * len(MODELS[:2]) * len(e1.tasks(full))
+    by_id = {s.run_id: s for s in plan}
+    for rep in replicates:
+        original = by_id[rep.run_id.removesuffix("-rep")]
+        assert original.factors == rep.factors and original.seed != rep.seed
+        assert rep.block and rep.block.split("/")[0] in full.slots
+    assert e1.E1Design.from_json(full.to_json()) == full
+    with pytest.raises(ValueError, match="not a run of the half fraction"):
+        e1.E1Design(models=MODELS[:1], runs_per_cell=16, replicates=((0, 1, 1, 0, 1),))
+    with pytest.raises(ValueError, match="whole half fraction"):
+        e1.E1Design(models=MODELS[:1], runs_per_cell=8, replicates=reps)

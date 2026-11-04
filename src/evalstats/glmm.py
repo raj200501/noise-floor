@@ -157,6 +157,29 @@ def lme4_available() -> bool:
     return bool(isinstalled("lme4"))
 
 
+_R_VERSIONS = """
+function() {
+  c(r = R.version.string,
+    lme4 = as.character(utils::packageVersion("lme4")),
+    matrix = as.character(utils::packageVersion("Matrix")),
+    blas = as.character(utils::sessionInfo()$BLAS),
+    lapack = as.character(La_version()))
+}
+"""
+
+
+def r_versions() -> dict[str, str]:
+    """R, lme4, Matrix, BLAS (library path), and LAPACK versions of the lme4 backend.
+
+    Results of the lme4 backend can change with any of these, so simulation studies record
+    them beside their results. Raises if rpy2 or R is unavailable.
+    """
+    import rpy2.robjects as ro
+
+    values = ro.r(_R_VERSIONS)()
+    return {str(k): str(v) for k, v in zip(values.names, values, strict=True)}
+
+
 _R_FIT = """
 function(df, formula, factors, level, do_profile) {
   for (col in factors) df[[col]] <- factor(df[[col]])
@@ -687,13 +710,14 @@ def jackknife_coef_interval(
 
     The jackknife standard error is ``sqrt((G - 1) / G * sum((d - mean(d))**2))`` over the
     ``G`` refits that succeeded, and the quantile is Student t on ``G - 1`` degrees of
-    freedom. None with fewer than 3 refits.
+    freedom. None with fewer than 3 refits, or when more than ``MAX_FAILED_SHARE`` of the
+    refits failed (the rule the bootstrap kinds follow).
     """
     from scipy import stats
 
     d = draws[np.isfinite(draws)]
     g = d.size
-    if g < 3:
+    if g < 3 or not enough(draws):
         return None
     se = math.sqrt((g - 1) / g * float(np.sum((d - d.mean()) ** 2)))
     q = float(stats.t.ppf(0.5 + level / 2, g - 1))

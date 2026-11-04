@@ -31,7 +31,9 @@ SETTINGS = {
     "contrast_interval": {
         "harness-local": "cluster_t",
         "harness-claude": "mover_wilson",
+        "harness-diff-local": "cluster_t",
         "models-local": "cluster_t",
+        "tiers-claude": "mover_wilson",
         "models-claude": "mover_wilson",
     },
     "seed": 7,
@@ -118,7 +120,7 @@ def test_build_and_verify(tmp_path: Path) -> None:
         "".join(json.dumps(r) + "\n" for r in recs if r["phase"] == "e1-claude")
     )
     manifest = a.build(prereg, tmp_path)
-    assert manifest["prereg"] == str(prereg) and len(manifest["files"]) == 8
+    assert manifest["prereg"] == str(prereg) and len(manifest["files"]) == 10
     vc = json.loads((tmp_path / "variance_components.json").read_text())
     names = [c["name"] for c in vc["components"]]
     assert names[:2] == ["task", "model:task"] and names[-1] == "residual"
@@ -171,11 +173,17 @@ def test_build_and_verify(tmp_path: Path) -> None:
     assert sens["infra_error_as_failure"]["n_runs"] == sens["outcome_strict"]["n_runs"] + infra
     strict = {c["name"]: c for c in sens["outcome_strict"]["components"]}
     assert set(strict) == {c["name"] for c in vc["components"]}
-    bounds = {b["model"]: b for b in sens["e3_bounds"]}
+    e3 = json.loads((tmp_path / "e3_bounds.json").read_text())
+    assert e3["source"] == "e1" and e3["prereg"] == str(prereg)
+    bounds = {b["model"]: b for b in e3["entries"]}
     assert set(bounds) == set(DESIGN.models)
     assert all(b["ci_lo"] <= b["lower"] <= b["upper"] <= b["ci_hi"] for b in bounds.values())
     runs = [json.loads(ln) for ln in (tmp_path / "runs.jsonl").read_text().splitlines()]
     assert sum(r["confirmatory"] for r in runs) == len(runs)  # both arms are planned
+    # Mock-task labels on every output (non-negotiable 4).
+    assert all(r["mock_tasks"] for r in runs)
+    for name in ("variance_components.json", "scores.json", "e3_bounds.json", "sampling.json"):
+        assert "mock task" in json.loads((tmp_path / name).read_text())["tasks"]
     monkey_dir = tmp_path
     assert a.verify(monkey_dir) == []
     (tmp_path / "mde.json").write_text("{}")
@@ -294,3 +302,184 @@ def test_compute_refuses_while_an_arm_runs(tmp_path: Path) -> None:
     (tmp_path / "local.jsonl").write_text("".join(json.dumps(r) + "\n" for r in recs))
     with pytest.raises(ValueError, match="local arm has not ended"):
         a.compute(prereg, tmp_path)
+
+
+def test_sampling_table_pairs_replicates_with_their_runs() -> None:
+    def row(rid: str, model: str, task: str, outcome: int, temp: str, **extra: object) -> dict:
+        factors = {"harness": "minimal", "timeout": "300.0", "steps": "15", "temperature": temp}
+        base = {"run_id": rid, "model_id": model, "task": task, "outcome": outcome}
+        return {
+            **base,
+            "factors": {**factors, "concurrency": "1" if temp == "0.0" else "2"},
+            "confirmatory": True,
+            "status": "ok",
+            "excluded": None,
+            "replicate": rid.endswith("-rep"),
+            **extra,
+        }
+
+    rows = []
+    for t in range(12):
+        for m in ("a", "b", "c"):
+            hot = int((t + len(m)) % 3 == 0)  # one discordant pair in three at 0.7
+            rows += [
+                row(f"{m}{t}-cold", m, f"t{t}", 1, "0.0"),
+                row(f"{m}{t}-cold-rep", m, f"t{t}", 1, "0.0"),
+                row(f"{m}{t}-hot", m, f"t{t}", 1, "0.7"),
+                row(f"{m}{t}-hot-rep", m, f"t{t}", 1 - hot, "0.7"),
+            ]
+    rows.append(row("lost-rep", "a", "t0", 0, "0.7"))  # its planned run is not usable
+    rows.append(row("x-hot", "a", "t1", 1, "0.7"))
+    rows.append(row("x-hot-rep", "a", "t1", 0, "0.7", status="infra_error"))
+    settings = {"exclude_status": ["infra_error"], "level": 0.95}
+    reference = {"temperature": "0.0", "concurrency": "1"}
+    out = a.sampling_table(rows, settings, reference=reference, assumed=0.2)
+    cold, hot = sorted(out, key=lambda r: r["configuration"]["temperature"])
+    assert cold["pairs"] == hot["pairs"] == 36 and cold["discordant"] == 0
+    assert cold["within_var"] == 0.0 and cold["mde_reference"]
+    assert cold["mde_assumed_within_var"] == 0.2 and hot["mde_assumed_within_var"] is None
+    assert hot["discordant"] == 12 and hot["within_var"] == pytest.approx(12 / 36 / 2)
+    assert hot["lo"] < hot["within_var"] < hot["hi"] <= 0.5
+    assert hot["interval_method"].startswith("half of")
+    # Replicates never reach the decomposition, scores, or contrasts.
+    assert all(not r["replicate"] for r in a._usable(rows, ["infra_error"]))
+
+
+def test_contrasts_include_harness_differences_and_tier_pairs() -> None:
+    rng = np.random.default_rng(5)
+    rows = []
+
+    def add(model: str, backend: str, task: str, harness: str, k: int) -> None:
+        rows.append(
+            {
+                "run_id": f"{model}-{task}-{harness}-{k}",
+                "model_id": model,
+                "backend": backend,
+                "task": task,
+                "factors": {"harness": harness, "steps": "8"},
+                "outcome": int(rng.random() < 0.5),
+                "confirmatory": True,
+                "status": "ok",
+                "excluded": None,
+                "replicate": False,
+            }
+        )
+
+    for t in range(8):
+        for harness in ("minimal", "native"):
+            for k in range(2):
+                add("qwen3-4b", "local", f"t{t}", harness, k)
+                add("granite-4.0-micro", "local", f"t{t}", harness, k)
+            add("claude-haiku", "claude", f"t{t}", harness, 0)
+            add("claude-sonnet", "claude", f"t{t}", harness, 0)
+    settings = {
+        "level": 0.95,
+        "exclude_status": ["infra_error"],
+        "contrast_interval": {
+            "harness-local": "cluster_t",
+            "harness-claude": "mover_wilson",
+            "harness-diff-local": "cluster_t",
+            "models-local": "cluster_t",
+            "tiers-claude": "mover_wilson",
+            "models-claude": "mover_wilson",
+        },
+    }
+    out = a.contrasts_table(rows, settings)
+    (diff,) = out["harness_differences"]
+    assert diff["family"] == "harness-diff-local" and diff["n_tasks"] == 8
+    assert {diff["a"], diff["b"]} == {"qwen3-4b", "granite-4.0-micro"}
+    assert diff["p_holm"] == diff["p_value"] and "supported" in diff
+    tiers = [r for r in out["models"] if r["family"] == "tiers-claude"]
+    assert sorted(r["contrast"] for r in tiers) == [
+        "tiers:minimal:claude-haiku-claude-sonnet",
+        "tiers:native:claude-haiku-claude-sonnet",
+    ]
+    assert all(r["interval_method"].startswith("mover") for r in tiers)
+    assert all(r["p_holm"] >= r["p_value"] for r in tiers)
+
+
+@needs_r
+@pytest.mark.usefixtures("unfrozen_ok")
+def test_post_check_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import functools
+
+    from noisefloor import post_check as pc
+    from noisefloor import provenance
+
+    lax = functools.partial(provenance.single_environment, allow_dirty=True)
+    monkeypatch.setattr(pc, "single_environment", lax)
+    prereg = write_prereg(tmp_path / "prereg.md")
+    recs = fake_records(str(prereg))
+    (tmp_path / "local.jsonl").write_text(
+        "".join(json.dumps(r) + "\n" for r in recs if r["phase"] == "e1")
+    )
+    (tmp_path / "claude.jsonl").write_text(
+        "".join(json.dumps(r) + "\n" for r in recs if r["phase"] == "e1-claude")
+    )
+    a.build(prereg, tmp_path)
+    config = pc.prepare(prereg, tmp_path)
+    assert config["design"]["n_models"] == len(DESIGN.models)
+    assert set(config["planted"]["interactions"]) == set(pc.INTERACTION_FACTORS)
+    assert pc.prepare(prereg, tmp_path) == config  # written once, then reused
+    seeds = [980000, 980001]
+    assert pc.run(prereg, tmp_path, log=lambda m: None, seeds=seeds) == 2
+    assert pc.run(prereg, tmp_path, log=lambda m: None, seeds=seeds) == 0
+    out = pc.bank(prereg, tmp_path, seeds=seeds)
+    assert out["synthetic"] and set(out["components"]) >= {"task", "harness"}
+    assert all(c["datasets"] == 2 for c in out["components"].values())
+    assert json.loads((tmp_path / "post_check.json").read_text())["prereg"] == str(prereg)
+
+
+def test_scores_count_timeout_runs_with_outcome_one() -> None:
+    rows = []
+    for t in range(4):
+        for k, (status, outcome) in enumerate(
+            [("ok", 1), ("timeout", 1), ("timeout", 0), ("infra_error", 0)]
+        ):
+            rows.append(
+                {
+                    "run_id": f"r{t}{k}",
+                    "model_id": "qwen3-4b",
+                    "backend": "local",
+                    "task": f"t{t}",
+                    "factors": {},
+                    "outcome": outcome,
+                    "status": status,
+                    "confirmatory": True,
+                    "excluded": None,
+                    "replicate": False,
+                }
+            )
+    settings = {"level": 0.95, "exclude_status": ["infra_error"], "score_interval": "cluster_t"}
+    (row,) = a.scores_table(rows, settings)
+    assert row["timeout_runs"] == 8 and row["timeout_runs_with_outcome_1"] == 4
+    assert row["score"] == pytest.approx(2 / 3)
+
+
+def test_schedule_check_flags_batches_off_their_slot() -> None:
+    def row(batch: str, slot: str, day: str, block: str) -> dict:
+        return {
+            "confirmatory": True,
+            "backend": "local",
+            "batch_id": batch,
+            "planned_slot": slot,
+            "day": day,
+            "block": block,
+        }
+
+    kept = [
+        row("a", "day1-b1", "2026-11-06", "b1"),
+        row("b", "day2-b2", "2026-11-07", "b2"),
+        row("c", "day3-b1", "2026-11-08", "b1"),
+    ]
+    assert a.schedule_check(kept) == {
+        "days": 3,
+        "batches": 3,
+        "batches_off_plan": 0,
+        "simulated_design": True,
+    }
+    late = [*kept, row("d", "day2-b1", "2026-11-08", "b1")]  # overran into day 3
+    out = a.schedule_check(late)
+    assert out["batches_off_plan"] == 1 and not out["simulated_design"]
+    longer = [*kept, row("e", "day3-b2", "2026-11-09", "b2")]
+    assert a.schedule_check(longer)["days"] == 4

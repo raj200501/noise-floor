@@ -31,20 +31,24 @@ shares the CPU.
 
 ## Now
 
-goal_turn 3, after a container restart: the nAGQ = 0 bootstrap of the method pilots gave
-slightly narrow intervals for fixed-factor contributions (pilots 4 and 5, banked in
-`artifacts/method_pilots/`), so bootstrap replicates are now fresh fits and an exploratory
-Laplace (nAGQ = 1) pilot 6 is running on seeds 990500 onward. Shares of the total now get an
-interval rule and coverage rows, the E0 paired simulator takes unequal runs per side, and the
-headline map reads E0 amendments. 17 more references verified and banked.
+goal_turn 3: the response to the E1 preregistration review is nearly done. Pilot 7 (banked,
+D-029) supports task-jackknife intervals for fixed contributions. Code now covers batch-level
+failures and arm stops with a resume step and lock (D-029), the Claude-slice rules (pair order,
+turn-cap refusal, CLI and model changes, own ledger, end point; D-030), replicate runs with a
+sampling table, harness-effect differences and tier pairs, provenance stamps on simulation rows,
+E3 on E1 as its own artifact, the post-E1 check, and per-group planted overrides (D-031). The E1
+dry run on pilot seeds is running; `tools/prereg_blocks.py` generates the prereg blocks, and the
+second drafts of 0004 to 0006 are assembled and pass the consistency check.
 
 ## Next three actions
 
-1. Finish pilot 6 (parts A, B, C running on the whole CPU); bank it; apply the D-023 rule choice;
-   fix the prereg review's confirmed findings; freeze 0004, 0005, and 0006 in one commit.
-2. `make prepush`, push; run G6 and E0 part 2 (Laplace bootstrap, most of a day on 4 CPUs).
-3. Launch the E1 local arm (3 models x 30 tasks x 16 runs, at least 3 UTC days), with
-   check-ins; nothing CPU-heavy runs beside it (D-024).
+1. Read the dry run's infrastructure summary, record D-032, run the full tests, commit; then an
+   independent review of the assembled 0004 to 0006, fix what it confirms, freeze in one commit,
+   `make prepush`, push.
+2. Run G6 and E0 part 2 (about 1,200 Laplace-bootstrap datasets with jackknife, roughly 18 hours
+   on 4 CPUs), bank them; then launch the E1 local arm (at least 3 UTC days), with check-ins.
+3. Ask Raj to start the Claude slice on his machine once 0004 is frozen (docs/PLAN.md); the
+   slice takes about 30 days at 6 runs a day.
 
 ## Usage to date
 
@@ -56,8 +60,9 @@ Local model runs: pilot p1 24, screening s2 11 (exploratory, suite v1), s3 84 (s
 1. Claude subject arm (G7 needs at least 150 Claude-tier runs): the billing guard blocks Claude
    children in this hosted session by design. When E1 is preregistered, run the arm on a machine
    where `make doctor` shows the guard clean, following docs/PLAN.md ("Claude arm on Raj's
-   machine"), starting with `python -m noisefloor.claude_arm smoke`. At `CAP_SHARE = 0.2` the
-   daily cap is 6 runs, so 150 runs take about 25 days; at `CAP_SHARE = 1`, about 5 days.
+   machine"), starting with `python -m noisefloor.claude_arm smoke`. The daily cap is budget.toml's
+   cap times the smaller of its `cap_share` (0.2) and `CAP_SHARE`: 6 runs a day, about 30 days
+   for the 180 planned runs; only Raj can raise `cap_share` in budget.toml.
 2. raise-v1-public: its web page returns a proxy 403 here, so it is dropped from the verified
    references; its integrity tools were ported from a clone with Apache-2.0 attribution.
    Optional: check the reference by hand.

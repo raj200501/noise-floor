@@ -162,20 +162,58 @@ def _sim_score(cell: Cell, rng: np.random.Generator, seed: int) -> Replicate:
     return Replicate(_true_score(effects[0], p), iv.lo, iv.hi, iv.estimate)
 
 
+def _draw_within(
+    rng: np.random.Generator, p: Mapping[str, Any], effects: Sequence[float]
+) -> pd.DataFrame:
+    """Two conditions of one model on every task (a within-model contrast).
+
+    Both sides share the task effect and the model-by-task effect. With ``split_shift``,
+    the tasks alternate, as in the E1 Claude slice, between side a with the shift and side
+    b without, and the reverse (side a is shifted on even tasks).
+    """
+    n_tasks, runs = int(p["n_tasks"]), int(p["runs"])
+    shared = rng.normal(0.0, float(p["task_sd"]), n_tasks) + rng.normal(
+        0.0, float(p.get("model_task_sd", 0.0)), n_tasks
+    )
+    shift = float(p.get("split_shift", 0.0))
+    even = (np.arange(n_tasks) % 2 == 0).astype(float)
+    rows = []
+    for side, (effect, shifted) in enumerate(((effects[0], even), (effects[1], 1.0 - even))):
+        eta = float(p.get("intercept", 0.0)) + effect + shared + shift * shifted
+        prob = 1.0 / (1.0 + np.exp(-eta))
+        draws = rng.random((n_tasks, runs)) < prob[:, None]
+        for t in range(n_tasks):
+            for r in range(runs):
+                rows.append((f"m{side}", f"t{t}", str(r), float(draws[t, r])))
+    return pd.DataFrame(rows, columns=["model", "task", "run", "outcome"])
+
+
+def _true_within(a: float, b: float, p: Mapping[str, Any]) -> float:
+    """Population mean of the within-model contrast, half the tasks of each split type."""
+    shift = float(p.get("split_shift", 0.0))
+    shifted = _true_score(a + shift, p) - _true_score(b, p)
+    unshifted = _true_score(a, p) - _true_score(b + shift, p)
+    return 0.5 * (shifted + unshifted)
+
+
 def _sim_paired(cell: Cell, rng: np.random.Generator, seed: int) -> Replicate:
     p = cell.params
     effects = [float(p["effect_a"]), float(p["effect_b"])]
     runs = int(p["runs"])
-    frame = _draw(
-        rng,
-        effects,
-        n_tasks=int(p["n_tasks"]),
-        runs=runs,
-        intercept=float(p.get("intercept", 0.0)),
-        task_sd=float(p["task_sd"]),
-        model_task_sd=float(p.get("model_task_sd", 0.0)),
-        runs_per_model=(runs, int(p.get("runs_b", runs))),
-    )
+    within = bool(p.get("within", False))
+    if within:
+        frame = _draw_within(rng, p, effects)
+    else:
+        frame = _draw(
+            rng,
+            effects,
+            n_tasks=int(p["n_tasks"]),
+            runs=runs,
+            intercept=float(p.get("intercept", 0.0)),
+            task_sd=float(p["task_sd"]),
+            model_task_sd=float(p.get("model_task_sd", 0.0)),
+            runs_per_model=(runs, int(p.get("runs_b", runs))),
+        )
     res = EvalResults.from_frame(frame)
     d = paired_difference(
         res,
@@ -186,7 +224,8 @@ def _sim_paired(cell: Cell, rng: np.random.Generator, seed: int) -> Replicate:
         n_boot=int(p.get("n_boot", 2000)),
         seed=seed,
     ).difference
-    return Replicate(_true_difference(effects[0], effects[1], p), d.lo, d.hi, d.estimate)
+    truth = (_true_within if within else _true_difference)(effects[0], effects[1], p)
+    return Replicate(truth, d.lo, d.hi, d.estimate)
 
 
 def _sim_cluster_robust(cell: Cell, rng: np.random.Generator, seed: int) -> Replicate:

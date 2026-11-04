@@ -305,13 +305,16 @@ def test_student_coefficient_interval() -> None:
 def test_jackknife_intervals_and_box() -> None:
     from scipy import stats
 
-    draws = np.array([0.4, 0.5, 0.6, 0.5, np.nan])
+    draws = np.array([0.4, 0.5, 0.6, 0.5, 0.45, 0.55, 0.5, 0.48, 0.52, np.nan])
     lo, hi = glmm.jackknife_coef_interval(0.52, draws, 0.95)
-    d = draws[:4]
-    se = math.sqrt(3 / 4 * float(np.sum((d - d.mean()) ** 2)))
-    q = float(stats.t.ppf(0.975, 3))
+    d = draws[:9]
+    se = math.sqrt(8 / 9 * float(np.sum((d - d.mean()) ** 2)))
+    q = float(stats.t.ppf(0.975, 8))
     assert (lo, hi) == pytest.approx((0.52 - q * se, 0.52 + q * se))
     assert glmm.jackknife_coef_interval(0.5, np.array([0.1, np.nan]), 0.95) is None
+    # More than 10 percent of the refits failed: no interval, as for the bootstrap kinds.
+    lost = np.concatenate([draws[:8], [np.nan, np.nan]])
+    assert glmm.jackknife_coef_interval(0.52, lost, 0.95) is None
     weights = np.array([0.5, 0.5])
     box = glmm.jackknife_box(weights, np.array([0.52]), draws[:, None], 0.95)
     assert box == pytest.approx((lo**2 / 4, hi**2 / 4)) if lo > 0 else box[0] == 0.0

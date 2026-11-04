@@ -24,6 +24,7 @@ import statsmodels
 import statsmodels.api as sm
 from scipy import stats
 from statsmodels.stats.power import NormalIndPower
+from statsmodels.stats.proportion import confint_proportions_2indep, proportion_confint
 from statsmodels.stats.weightstats import DescrStatsW
 
 from evalstats import (
@@ -31,6 +32,9 @@ from evalstats import (
     PairedDesign,
     bca_interval,
     cluster_robust_mean,
+    cluster_wilson_interval,
+    mde,
+    mover_wilson_interval,
     paired_difference,
     percentile_interval,
     power_at,
@@ -165,6 +169,75 @@ def library_checks() -> list[dict[str, Any]]:
                 0.01,
                 f"scipy {scipy.__version__} stats.bootstrap",
                 note=note,
+            )
+        )
+    return out + rate_checks()
+
+
+def rate_checks() -> list[dict[str, Any]]:
+    """The Wilson core, unclustered MOVER, and the paired MDE against statsmodels.
+
+    ``cluster_wilson`` is the Wilson interval at an effective sample size with a t
+    quantile; statsmodels' Wilson interval at that sample size, with the level whose normal
+    quantile equals the t quantile, must give the same bounds. With uncorrelated per-task
+    rates, ``mover_wilson`` is Newcombe's hybrid score interval for two independent
+    proportions, built from those Wilson intervals.
+    """
+    impl = f"statsmodels {statsmodels.__version__}"
+    out = []
+    rng = np.random.default_rng(20261104)
+    means = rng.integers(0, 4, 40) / 3.0  # 40 tasks, 3 runs each
+    runs = np.full(40, 3.0)
+    mine = cluster_wilson_interval(means, runs, 0.95)
+    p = float(means.mean())
+    clustered = float(means.var(ddof=1)) / means.size
+    n_eff = p * (1 - p) / max(clustered, p * (1 - p) / (3 * means.size))
+    q = float(stats.t.ppf(0.975, means.size - 1))
+    alpha = float(2 * stats.norm.sf(q))
+    lo, hi = proportion_confint(p * n_eff, n_eff, alpha=alpha, method="wilson")
+    for end, value, reference in (("lower", mine.lo, lo), ("upper", mine.hi, hi)):
+        out.append(
+            check(
+                f"cluster_wilson {end} bound (Wilson core)",
+                value,
+                float(reference),
+                1e-10,
+                f"{impl} proportion_confint(method='wilson') at the design-effect n",
+            )
+        )
+    a = np.array([1, 1, 0, 0] * 10, dtype=float)
+    b = np.array([1, 0, 1, 0] * 10, dtype=float)  # uncorrelated with a by construction
+    ones = np.ones(40)
+    mover = mover_wilson_interval(a, ones, b, ones, 0.95)
+    na = nb = 39.0  # one run per task: the clustered variance gives n_eff = T - 1
+    newcombe = confint_proportions_2indep(
+        a.mean() * na, na, b.mean() * nb, nb, method="newcomb", compare="diff", alpha=alpha
+    )
+    for end, value, reference in (
+        ("lower", mover.lo, newcombe[0]),
+        ("upper", mover.hi, newcombe[1]),
+    ):
+        out.append(
+            check(
+                f"mover_wilson {end} bound, uncorrelated rates (Newcombe hybrid score)",
+                value,
+                float(reference),
+                1e-10,
+                f"{impl} confint_proportions_2indep(method='newcomb')",
+            )
+        )
+    design = PairedDesign(between_task_var=0.02, within_task_var=0.3)
+    for n_tasks, k in ((40, 1), (200, 5)):
+        sd = math.sqrt(design.between_task_var + design.within_task_var / k)
+        d = NormalIndPower().solve_power(nobs1=n_tasks, alpha=0.05, power=0.8, ratio=0)
+        out.append(
+            check(
+                f"paired MDE, {n_tasks} tasks x {k} runs",
+                mde(design, n_tasks, k),
+                float(d) * sd,
+                1e-5,
+                f"{impl} NormalIndPower.solve_power (one sample), times the per-task sd",
+                note="statsmodels counts the far rejection tail; the formula does not",
             )
         )
     return out

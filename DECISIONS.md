@@ -501,3 +501,84 @@ D-028 item 7.
    stops to `artifacts/e1/stops-claude.jsonl`; `make budget` counts both ledgers. The two
    machines then never append to the same tracked file.
 7. G7 counts only runs the primary analyses use (status other than infra_error and not left out).
+
+## D-031 2026-11-04 How the D-028 additions are built and validated (before freezing)
+1. Replicates (D-028 item 3): every (model, task) cell runs its two replicate configurations a
+   second time (phase `e1-rep`, run id `<planned id>-rep`, own sampling seed), batched like any
+   other run, so the local arm has 1,620 runs. Replicates stay out of the decomposition, the
+   scores, the contrasts, and E3; the sampling table (`sampling.json`) pairs each with its planned
+   run and reports, per configuration, the mean of `(y1 - y2)**2 / 2` (the within-configuration
+   outcome variance, `E[p (1 - p)]` under independent runs) with half the task-clustered Wilson
+   interval of the share of discordant pairs, and, for the MDE reference configuration, the
+   per-model `E[p (1 - p)]` the MDE assumes there. That interval is a score interval on 30 tasks
+   with 3 values per task, so E0 part 2 validates it with score cells of that shape rather than
+   through G6.
+2. Heterogeneity contrasts (D-028 item 6): `evalstats.contrast_difference` gives the per-task
+   difference of two models' harness contrasts with a cluster t interval; the E1 analysis and the
+   G6 local intervals (`hdiff:<a>-<b>`) call the same function, so E0 part 2's local group
+   validates the E1 computation. Claude tier pairs under each harness use mover_wilson, the shape
+   of the P-c-w cells.
+3. The Claude harness contrasts are within one tier, and each task's pair also differs in
+   timeout; E0 gets a within-model paired simulator with shared task and model-by-task effects
+   and that timeout split (review stats-4). E0 GLMM groups may carry planted overrides, so the
+   task-by-factor group of D-028 item 5 and local-arm groups at other intercepts (review
+   writing-5) run from the same recovery-config.
+4. The E1 analysis now passes `fixed_interval` and `jackknife_group` to `decompose`, as the G6
+   recovery does; before this change E1 would have used the bootstrap box while G6 and E0
+   validated the jackknife.
+5. E3 on E1 is its own output, `artifacts/e1/e3_bounds.json`, citing the E1 preregistration; G8
+   reads it beside `artifacts/e3/bounds.json` (E2 boards, prereg 0001). Every E1 output names the
+   tasks as procedurally generated mock tasks, and every runs row carries `mock_tasks: true`.
+6. Provenance (review ops-11): every G6 row, E0 raw line, and post-E1 check row carries a stamp
+   (environment hash, commit, a dirty flag for `src/`, time); the environment is the tree hash
+   of `src/`, the blob hash of `uv.lock`, and the Python, NumPy, SciPy, pandas, R, lme4, Matrix,
+   BLAS, and LAPACK versions. Banking refuses rows from more than one environment or a dirty
+   `src/`, so commits that leave `src/` and the lock alone may land while a study runs.
+7. The post-E1 check (D-028 item 4) is `noisefloor.post_check`: seeds 980000 to 980199, planted
+   values derived from the banked E1 fit (with the fitted fixed effects now in
+   `variance_components.json`), the batch variance of the batch-term sensitivity fit (0 if that
+   fit failed, recorded), and task-by-harness, task-by-steps, and task-by-timeout variances from
+   one auxiliary point fit. Its configuration is written once before the first dataset runs.
+
+## D-032 2026-11-04 Dry run, the power analysis, labels, and planted values (before freezing)
+1. E1 dry run (exploratory; `python -m noisefloor.e1 dry-run`, banked in
+   `artifacts/pilot/e1-dry.jsonl` and `e1-dry-batches.jsonl`): 48 runs on pilot seeds from
+   900600, every E1 model at server threads 3 and 4 and concurrency 1 and 2, 32,768 tokens per
+   slot. Every server started, no batch failed, and no run ended `infra_error`; at every model
+   and concurrency level the median wall time was lower at 4 threads than at 3, and the lowest
+   available memory, for qwen3-4b at concurrency 2, still left several GB free. Its summary
+   (`--summary`) is read for infrastructure only: server start, infra_error counts, wall times,
+   load, and memory; no outcome enters any decision. E1 keeps 4 server threads and 32,768 tokens
+   per slot at both concurrency levels, so concurrency does not change the context limit
+   (D-018).
+2. Brief section 5 asks for sample sizes from a preregistered power analysis under the section 8
+   caps. No section 8 cap binds the local arm, whose runs are bounded by CPU time; its design (3
+   models x 30 tasks x 16 runs plus 180 replicates) is the largest that fits the 7-day window at
+   the dry run's wall times, and the caps bind only the Claude slice (6 agent runs a day at cap
+   share 0.2), whose size is the G7 floor with a margin (180 runs). The preregistered power
+   analysis is the `e1-power` block of 0004, generated by `tools/prereg_blocks.py`: the
+   pilot-7 share of datasets in which each fixed factor is read as non-zero (with the files'
+   hashes), and the normal-approximation power of each confirmatory contrast family at stated,
+   assumed effects. A family or factor below 0.8 there is reported as underpowered beside its
+   results, and a contrast that is not supported there is not read as evidence of no difference.
+3. D-019 called the Claude-local contrasts step-budget-confounded. They compare Claude runs with
+   local minimal-agent runs at the same 8-step budget, so the label is now
+   temperature-confounded: Claude runs at the CLI's default temperature, the local runs at 0.0
+   and 0.7 (review writing-19).
+4. Planted values (review writing-15): the factor effects (harness 0.5, timeout 0.4, steps 0.4,
+   temperature 0.1, concurrency 0), the day and block effects, and the model:task variance 0.5
+   are the values set when the simulator was written (commit 90b4028), assumed and not estimated
+   from any data; the method pilots used the same values. The task variance is 4.0 (D-028 item
+   5). The post-E1 check repeats the validation at the E1 estimates.
+5. The JSON blocks of 0004 to 0006 are generated by `tools/prereg_blocks.py` from code and banked
+   artifacts: the interval rules and their headline status come from the pilot summary, not from
+   typing; the plan hash and model pins from the code; the `validated-range` block lists the
+   planted success rates the headline cells span. `noisefloor.prereg_consistency` checks that
+   0005 and 0006 simulate the E1 shape with the E1 settings, and the test suite runs it on the
+   frozen files.
+6. Before freezing, from writing the texts: a jackknife factor whose refits more than 10 percent
+   failed gets no interval (as for the bootstrap kinds); the scores table counts timeout runs and
+   those with outcome 1 per model (D-021); `variance_components.json` records whether the arm kept
+   the simulated schedule (3 days, every batch on its slot); and E0 part 2 adds a local-arm group
+   at intercept -3.0 and Claude cells at intercept -2.0, so low scores lie inside the validated
+   range.

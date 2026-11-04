@@ -27,7 +27,17 @@ Bounds on ``higher - lower`` over all ways of scoring the ambiguous runs.
 A model's score under each policy, its worst-case bounds, and their interval.
 
 
-### class `Decomposition(backend: 'str', formula: 'str', n_obs: 'int', level: 'float', components: 'tuple[VarianceComponent, ...]', fixed_effects: 'dict[str, float]', converged: 'bool', messages: 'tuple[str, ...]' = (), replicates: 'dict[str, tuple[float, ...]]' = <factory>, coefficient_replicates: 'dict[str, tuple[float, ...]]' = <factory>, coefficient_se: 'dict[str, float]' = <factory>, coefficient_se_replicates: 'dict[str, tuple[float, ...]]' = <factory>) -> None`
+### class `ContrastDifference(labels: 'tuple[str, str, str, str]', n_tasks: 'int', difference: 'Interval', se: 'float', t_stat: 'float', p_value: 'float') -> None`
+
+Difference of two paired contrasts, ``(a1 - a0) - (b1 - b0)``, paired by task.
+
+For example the harness effect of one model minus that of another: does a scaffold
+help one model more than the other? ``n_tasks`` counts the tasks with runs under all
+four labels; ``labels`` is ``(a1, a0, b1, b0)``.
+
+- property `supported`: True if the interval excludes zero (the contrasts differ at its level).
+
+### class `Decomposition(backend: 'str', formula: 'str', n_obs: 'int', level: 'float', components: 'tuple[VarianceComponent, ...]', fixed_effects: 'dict[str, float]', converged: 'bool', messages: 'tuple[str, ...]' = (), replicates: 'dict[str, tuple[float, ...]]' = <factory>, coefficient_replicates: 'dict[str, tuple[float, ...]]' = <factory>, coefficient_se: 'dict[str, float]' = <factory>, coefficient_se_replicates: 'dict[str, tuple[float, ...]]' = <factory>, coefficient_jackknife: 'dict[str, tuple[float, ...]]' = <factory>) -> None`
 
 Variance decomposition of eval outcomes on the logit scale.
 
@@ -150,7 +160,18 @@ estimator, ``p (1 - p) mean(1 / runs) / T``, so the effective sample size
 size uses the t quantile with ``T - 1`` degrees of freedom. Unlike the t interval it
 stays inside [0, 1] and keeps its width when most tasks are all-success or all-failure.
 
-### `decompose(results: 'EvalResults', *, random: 'Sequence[str]' = ('task', 'model', 'model:task'), fixed: 'Sequence[str]' = (), level: 'float' = 0.95, intervals: 'bool' = True, backend: 'str' = 'auto', seed: 'int' = 0, method: 'str' = 'profile', n_boot: 'int' = 200, nagq: 'int' = 1, boot_interval: 'str' = 'percentile', box_interval: 'str' = 'percentile', share_interval: 'str' = 'percentile') -> 'Decomposition'`
+### `contrast_difference(results: 'EvalResults', a1: 'str', a0: 'str', b1: 'str', b0: 'str', *, method: 'str' = 'cluster_t', level: 'float' = 0.95, n_boot: 'int' = 10000, seed: 'int | None' = None) -> 'ContrastDifference'`
+
+Interval for ``(a1 - a0) - (b1 - b0)``, the difference of two contrasts, by task.
+
+``results`` labels each run by one of the four groups in its ``model`` column (for
+example ``"m1:native"``). On every task with runs in all four groups, the per-task
+value is the difference of the two groups' per-task contrasts (each a difference of
+per-task means); the interval is for the mean of these values (``cluster_t`` by
+default, or a bootstrap method of :func:`evalstats.intervals.interval_for_mean`), and
+the p-value is the two-sided one-sample t-test on them.
+
+### `decompose(results: 'EvalResults', *, random: 'Sequence[str]' = ('task', 'model', 'model:task'), fixed: 'Sequence[str]' = (), level: 'float' = 0.95, intervals: 'bool' = True, backend: 'str' = 'auto', seed: 'int' = 0, method: 'str' = 'profile', n_boot: 'int' = 200, nagq: 'int' = 1, boot_interval: 'str' = 'percentile', box_interval: 'str' = 'percentile', share_interval: 'str' = 'percentile', fixed_interval: 'str' = 'box', jackknife_group: 'str' = 'task') -> 'Decomposition'`
 
 Fit a logit GLMM and partition the latent variance.
 
@@ -161,6 +182,10 @@ effects. Outcomes must be binary. ``method`` picks the lme4 intervals:
 replicates, each a fresh fit with ``nagq`` = 1 for Laplace or 0 for the faster
 approximation, random variances with ``boot_interval``, fixed contributions with
 ``box_interval``, and shares with ``share_interval``; see the module docstring).
+With ``fixed_interval="jackknife"`` the fixed contributions instead get
+:func:`jackknife_box` intervals from delete-one-level refits over the
+``jackknife_group`` column (one refit per level), which keep variation of the
+fixed effects across that group's levels that the parametric bootstrap omits.
 
 ### `design_from_logit(eta_a: 'float', eta_b: 'float', task_var: 'float', model_task_var: 'float', *, nodes: 'int' = 24) -> 'PairedDesign'`
 

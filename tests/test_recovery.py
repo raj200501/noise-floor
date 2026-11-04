@@ -77,7 +77,7 @@ def test_recover_and_pilot_rows() -> None:
     row = rc.recover(SMALL, SMALL_PLANTED, settings, 7)
     analyzed = {"task", "model:task", "batch", "model", *rc.TWO_LEVEL, "day"}
     shares = {f"share:{n}" for n in (*analyzed, "residual")}
-    local = {"score:m0", "score:m1", "harness:m0", "harness:m1", "pair:m0-m1"}
+    local = {"score:m0", "score:m1", "harness:m0", "harness:m1", "hdiff:m0-m1", "pair:m0-m1"}
     # one time-of-day block: block is held constant and left out
     assert row["seed"] == 7 and set(row["components"]) == analyzed | shares | local
     for comp in row["components"].values():
@@ -181,8 +181,20 @@ def test_config_and_blocks(tmp_path: Path) -> None:
     assert rc.e0_glmm_seed("g", 1) == rc.e0_glmm_seed("g", 1) != rc.e0_glmm_seed("g", 2)
 
 
+def lenient(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bank rows stamped in a working tree under edit (the dirty check has its own test)."""
+    import functools
+
+    from noisefloor import provenance
+
+    lax = functools.partial(provenance.single_environment, allow_dirty=True)
+    monkeypatch.setattr(rc, "single_environment", lax)
+
+
 @needs_r
-def test_g6_run_and_bank(tmp_path: Path) -> None:
+@pytest.mark.usefixtures("unfrozen_ok")
+def test_g6_run_and_bank(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    lenient(monkeypatch)
     prereg = write_prereg(tmp_path / "p.md", recovery_config=small_config(), g6_seeds=[11, 12])
     raw = tmp_path / "raw.jsonl"
     assert rc.run_g6(prereg, raw, log=lambda m: None) == 2
@@ -200,6 +212,9 @@ def test_g6_run_and_bank(tmp_path: Path) -> None:
     )
     assert artifact["bias"][name] == pytest.approx(expected)
     assert artifact["synthetic"] and artifact["nominal"] == 0.95
+    env = artifact["environment"]
+    assert len(env["env"]) == 16 and env["key"]["lme4"] and len(env["commits"]) == 1
+    assert artifact["prereg_sha256"] == "0" * 64
     stored = json.loads((tmp_path / "recovery.json").read_text())
     assert stored["prereg"] == str(prereg)
     prereg2 = write_prereg(tmp_path / "q.md", recovery_config=small_config(), g6_seeds=[11, 99])
@@ -208,6 +223,7 @@ def test_g6_run_and_bank(tmp_path: Path) -> None:
 
 
 @needs_r
+@pytest.mark.usefixtures("unfrozen_ok")
 def test_e0_glmm_cells(tmp_path: Path) -> None:
     grid = [
         {
@@ -225,6 +241,9 @@ def test_e0_glmm_cells(tmp_path: Path) -> None:
     assert rc.run_e0_glmm(prereg, root=tmp_path, log=lambda m: None) == 0
     rows = [json.loads(ln) for ln in (tmp_path / "raw" / "G-t-task.jsonl").read_text().splitlines()]
     assert [r["i"] for r in rows] == [0, 1] and rows[0]["truth"] == 2.0
+    assert rows[0]["stamp"]["env"] in json.loads(
+        (tmp_path / "raw" / "environments.json").read_text()
+    )
     batch = [
         json.loads(ln) for ln in (tmp_path / "raw" / "G-t-batch.jsonl").read_text().splitlines()
     ]
@@ -254,7 +273,14 @@ def test_local_intervals_and_planted_success() -> None:
     assert rc.planted_success(data, zero) == pytest.approx(np.full(len(data), 0.5))
     assert np.all((success > 0) & (success < 1)) and np.corrcoef(eta, success)[0, 1] > 0.99
     out = rc.local_intervals(data, SMALL_PLANTED, rc.AnalysisSettings())
-    assert set(out) == {"score:m0", "score:m1", "harness:m0", "harness:m1", "pair:m0-m1"}
+    assert set(out) == {
+        "score:m0",
+        "score:m1",
+        "harness:m0",
+        "harness:m1",
+        "hdiff:m0-m1",
+        "pair:m0-m1",
+    }
     for entry in out.values():
         assert entry["lo"] <= entry["estimate"] <= entry["hi"]
     m0 = data[data["model"] == "m0"]
@@ -266,6 +292,7 @@ def test_local_intervals_and_planted_success() -> None:
     assert out["pair:m0-m1"]["planted"] > 0  # model effects 0.3 and -0.3
 
 
+@pytest.mark.usefixtures("unfrozen_ok")
 def test_e0_local_group(tmp_path: Path) -> None:
     grid = [
         {
@@ -327,3 +354,59 @@ def test_planted_interactions_and_jackknife_pilot_row() -> None:
     )
     jk = row["components"]["harness"]["jackknife"]
     assert jk is not None and jk[0] <= row["components"]["harness"]["estimate"] <= jk[1]
+
+
+def test_local_intervals_carry_harness_differences() -> None:
+    design = rc.Design(n_models=3, n_tasks=12, runs_per_cell=16)
+    planted = rc.Planted(model=(0.6, 0.0, -0.6))
+    data = rc.simulate(design, planted, 11)
+    out = rc.local_intervals(data, planted, rc.AnalysisSettings())
+    names = sorted(k for k in out if k.startswith("hdiff:"))
+    assert names == ["hdiff:m0-m1", "hdiff:m0-m2", "hdiff:m1-m2"]
+    for name in names:
+        a, b = name.removeprefix("hdiff:").split("-")
+        entry = out[name]
+        planted_diff = out[f"harness:{a}"]["planted"] - out[f"harness:{b}"]["planted"]
+        assert entry["planted"] == pytest.approx(planted_diff)
+        assert entry["lo"] <= entry["estimate"] <= entry["hi"]
+
+
+@pytest.mark.usefixtures("unfrozen_ok")
+def test_e0_groups_take_planted_overrides(tmp_path: Path) -> None:
+    def cells(group: str, planted: dict[str, object]) -> list[dict[str, object]]:
+        return [
+            {
+                "cell": f"L-{group}-score-m0",
+                "method": "score_interval",
+                "interval_type": "cluster_t",
+                "nominal": 0.95,
+                "replicates": 2,
+                "params": {
+                    "group": group,
+                    "analysis": "local",
+                    "component": "score:m0",
+                    "n_tasks": 6,
+                    "planted": planted,
+                },
+            }
+        ]
+
+    grid = cells("low", {}) + cells("high", {"intercept": 1.5})
+    prereg = write_prereg(tmp_path / "a.md", e0_grid=grid, recovery_config=small_config())
+    assert rc.run_e0_glmm(prereg, root=tmp_path, log=lambda m: None) == 4
+    truth = {
+        g: json.loads((tmp_path / "raw" / f"L-{g}-score-m0.jsonl").read_text().splitlines()[0])[
+            "truth"
+        ]
+        for g in ("low", "high")
+    }
+    assert truth["high"] > truth["low"] + 0.1
+    split = [*cells("x", {}), {**cells("x", {"intercept": 1.0})[0], "cell": "L-x-other"}]
+    bad = write_prereg(tmp_path / "b.md", e0_grid=split, recovery_config=small_config())
+    with pytest.raises(ValueError, match="disagree on planted overrides"):
+        rc.run_e0_glmm(bad, root=tmp_path, log=lambda m: None)
+    odd = write_prereg(
+        tmp_path / "c.md", e0_grid=cells("y", {"slope": 1.0}), recovery_config=small_config()
+    )
+    with pytest.raises(ValueError, match="unknown planted values"):
+        rc.run_e0_glmm(odd, root=tmp_path, log=lambda m: None)

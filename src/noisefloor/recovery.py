@@ -36,7 +36,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from evalstats import EvalResults, paired_difference, score_interval
+from evalstats import EvalResults, contrast_difference, paired_difference, score_interval
 from evalstats.glmm import (
     BOOT_INTERVALS,
     COEF_INTERVALS,
@@ -49,14 +49,17 @@ from evalstats.glmm import (
     jackknife_box,
     level_weights,
 )
+from noisefloor import jsonl, preregs
 from noisefloor.analysis import mde as mde_lib
 from noisefloor.e0 import expected_sigmoid
-from noisefloor.e0_run import lower_priority
+from noisefloor.e0_run import lower_priority, record_environment
 from noisefloor.preregs import prereg_block
+from noisefloor.provenance import single_environment, stamp
 
-# Run-level two-level factors of the half fraction 2^(5-1) (defining relation I = ABCDE),
-# split into two blocks of 8 runs by the ABC interaction so that every main effect is
-# balanced within each block (4 runs at each level).
+# Run-level two-level factors of the half fraction 2^(5-1) (the runs with an even number of
+# factors at level 1; I = -ABCDE with the first level coded -1), split into two blocks of 8
+# runs by the ABC interaction so that every main effect is balanced within each block (4 runs
+# at each level).
 RUN_FACTORS = ("harness", "timeout", "steps", "temperature")
 BATCH_FACTOR = "concurrency"
 TWO_LEVEL = (*RUN_FACTORS, BATCH_FACTOR)
@@ -115,7 +118,12 @@ class Planted:
 
 
 def half_fraction_blocks() -> tuple[list[tuple[int, ...]], list[tuple[int, ...]]]:
-    """The 16 runs of 2^(5-1) with I = ABCDE, split into two blocks by ABC (0/1 coding)."""
+    """The 16 runs of 2^(5-1), split into two blocks of 8 by the parity of the first three.
+
+    In 0/1 coding (factors in :data:`TWO_LEVEL` order, 0 the first listed level) the runs
+    are those with an even number of factors at level 1; coding the first level -1, the
+    defining relation is I = -ABCDE.
+    """
     runs = [bits for bits in itertools.product((0, 1), repeat=5) if sum(bits) % 2 == 0]
     first = [r for r in runs if (r[0] + r[1] + r[2]) % 2 == 0]
     second = [r for r in runs if (r[0] + r[1] + r[2]) % 2 == 1]
@@ -388,7 +396,9 @@ def local_intervals(
     """Local-arm score and contrast intervals as the E1 analysis computes them.
 
     ``score:<m>``: model ``m``'s success rate over all its runs; ``harness:<m>``: harness
-    level 1 minus level 0 within model ``m`` (paired by task); ``pair:<a>-<b>``: model ``a``
+    level 1 minus level 0 within model ``m`` (paired by task); ``hdiff:<a>-<b>``: the
+    harness contrast of model ``a`` minus that of model ``b``, paired by task
+    (:func:`evalstats.contrast_difference`, D-028 item 6); ``pair:<a>-<b>``: model ``a``
     minus model ``b`` on harness level 0 runs (the minimal-agent runs of E1). Planted values
     are the matching means of :func:`planted_success` over the same runs.
     """
@@ -409,6 +419,20 @@ def local_intervals(
         )
         truth = success[mine & harness_one].mean() - success[mine & ~harness_one].mean()
         out[f"harness:{m}"] = _entry(float(truth), pc.difference)
+    groups = _results(data, data["model"].astype(str) + ":h" + data["harness"].astype(str))
+    for i, a in enumerate(models):
+        for b in models[i + 1 :]:
+            cd = contrast_difference(
+                groups,
+                f"{a}:h1",
+                f"{a}:h0",
+                f"{b}:h1",
+                f"{b}:h0",
+                method=settings.contrast_interval,
+                level=level,
+            )
+            truth = out[f"harness:{a}"]["planted"] - out[f"harness:{b}"]["planted"]
+            out[f"hdiff:{a}-{b}"] = _entry(float(truth), cd.difference)
     minimal = data[~harness_one]
     pairs = _results(minimal, minimal["model"])
     for i, a in enumerate(models):
@@ -511,7 +535,15 @@ def recover(
 
 
 def coverage_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, float]]:
-    """Per component: coverage, mean bias, and interval width over datasets."""
+    """Per component: coverage, mean bias, interval width, and how often it is above zero.
+
+    ``missing`` counts datasets without an interval (a failed fit, or too many failed
+    replicates), which count as misses; ``above_zero`` is the share of all datasets whose
+    interval's lower end is strictly above 0 (a missing interval is not above 0), the power
+    of reading the component as non-zero, or its false-positive rate when it is planted at 0;
+    ``bias`` is the mean of estimate minus planted value over the ``with_estimate`` datasets
+    that have an estimate.
+    """
     names = sorted({name for row in rows for name in row["components"]})
     out = {}
     for name in names:
@@ -522,7 +554,10 @@ def coverage_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, f
         out[name] = {
             "n": len(comps),
             "with_interval": len(ok),
+            "with_estimate": len(errors),  # the datasets the bias averages over
+            "missing": len(comps) - len(ok),
             "coverage": covered / len(comps) if comps else math.nan,  # a missing bound misses
+            "above_zero": sum(1 for c in ok if c["lo"] > 0) / len(comps) if comps else math.nan,
             "bias": float(np.mean(errors)) if errors else math.nan,
             "mean_width": float(np.mean([c["hi"] - c["lo"] for c in ok])) if ok else math.nan,
         }
@@ -683,13 +718,13 @@ def _local_job(job: tuple[dict[str, Any], int]) -> dict[str, Any]:
     block, seed = job
     design, planted, settings = config_from(block)
     data = simulate(design, planted, seed)
-    return {"seed": seed, "components": local_intervals(data, planted, settings)}
+    return {"seed": seed, "components": local_intervals(data, planted, settings), "stamp": stamp()}
 
 
 def _recover_job(job: tuple[dict[str, Any], int]) -> dict[str, Any]:
     block, seed = job
     design, planted, settings = config_from(block)
-    return recover(design, planted, settings, seed)
+    return {**recover(design, planted, settings, seed), "stamp": stamp()}
 
 
 def _pool_map(jobs: list[Any], func: Any, workers: int) -> Iterator[Any]:
@@ -701,39 +736,51 @@ def _pool_map(jobs: list[Any], func: Any, workers: int) -> Iterator[Any]:
 
 
 def run_g6(prereg: Path, raw: Path, workers: int = 1, log: Any = print) -> int:
-    """Append a recovery row for every preregistered seed not yet in ``raw`` (resumable)."""
+    """Append a recovery row for every preregistered seed not yet in ``raw`` (resumable).
+
+    The preregistration must be frozen (:func:`noisefloor.preregs.require_frozen`); every
+    row carries a provenance stamp (:func:`noisefloor.provenance.stamp`), and the full
+    environment behind each stamp is kept in ``environments.json`` beside ``raw``.
+    """
+    preregs.require_frozen(prereg)
     block = prereg_block(prereg, CONFIG_BLOCK)
     seeds = [int(s) for s in prereg_block(prereg, "g6-seeds")]
-    done = set()
-    if raw.exists():
-        done = {json.loads(ln)["seed"] for ln in raw.read_text().splitlines() if ln.strip()}
+    jsonl.repair_tail(raw)
+    done = {int(r["seed"]) for r in jsonl.read(raw)}
     jobs = [(block, s) for s in seeds if s not in done]
-    raw.parent.mkdir(parents=True, exist_ok=True)
+    record_environment(raw.parent)
     added = 0
-    with raw.open("a") as fh:
-        for row in _pool_map(jobs, _recover_job, workers):
-            fh.write(dumps(row) + "\n")
-            fh.flush()
-            added += 1
-            if added % 10 == 0:
-                log(f"g6: {len(done) + added}/{len(seeds)} datasets")
+    for row in _pool_map(jobs, _recover_job, workers):
+        jsonl.append(raw, [json.loads(dumps(row))])  # NaN and infinities as null
+        added += 1
+        if added % 10 == 0:
+            log(f"g6: {len(done) + added}/{len(seeds)} datasets")
     return added
 
 
 def bank_g6(prereg: Path, raw: Path, out: Path) -> dict[str, Any]:
-    """Write the G6 artifact from the raw rows of every preregistered seed."""
+    """Write the G6 artifact from the raw rows of every preregistered seed.
+
+    Refuses rows that do not share one environment from a clean ``src/``
+    (:func:`noisefloor.provenance.single_environment`); the artifact names it.
+    """
+    entry = preregs.require_frozen(prereg)
     block = prereg_block(prereg, CONFIG_BLOCK)
     seeds = [int(s) for s in prereg_block(prereg, "g6-seeds")]
-    rows = {}
-    for line in raw.read_text().splitlines():
-        if line.strip():
-            row = json.loads(line)
-            rows[int(row["seed"])] = row
+    rows = {int(row["seed"]): row for row in jsonl.read(raw)}
     missing = [s for s in seeds if s not in rows]
     if missing:
         raise ValueError(f"{len(missing)} preregistered datasets are not run yet")
+    env = single_environment(rows[s].get("stamp") for s in seeds)
+    known = json.loads((raw.parent / "environments.json").read_text()) if env else {}
+    commits = sorted({str(rows[s]["stamp"]["commit"]) for s in seeds if rows[s].get("stamp")})
     datasets = [
-        {"seed": s, "components": rows[s]["components"], "converged": rows[s].get("converged")}
+        {
+            "seed": s,
+            "components": rows[s]["components"],
+            "converged": rows[s].get("converged"),
+            "error": rows[s].get("error"),
+        }
         for s in seeds
     ]
     names = sorted({n for d in datasets for n in d["components"]})
@@ -749,11 +796,14 @@ def bank_g6(prereg: Path, raw: Path, out: Path) -> dict[str, Any]:
         "prereg": prereg.relative_to(REPO).as_posix()
         if prereg.is_relative_to(REPO)
         else str(prereg),
+        "prereg_sha256": entry["sha256"],
         "synthetic": True,
         "confirmatory": True,
         "nominal": nominal,
+        "environment": {"env": env, "key": known.get(env), "commits": commits},
         "config": block,
         "datasets": datasets,
+        "failed_fits": sum(1 for d in datasets if d["error"]),
         "bias": bias,
         "coverage": coverage_summary(datasets),
         "generator": "python -m noisefloor.recovery g6-bank " + prereg.name,
@@ -782,10 +832,15 @@ def run_e0_glmm(amendment: Path, workers: int = 1, root: Path = E0_DIR, log: Any
     ``truth``, its estimate, and its interval. A group whose cells all have
     ``"analysis": "local"`` computes only the local-arm score and contrast intervals
     (:func:`local_intervals`); any other group runs the full E1 analysis (:func:`recover`).
+    A group's cells may carry the same ``"planted"`` overrides (for example task-by-factor
+    ``interactions``, or another ``intercept``), merged into the file's planted values for
+    that group's datasets only.
     """
+    preregs.require_frozen(amendment)
     grid = prereg_block(amendment, "e0-grid")
     block = prereg_block(amendment, CONFIG_BLOCK)
     cells = [c for c in grid if "group" in c["params"]]
+    record_environment(root / "raw")
     groups: dict[str, list[dict[str, Any]]] = {}
     for c in cells:
         groups.setdefault(str(c["params"]["group"]), []).append(c)
@@ -795,6 +850,14 @@ def run_e0_glmm(amendment: Path, workers: int = 1, root: Path = E0_DIR, log: Any
         if len(kinds) != 1:
             raise ValueError(f"group {group} mixes analyses {sorted(kinds)}")
         job = _local_job if kinds == {"local"} else _recover_job
+        overrides = {json.dumps(c["params"].get("planted", {}), sort_keys=True) for c in members}
+        if len(overrides) != 1:
+            raise ValueError(f"group {group} cells disagree on planted overrides")
+        changes = json.loads(overrides.pop())
+        unknown = set(changes) - set(block["planted"])
+        if unknown:
+            raise ValueError(f"group {group} overrides unknown planted values {sorted(unknown)}")
+        group_block = {**block, "planted": {**block["planted"], **changes}}
         reps = max(int(c["replicates"]) for c in members)
         paths = {
             str(c["params"]["component"]): root / "raw" / f"{c['cell']}.jsonl" for c in members
@@ -806,7 +869,7 @@ def run_e0_glmm(amendment: Path, workers: int = 1, root: Path = E0_DIR, log: Any
                 have = {json.loads(ln)["i"] for ln in path.read_text().splitlines() if ln.strip()}
             done = have if done is None else done & have
         todo = [i for i in range(reps) if i not in (done or set())]
-        jobs = [(block, e0_glmm_seed(group, i)) for i in todo]
+        jobs = [(group_block, e0_glmm_seed(group, i)) for i in todo]
         index = {e0_glmm_seed(group, i): i for i in todo}
         for path in paths.values():
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -822,9 +885,9 @@ def run_e0_glmm(amendment: Path, workers: int = 1, root: Path = E0_DIR, log: Any
                     "lo": None if comp is None else comp["lo"],
                     "hi": None if comp is None else comp["hi"],
                     "hit": None,
+                    "stamp": row["stamp"],
                 }
-                with path.open("a") as fh:
-                    fh.write(dumps(line) + "\n")
+                jsonl.append(path, [json.loads(dumps(line))])  # NaN and infinities as null
             added += 1
             if added % 10 == 0:
                 log(f"e0 {group}: {added}/{len(todo)} datasets")

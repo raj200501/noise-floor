@@ -59,10 +59,14 @@ dead proxies (evidence says `env-only`), plus `UV_OFFLINE=1`, `NOISEFLOOR_OFFLIN
 - Property-based suite: `pytest -m property` runs at least one test and all pass.
 
 ## G6 Orchestrator validity
-`artifacts/g6/recovery.json`: `{"prereg", "nominal", "datasets": [{"seed", "components":
-{name: {"planted", "estimate", "lo", "hi"}}}], "bias": {name: value}}`. At least 200 datasets;
-seeds equal the prereg's ` ```json g6-seeds ` list; each component's coverage meets the G5 rule;
-reported bias equals the recomputed mean of estimate minus planted.
+`artifacts/g6/recovery.json`: `{"prereg", "nominal", "config", "environment", "datasets":
+[{"seed", "components": {name: {"planted", "estimate", "lo", "hi"}}, "error"}], "bias": {name:
+value}}`. At least 200 datasets; seeds equal the prereg's ` ```json g6-seeds ` list; `config`
+equals its ` ```json recovery-config ` block and `nominal` that block's level; the components are
+exactly its ` ```json g6-components ` list, and each one's coverage meets the G5 rule (a dataset
+without an interval, such as a failed fit, counts as a miss); `environment.env` names the one
+environment every row ran in (`noisefloor.provenance`); reported bias equals the recomputed mean
+of estimate minus planted.
 
 ## G7 Factorial study (E1)
 - Prereg ` ```json e1-design ` block: `{"factors": {name: [levels]}, "models": [{"id", "family",
@@ -85,8 +89,10 @@ reported bias equals the recomputed mean of estimate minus planted.
 At least 2 `artifacts/e2/<board>/manifest.json` with `source_url`, `retrieved`, `license`,
 `snapshot`, `sha256` (snapshot hash checked unless the snapshot is under `private/`, where the
 private manifest covers it); `docs/leaderboards/<board>.md` for each; `artifacts/e3/bounds.json`
-`entries` with `source` covering `e1` and every board. Full mode:
-`python -m noisefloor.reanalysis --verify`.
+`entries` with `source` covering every board; and E3 on E1, `artifacts/e1/e3_bounds.json`
+(`source` `e1`, non-empty `entries`), written by the E1 analysis under the E1 preregistration,
+which must predate it. Full mode: `python -m noisefloor.reanalysis --verify` (E1's file is
+recomputed by G7's verify).
 
 ## G9 Library shipped
 `uv build --wheel` gives one `evalstats-*.whl`; it installs (with its documented `glmm` extra,
