@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import statistics
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -62,6 +63,7 @@ def component_summary(rows: Sequence[Mapping[str, Any]], component: str) -> dict
         "coverage": {},
         "missing": {},
         "above_zero": {},
+        "median_width": {},
     }
     for rule in rules_of(rows, component):
         hits = sum(_covers(c[rule], c["planted"]) for c in comps)
@@ -70,6 +72,8 @@ def component_summary(rows: Sequence[Mapping[str, Any]], component: str) -> dict
         # Power of "supported as non-zero": the interval's lower end is above 0.
         above = sum(1 for c in comps if c[rule] and c[rule][0] is not None and c[rule][0] > 0)
         out["above_zero"][rule] = above / len(comps)
+        widths = [c[rule][1] - c[rule][0] for c in comps if c[rule] and None not in c[rule]]
+        out["median_width"][rule] = statistics.median(widths) if widths else None
     return out
 
 
@@ -125,6 +129,59 @@ def sd_ratio(rows: Sequence[Mapping[str, Any]], component: str, rule: str) -> di
     }
 
 
+KINDS = {
+    "random": ("task", "model:task"),
+    "fixed": ("model", *TWO_LEVEL, "day", "block"),
+}
+TIE = 0.01  # rules within this much of the best minimum coverage are tied (D-023)
+FLOOR = 0.90  # a kind whose best minimum is lower gets no headline intervals (D-023)
+
+
+def kind_members(names: Sequence[str], kind: str) -> list[str]:
+    """Components of one kind of result: random, fixed, share, or mde."""
+    if kind in KINDS:
+        return [n for n in KINDS[kind] if n in names]
+    return [n for n in names if n.startswith(f"{kind}:")]
+
+
+def choose_rule(rows: Sequence[Mapping[str, Any]], kind: str) -> dict[str, Any]:
+    """The D-023 rule for one kind of result.
+
+    The rule with the highest minimum coverage over the kind's components wins; rules
+    within ``TIE`` of that minimum are broken by the smaller median width, summed over
+    the components, each component's widths divided by its median planted value
+    (``1`` if that is 0) so that no single scale dominates.
+    """
+    names = sorted({n for row in rows for n in row["components"]})
+    members = kind_members(names, kind)
+    rules = sorted(set.intersection(*(set(rules_of(rows, m)) for m in members)))
+    summaries = {m: component_summary(rows, m) for m in members}
+    minimum = {r: min(summaries[m]["coverage"][r] for m in members) for r in rules}
+    best = max(minimum.values())
+    tied = [r for r in rules if minimum[r] >= best - TIE]
+
+    def width(rule: str) -> float:
+        total = 0.0
+        for m in members:
+            scale = statistics.median(
+                [row["components"][m]["planted"] for row in rows if m in row["components"]]
+            )
+            w = summaries[m]["median_width"][rule]
+            total += math.inf if w is None else w / (scale or 1.0)
+        return total
+
+    rule = min(tied, key=lambda r: (width(r), r))
+    return {
+        "kind": kind,
+        "components": members,
+        "rule": rule,
+        "min_coverage": minimum[rule],
+        "min_coverage_by_rule": minimum,
+        "tied": tied,
+        "headline": minimum[rule] >= FLOOR,
+    }
+
+
 def summarize(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     """Everything the method decisions cite, for one pilot or one pool of pilots."""
     names = sorted({n for row in rows for n in row["components"]})
@@ -159,7 +216,10 @@ def build(directory: Path = DIR) -> dict[str, Any]:
             (row for label in pool["pilots"] for row in rows[label]),
             key=lambda r: int(r["seed"]),
         )
-        out["pools"][pool["label"]] = {"pilots": pool["pilots"], **summarize(joined)}
+        entry = {"pilots": pool["pilots"], **summarize(joined)}
+        if pool.get("choose"):
+            entry["choice"] = {k: choose_rule(joined, k) for k in pool["choose"]}
+        out["pools"][pool["label"]] = entry
     return out
 
 

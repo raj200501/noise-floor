@@ -71,3 +71,34 @@ def test_build_and_check(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> 
 
 def test_banked_summary_is_current() -> None:
     assert mp.main(["--check"]) == 0
+
+
+def test_choose_rule() -> None:
+    def comp(planted: float, a: list, b: list) -> dict:
+        return {"planted": planted, "estimate": planted, "basic": a, "percentile": b}
+
+    rows = [
+        {
+            "seed": i,
+            "components": {
+                "task": comp(2.0, [1.5, 2.5], [1.9, 2.1] if i else [2.1, 2.2]),
+                "model:task": comp(0.5, [0.3, 0.7], [0.4, 0.6]),
+            },
+        }
+        for i in range(4)
+    ]
+    picked = mp.choose_rule(rows, "random")
+    assert picked["components"] == ["task", "model:task"]
+    # percentile misses task once (min coverage 0.75): basic wins outright
+    assert picked["rule"] == "basic" and picked["min_coverage"] == 1.0 and picked["headline"]
+    assert picked["min_coverage_by_rule"] == {"basic": 1.0, "percentile": 0.75}
+    for r in rows:  # now both rules always cover: the narrower one wins the tie
+        r["components"]["task"]["percentile"] = [1.9, 2.1]
+    tied = mp.choose_rule(rows, "random")
+    assert tied["tied"] == ["basic", "percentile"] and tied["rule"] == "percentile"
+    for r in rows:
+        r["components"]["task"]["basic"] = [2.1, 2.2]
+        r["components"]["task"]["percentile"] = [2.1, 2.2]
+    assert not mp.choose_rule(rows, "random")["headline"]
+    shares = [{"seed": 1, "components": {"share:task": comp(0.3, [0.2, 0.4], [0.1, 0.2])}}]
+    assert mp.choose_rule(shares, "share")["rule"] == "basic"

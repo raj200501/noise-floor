@@ -320,7 +320,9 @@ exploratory and banked in `artifacts/method_pilots/` (synthetic data, seeds from
   variances (task, model:task), fixed-factor contributions (every fixed factor), shares (every
   share), and MDE rows (the three pilot designs) each get the rule with the highest minimum
   coverage over that kind's components in pilot 6; rules within 0.01 of that minimum are
-  broken by the smaller median interval width over the same components and datasets. If the
+  broken by the smaller median interval width, summed over the kind's components with each
+  component's width divided by its median planted value (1 when that is 0)
+  (`noisefloor.method_pilots.choose_rule`, written before pilot 6 was read). If the
   best minimum for a kind is below 0.90, that kind's intervals do not become headline
   intervals (the E1 preregistration then reports them as estimates with unvalidated intervals),
   and the failure is recorded here.
