@@ -36,11 +36,17 @@ dead proxies (evidence says `env-only`), plus `UV_OFFLINE=1`, `NOISEFLOOR_OFFLIN
 `tests/golden/demo.txt`.
 
 ## G5 Library validity (E0)
-- `artifacts/e0/coverage.json`: `{"prereg": "prereg/NNNN-....md", "cells": [{"cell", "method",
-  "interval_type", "nominal", "replicates", "covered"}]}`.
-- The prereg holds a ` ```json e0-grid ` block listing the same cells (`cell`, `method`,
-  `interval_type`, `nominal`, `replicates`), committed strictly before the artifact.
-- Replicates at least 2,000 per cell, or 500 when `interval_type` is a resampling or GLMM type.
+- `artifacts/e0/coverage.json`: `{"prereg": "prereg/NNNN-....md", "amendments": [...],
+  "cells": [{"cell", "method", "interval_type", "nominal", "replicates", "covered"}]}`.
+- The prereg and each amendment (which must say `amends: NNNN` of that prereg) hold a
+  ` ```json e0-grid ` block; the union lists the same cells (`cell`, `method`, `interval_type`,
+  `nominal`, `replicates`), and each file is committed strictly before the artifact (D-017).
+- `artifacts/e0/raw/<cell>.jsonl` holds one line per replicate (`i`, `truth`, `lo`, `hi`,
+  `estimate`, `hit`); G5 recounts each cell's coverage from it and requires the banked count to
+  match. A replicate with a missing bound counts as not covered.
+- Replicates at least 2,000 per cell, or 500 when `interval_type` is a bootstrap (`bootstrap`,
+  `bca`, `bootstrap_max_t`, `parametric_bootstrap`) or GLMM (`glmm`, `glmm_profile`,
+  `profile_glmm`) type.
 - Rule: coverage >= nominal - 0.015 - 2 * sqrt(c(1 - c)/R), with c the observed coverage.
 - `artifacts/headline_cells.json`: `{"cells": [...]}` naming every cell used by an E1 or E2
   headline interval; all must pass. Every failing cell must be in

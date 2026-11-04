@@ -54,7 +54,15 @@ COVERAGE_MIN = 85.0
 DEMO_LIMIT_S = 180.0
 MIN_REPS = 2000
 MIN_REPS_RESAMPLING = 500  # bootstrap or GLMM intervals
-RESAMPLING_TYPES = {"bootstrap", "glmm", "parametric_bootstrap", "profile_glmm"}
+RESAMPLING_TYPES = {
+    "bootstrap",
+    "bca",
+    "bootstrap_max_t",
+    "parametric_bootstrap",
+    "glmm",
+    "glmm_profile",
+    "profile_glmm",
+}
 G6_MIN_DATASETS = 200
 E1_MIN_RUNS = 1000
 E1_MIN_CLAUDE_RUNS = 150
@@ -496,14 +504,48 @@ def g4(ctx: Ctx) -> str:
     return f"demo {res.seconds:.0f}s, no network ({isolation}), no model calls, matches golden"
 
 
+def raw_covered(ctx: Ctx, cell: str, reps: int) -> int:
+    """Recount a cell's covered replicates from artifacts/e0/raw/<cell>.jsonl (indices < reps)."""
+    path = rel(ctx, f"artifacts/e0/raw/{cell}.jsonl")
+    need(path.exists(), f"cell {cell}: raw replicates missing")
+    rows: dict[int, dict[str, Any]] = {}
+    for line in path.read_text().splitlines():
+        if line.strip():
+            row = json.loads(line)
+            rows[int(row["i"])] = row
+    need(all(i in rows for i in range(reps)), f"cell {cell}: raw replicates incomplete")
+
+    def covered(row: dict[str, Any]) -> bool:
+        if row.get("hit") is not None:
+            return bool(row["hit"])
+        lo, hi, truth = row.get("lo"), row.get("hi"), row.get("truth")
+        if lo is None or hi is None or truth is None:
+            return False
+        return float(lo) <= float(truth) <= float(hi)
+
+    return sum(covered(rows[i]) for i in range(reps))
+
+
 def g5(ctx: Ctx) -> str:
     art = "artifacts/e0/coverage.json"
     data = load_json(rel(ctx, art))
     prereg = str(data.get("prereg", ""))
-    grid = prereg_block(ctx, prereg, "e0-grid")
-    check_prereg_link(ctx, prereg, art)
-    need(isinstance(grid, list) and bool(grid), "e0-grid is empty")
+    sources = [prereg, *(str(a) for a in data.get("amendments", []))]
+    grid: list[Any] = []
+    for source in sources:
+        block = prereg_block(ctx, source, "e0-grid")
+        need(isinstance(block, list) and bool(block), f"e0-grid in {source} is empty")
+        check_prereg_link(ctx, source, art)
+        grid.extend(block)
+    for amendment in sources[1:]:
+        number = Path(prereg).name[:4]
+        need(
+            re.search(rf"^amends:\s*{number}\s*$", rel(ctx, amendment).read_text(), re.M)
+            is not None,
+            f"{amendment} does not amend {prereg}",
+        )
     planned = {str(c["cell"]): c for c in grid}
+    need(len(planned) == len(grid), "cell ids repeat across the frozen grids")
     cells = {str(c["cell"]): c for c in data.get("cells", [])}
     need(set(cells) == set(planned), "E0 cells differ from the frozen grid")
     failing: list[str] = []
@@ -514,7 +556,12 @@ def g5(ctx: Ctx) -> str:
         reps = int(cell["replicates"])
         floor = MIN_REPS_RESAMPLING if cell["interval_type"] in RESAMPLING_TYPES else MIN_REPS
         need(reps >= max(floor, int(plan.get("replicates", 0))), f"cell {cid}: {reps} replicates")
-        ok, _, _ = coverage_rule(int(cell["covered"]), reps, float(cell["nominal"]))
+        covered = raw_covered(ctx, cid, reps)
+        need(
+            covered == int(cell["covered"]),
+            f"cell {cid}: banked covered count does not match its raw replicates",
+        )
+        ok, _, _ = coverage_rule(covered, reps, float(cell["nominal"]))
         if not ok:
             failing.append(cid)
     head = load_json(rel(ctx, "artifacts/headline_cells.json"))
