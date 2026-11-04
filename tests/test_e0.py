@@ -157,3 +157,21 @@ def test_paired_cells_with_unequal_runs() -> None:
     c = cell("paired_difference", effect_a=0.4, effect_b=0.0, model_task_sd=0.7, runs=1, runs_b=4)
     rep = run_replicate(c, 0)
     assert rep.lo <= rep.estimate <= rep.hi and rep.truth > 0
+
+
+def test_bounded_cells_with_truth_at_a_bound() -> None:
+    base = {"runs": 4, "ambiguous_rate": 0.4, "model_task_sd": 0.7}
+    fail = run_replicate(cell("bounded_score", "imbens_manski", ambiguous_among="fail", **base), 0)
+    succ = run_replicate(
+        cell("bounded_score", "imbens_manski", ambiguous_among="success", **base), 0
+    )
+    anyrun = run_replicate(cell("bounded_score", "imbens_manski", **base), 0)
+    # Ambiguous true failures recorded as 0 leave the scored value at the truth's end.
+    assert fail.lo <= fail.estimate <= fail.hi and succ.estimate < anyrun.estimate + 0.5
+    with pytest.raises(ValueError, match="ambiguous_among"):
+        run_replicate(cell("bounded_score", "imbens_manski", ambiguous_among="x", **base), 0)
+    # The default ("any") draws exactly as before.
+    plain = {"runs": 4, "ambiguous_rate": 0.4}
+    assert run_replicate(cell("bounded_score", "imbens_manski", **plain), 2) == run_replicate(
+        cell("bounded_score", "imbens_manski", ambiguous_among="any", **plain), 2
+    )

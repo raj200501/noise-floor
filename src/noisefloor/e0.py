@@ -253,9 +253,18 @@ def _sim_bounded(cell: Cell, rng: np.random.Generator, seed: int) -> Replicate:
         runs=int(p["runs"]),
         intercept=float(p.get("intercept", 0.0)),
         task_sd=float(p["task_sd"]),
-        model_task_sd=0.0,
+        model_task_sd=float(p.get("model_task_sd", 0.0)),
     )
     amb = rng.random(len(frame)) < float(p["ambiguous_rate"])
+    # ``ambiguous_among``: "any" run (truth inside the identified set), only true failures
+    # (truth at the set's lower end), or only true successes (truth at its upper end).
+    among = str(p.get("ambiguous_among", "any"))
+    if among == "fail":
+        amb &= frame["outcome"].to_numpy() == 0.0
+    elif among == "success":
+        amb &= frame["outcome"].to_numpy() == 1.0
+    elif among != "any":
+        raise ValueError(f"unknown ambiguous_among {among!r}")
     # The true outcome stays as drawn; the recorded outcome of an ambiguous run is 0.
     frame["status"] = np.where(amb, "infra_error", "ok")
     frame.loc[amb, "outcome"] = 0.0
