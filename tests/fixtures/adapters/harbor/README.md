@@ -36,10 +36,19 @@ Two models, three tasks, two attempts each (`n_attempts=2`):
 | `mock-regex__mock002` | a | `AgentTimeoutError`, verifier still ran, reward 0 |
 | `mock-regex__mock003` | a | reward 1 |
 | `mock-build__mock004` | a | `EnvironmentStartTimeoutError`, no reward |
-| `mock-build__mock005` | a | multi-step trial (`step_results`, tokens per step), reward 0 |
+| `mock-build__mock005` | a | multi-step trial (`step_results`, tokens and agent timing per step), reward 0 |
 | `mock-hello__mock006` | b | reward 1 |
 | `mock-hello__mock007` | b | `AgentSafetyRefusalError`, reward 0 |
 | `mock-regex__mock008` | b | `VerifierTimeoutError`, no reward |
 | `mock-regex__mock009` | b | `verifier.disable = true`, no reward |
 | `mock-build__mock010` | b | `ContextWindowExceededError`, reward 0 |
 | `mock-build__mock011` | b | `config.json` and `trial.log` only: the trial never wrote `result.json` |
+
+## Changes
+
+- 2026-11-04: `mock-build__mock005` regenerated with `make_job.py` so that agent and verifier
+  timing sit on its two steps and its own `agent_execution` is null. Harbor 0.24.0 records a
+  multi-step trial's timing per step (`harbor/trial/trial.py` `_run_agent_phase` writes to its
+  target, which `harbor/trial/multi_step.py` sets to each `StepResult`), so the earlier file,
+  with timing on the trial and none on the steps, did not match the real format. No other file
+  changed.

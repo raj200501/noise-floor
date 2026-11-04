@@ -153,7 +153,8 @@ def read_inspect(
     ``include_missing=False`` drops the ``infra_error`` rows added for samples a log lacks.
     The module docstring gives the row layout, the value mapping, and the status mapping.
     Raises :class:`SchemaError` if a file is not a readable Inspect log, a score cannot be
-    mapped to [0, 1], or two logs give the same (model, task, run).
+    mapped to [0, 1], a log holds one sample and epoch twice, or two logs give the same
+    (model, task, run).
     """
     if run_key not in ("epoch", "eval_epoch"):
         raise ValueError(f"run_key must be 'epoch' or 'eval_epoch', not {run_key!r}")
@@ -222,7 +223,9 @@ def _read_json_file(path: Path, label: str) -> _Log | None:
 def _read_eval_file(path: Path, label: str) -> _Log:
     try:
         archive = zipfile.ZipFile(path)
-    except (zipfile.BadZipFile, OSError) as exc:
+    except (zipfile.BadZipFile, NotImplementedError, OSError, ValueError) as exc:
+        # a damaged central directory can also name a zip version zipfile does not know
+        # (NotImplementedError) or a file name that is not UTF-8 (UnicodeDecodeError)
         raise SchemaError(f"{path}: not a readable .eval zip ({exc})") from exc
     with archive:
         members = {info.filename: info for info in archive.infolist()}
@@ -256,7 +259,11 @@ def _member(archive: zipfile.ZipFile, info: zipfile.ZipInfo, path: Path) -> byte
                 f"{where}: unsupported zip compression method {info.compress_type}"
             ) from exc
         return _read_zstd_member(path, info)
-    except (zipfile.BadZipFile, zlib.error, EOFError) as exc:
+    except Exception as exc:
+        # Damaged members raise many types: zipfile's BadZipFile, RuntimeError (encryption
+        # flag), OSError (bad offset), EOFError, and UnicodeDecodeError (name), plus each
+        # decompressor's own error (zlib.error, lzma.LZMAError, OSError from bz2, and
+        # compression.zstd.ZstdError on Python 3.14).
         raise SchemaError(f"{where}: corrupt zip member ({exc})") from exc
 
 
@@ -307,6 +314,8 @@ def _log_rows(log: _Log, options: _Options) -> list[dict[str, Any]]:
         sample_id, epoch = sample.get("id"), sample.get("epoch")
         if sample_id is None or not isinstance(epoch, int):
             raise SchemaError(f"{log.label}: sample without an id or integer epoch")
+        if (str(sample_id), epoch) in seen:
+            raise SchemaError(f"{log.label}: sample {sample_id} epoch {epoch} appears twice")
         seen.add((str(sample_id), epoch))
         row = _sample_row(
             sample, sample_id=str(sample_id), epoch=epoch, scorer=chosen, options=options
@@ -362,11 +371,11 @@ def _sample_row(
 ) -> dict[str, Any]:
     where = f"{options.label}: sample {sample_id} epoch {epoch}"
     scores = sample.get("scores")
-    score = scores.get(scorer) if isinstance(scores, Mapping) and scorer is not None else None
-    raw = score.get("value") if isinstance(score, Mapping) else None
-    value = None
-    if isinstance(score, Mapping):
-        value = _to_float(raw, options.value_map, options.value_key, where)
+    score = None
+    if isinstance(scores, Mapping) and scorer is not None and scores.get(scorer) is not None:
+        score = as_mapping(scores[scorer], f"{where}: score {scorer!r}")
+    raw = None if score is None else score.get("value")
+    value = None if score is None else _to_float(raw, options.value_map, options.value_key, where)
     status, reason = _status(sample, score, value)
     retries = sample.get("error_retries")
     return {
@@ -460,7 +469,7 @@ def _missing(
         return []
     epochs = config.get("epochs") if isinstance(config, Mapping) else None
     epochs = epochs if isinstance(epochs, int) and epochs > 0 else 1
-    skipped = _early_stops(log.header.get("results"))
+    skipped = _early_stops(log.header.get("results"), log.label)
     return [
         (str(sample_id), epoch)
         for epoch in range(1, epochs + 1)
@@ -469,13 +478,17 @@ def _missing(
     ]
 
 
-def _early_stops(results: Any) -> set[tuple[str, int]]:
+def _early_stops(results: Any, label: str) -> set[tuple[str, int]]:
     early = results.get("early_stopping") if isinstance(results, Mapping) else None
     stops = early.get("early_stops") if isinstance(early, Mapping) else None
     if not isinstance(stops, list):
         return set()
-    return {
-        (str(stop.get("id")), int(stop.get("epoch", 0)))
-        for stop in stops
-        if isinstance(stop, Mapping)
-    }
+    skipped: set[tuple[str, int]] = set()
+    for stop in stops:
+        epoch = stop.get("epoch") if isinstance(stop, Mapping) else None
+        if not isinstance(epoch, int):
+            raise SchemaError(
+                f"{label}: results.early_stopping lists an entry without an integer epoch"
+            )
+        skipped.add((str(stop.get("id")), epoch))
+    return skipped

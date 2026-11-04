@@ -96,10 +96,7 @@
         "finished_at": "2026-10-23T02:25:30Z"
     },
     "agent_setup": null,
-    "agent_execution": {
-        "started_at": "2026-10-23T02:26:00Z",
-        "finished_at": "2026-10-23T02:28:00Z"
-    },
+    "agent_execution": null,
     "verifier": null,
     "step_results": [
         {
@@ -119,8 +116,14 @@
                 }
             },
             "exception_info": null,
-            "agent_execution": null,
-            "verifier": null
+            "agent_execution": {
+                "started_at": "2026-10-23T02:26:00Z",
+                "finished_at": "2026-10-23T02:27:00Z"
+            },
+            "verifier": {
+                "started_at": "2026-10-23T02:27:00Z",
+                "finished_at": "2026-10-23T02:27:15Z"
+            }
         },
         {
             "step_name": "step-2",
@@ -139,8 +142,14 @@
                 }
             },
             "exception_info": null,
-            "agent_execution": null,
-            "verifier": null
+            "agent_execution": {
+                "started_at": "2026-10-23T02:27:15Z",
+                "finished_at": "2026-10-23T02:28:00Z"
+            },
+            "verifier": {
+                "started_at": "2026-10-23T02:28:00Z",
+                "finished_at": "2026-10-23T02:28:30Z"
+            }
         }
     ]
 }

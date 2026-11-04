@@ -94,6 +94,7 @@ def main() -> None:
             cost_usd=None,
         )
         provider, name = model.split("/")
+        multi_step = bool(opts.get("multi_step"))
         result = TrialResult(
             id=UUID(int=0x1000 + index),
             task_name=task,
@@ -108,7 +109,7 @@ def main() -> None:
                 version="mock",
                 model_info=ModelInfo(name=name, provider=provider),
             ),
-            agent_result=None if opts.get("multi_step") else usage,
+            agent_result=None if multi_step else usage,
             verifier_result=None if reward is None else VerifierResult(rewards={"reward": reward}),
             exception_info=None if exc is None else exception(exc, start + timedelta(minutes=3)),
             started_at=start,
@@ -116,21 +117,42 @@ def main() -> None:
             environment_setup=TimingInfo(
                 started_at=start, finished_at=start + timedelta(seconds=30)
             ),
-            agent_execution=TimingInfo(
+            # A multi-step trial times the agent per step: harbor/trial/trial.py
+            # _run_agent_phase records timing on its target, which multi_step.py sets to
+            # each StepResult, so the trial's own agent_execution stays None.
+            agent_execution=None
+            if multi_step
+            else TimingInfo(
                 started_at=start + timedelta(minutes=1), finished_at=start + timedelta(minutes=3)
             ),
         )
-        if opts.get("multi_step"):
+        if multi_step:
             result.step_results = [
                 StepResult(
                     step_name="step-1",
                     agent_result=usage,
                     verifier_result=VerifierResult(rewards={"reward": 1.0}),
+                    agent_execution=TimingInfo(
+                        started_at=start + timedelta(minutes=1),
+                        finished_at=start + timedelta(minutes=2),
+                    ),
+                    verifier=TimingInfo(
+                        started_at=start + timedelta(minutes=2),
+                        finished_at=start + timedelta(minutes=2, seconds=15),
+                    ),
                 ),
                 StepResult(
                     step_name="step-2",
                     agent_result=usage,
                     verifier_result=VerifierResult(rewards={"reward": 0.0}),
+                    agent_execution=TimingInfo(
+                        started_at=start + timedelta(minutes=2, seconds=15),
+                        finished_at=start + timedelta(minutes=3),
+                    ),
+                    verifier=TimingInfo(
+                        started_at=start + timedelta(minutes=3),
+                        finished_at=start + timedelta(minutes=3, seconds=30),
+                    ),
                 ),
             ]
         if index == 0:

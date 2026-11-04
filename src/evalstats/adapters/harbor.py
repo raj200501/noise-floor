@@ -24,8 +24,9 @@ only reward when there is one key (the rule Harbor's uploader uses), or
 Status mapping, first match wins (``status_reason`` in brackets). The trial exception is
 ``exception_info``, or for multi-step trials the first step's ``exception_info``.
 
-1. ``config.verifier.disable`` or ``config.install_only`` is true: ``flagged``
-   [``verifier_disabled`` or ``install_only``].
+1. ``config.install_only`` or ``config.verifier.disable`` is true: ``flagged``
+   [``install_only`` or ``verifier_disabled``]. Harbor also sets ``verifier.disable`` on
+   install-only trials, so ``install_only`` is checked first.
 2. The exception type is one of :data:`TIMEOUT_EXCEPTIONS` (agent or verifier time limit,
    context window, output token limit): ``timeout`` [the type]. Harbor still runs the verifier
    after an agent timeout, so such a trial can carry a reward.
@@ -37,9 +38,9 @@ Status mapping, first match wins (``status_reason`` in brackets). The trial exce
    infrastructure rather than the agent: ``infra_error`` [the type].
 5. No reward: ``infra_error`` [``no_reward``].
 6. A trial directory with ``config.json`` but no ``result.json`` (the process died before
-   Harbor wrote the result): ``infra_error`` [``no_result``]; ``include_incomplete=False``
-   drops these rows. Its task name comes from a finished trial with the same task config, else
-   from the task config's ``name`` or ``path``.
+   Harbor wrote the result), including one passed as ``job_dir``: ``infra_error``
+   [``no_result``]; ``include_incomplete=False`` drops these rows. Its task name comes from a
+   finished trial with the same task config, else from the task config's ``name`` or ``path``.
 7. Otherwise ``ok``.
 
 Non-ok rows keep the trial's reward when it has one and 0 otherwise. A job whose
@@ -49,7 +50,8 @@ warning: trials that never started leave no files and cannot appear in the table
 Covariates: ``status``, ``status_reason``, ``trial_name``, ``agent``, ``agent_version``,
 ``exception_type``, ``input_tokens`` (including cache), ``cache_tokens``, ``output_tokens``,
 ``cost_usd``, ``agent_time`` and ``total_time`` (seconds), ``started_at``, and ``dataset``
-(the trial's ``source``).
+(the trial's ``source``). Harbor records a multi-step trial's usage and agent timing on its
+steps, so for those trials the token, cost, and ``agent_time`` columns sum over the steps.
 """
 
 from __future__ import annotations
@@ -204,7 +206,7 @@ def _scan_dir(directory: Path, depth: int, scan: _Scan) -> None:
             )
         return
     config = directory / "config.json"
-    if depth > 0 and config.is_file():
+    if config.is_file():
         data = load_json_file(config)
         if _is_trial_config(data):
             scan.pending.append((directory.name, data))
@@ -254,8 +256,6 @@ def _trial_row(
     exception = _exception_type(data)
     reward = _reward(data.get("verifier_result"), reward_key, label)
     status, reason = _status(config, exception, reward)
-    agent_run = data.get("agent_execution")
-    agent_run = agent_run if isinstance(agent_run, Mapping) else {}
     return {
         "model": model,
         "task": str(data["task_name"]),
@@ -267,7 +267,7 @@ def _trial_row(
         "agent_version": agent_info.get("version"),
         "exception_type": exception,
         **_tokens(data),
-        "agent_time": _seconds(agent_run.get("started_at"), agent_run.get("finished_at")),
+        "agent_time": _agent_time(data),
         "total_time": _seconds(data.get("started_at"), data.get("finished_at")),
         "started_at": data.get("started_at"),
         "dataset": data.get("source"),
@@ -343,11 +343,11 @@ def _reward(verifier: Any, reward_key: str | None, label: str) -> float | None:
 def _status(
     config: Mapping[str, Any], exception: str | None, reward: float | None
 ) -> tuple[str, str | None]:
+    if config.get("install_only"):
+        return FLAGGED, "install_only"
     verifier = config.get("verifier")
     if isinstance(verifier, Mapping) and verifier.get("disable"):
         return FLAGGED, "verifier_disabled"
-    if config.get("install_only"):
-        return FLAGGED, "install_only"
     if exception is None:
         return (INFRA_ERROR, "no_reward") if reward is None else (OK, None)
     if exception in TIMEOUT_EXCEPTIONS:
@@ -355,13 +355,18 @@ def _status(
     return (OK if exception in REAL_OUTCOME_EXCEPTIONS else INFRA_ERROR), exception
 
 
-def _tokens(data: Mapping[str, Any]) -> dict[str, float | None]:
-    contexts = [data.get("agent_result")]
+def _per_step(data: Mapping[str, Any], key: str) -> list[Any]:
+    """The trial's ``key``, or each step's ``key`` if the trial has none (multi-step trials)."""
+    value = data.get(key)
     steps = data.get("step_results")
-    if not isinstance(contexts[0], Mapping) and isinstance(steps, list):
-        contexts = [s.get("agent_result") for s in steps if isinstance(s, Mapping)]
+    if not isinstance(value, Mapping) and isinstance(steps, list):
+        return [s.get(key) for s in steps if isinstance(s, Mapping)]
+    return [value]
+
+
+def _tokens(data: Mapping[str, Any]) -> dict[str, float | None]:
     totals: dict[str, float | None] = dict.fromkeys(_TOKEN_KEYS)
-    for context in contexts:
+    for context in _per_step(data, "agent_result"):
         if not isinstance(context, Mapping):
             continue
         for column, key in _TOKEN_KEYS.items():
@@ -369,6 +374,16 @@ def _tokens(data: Mapping[str, Any]) -> dict[str, float | None]:
             if isinstance(value, int | float):
                 totals[column] = (totals[column] or 0.0) + float(value)
     return totals
+
+
+def _agent_time(data: Mapping[str, Any]) -> float | None:
+    total: float | None = None
+    for timing in _per_step(data, "agent_execution"):
+        if isinstance(timing, Mapping):
+            seconds = _seconds(timing.get("started_at"), timing.get("finished_at"))
+            if seconds is not None:
+                total = (total or 0.0) + seconds
+    return total
 
 
 def _seconds(start: Any, end: Any) -> float | None:
