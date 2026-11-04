@@ -137,3 +137,15 @@ claude/ branches or a schedule), with a cancel-in-progress concurrency group and
 timeout-minutes 10; jobs stay lean (setup, make ci). No other workflows. `make ci` must pass
 locally on a fresh clone before every push. (The stop-now commit that introduced this was pushed
 without running make ci, on Raj's instruction.)
+
+## D-016 2026-11-04 E1 pilot (exploratory)
+The pilot (noisefloor.pilot, plan p1) crosses the four candidate local models, both local
+harnesses (minimal-agent, Inspect basic agent), the five nf-tools families, and difficulties
+1 to 5, one task seed each, at temperature 0, a 300 s wall-clock limit, 15 steps, 4 threads,
+concurrency 1 (200 runs). Its task seeds come from 900000 to 900999; the confirmatory E1 seed
+range will be disjoint and fixed in the E1 preregistration, and pilot data is never pooled with
+confirmatory data. Pilot records go to artifacts/pilot/p1.jsonl with phase "pilot" and are
+reported as exploratory. Purpose: choose models and a difficulty mix so that every model
+configuration's mean success lies in [0.2, 0.8], measure run times to set the timeout levels,
+and estimate variance inputs for the E1 power analysis. Batches run as split plots (one server
+configuration per batch), so the E1 analysis will include a batch random effect.
