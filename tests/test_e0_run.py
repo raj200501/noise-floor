@@ -129,3 +129,13 @@ def test_crosscheck_main_writes_artifact(
 def test_crosscheck_glmm_checks_agree() -> None:
     checks = e0_crosscheck.glmm_checks()
     assert len(checks) == 5 and all(c["abs_diff"] <= c["tolerance"] for c in checks)
+
+
+def test_lower_priority(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[int] = []
+    monkeypatch.setattr(e0_run.os, "nice", lambda inc: calls.append(inc) or 0)
+    group = tmp_path / "autogroup"
+    e0_run.lower_priority(group)
+    assert calls == [10] and group.read_text() == "19\n"
+    e0_run.lower_priority(tmp_path / "missing" / "autogroup")  # no such file: ignored
+    assert calls == [10, 10]

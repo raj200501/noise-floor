@@ -11,6 +11,7 @@ from the ```json e0-grid``` blocks of the preregistration files.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import math
 import multiprocessing as mp
@@ -116,8 +117,19 @@ def run_cell(cell: Cell, workers: int = 1, root: Path = E0_DIR, log: Any = print
     return added
 
 
-def _lower_priority() -> None:
+def lower_priority(autogroup: Path = Path("/proc/self/autogroup")) -> None:
+    """Lowest CPU priority for this process.
+
+    Sets nice 10 and, where the kernel groups jobs into scheduler autogroups (in which
+    ``nice`` only orders processes within a group, D-024), the group's own nice to 19. A
+    failure to set the group is ignored.
+    """
     os.nice(10)
+    with contextlib.suppress(OSError):
+        autogroup.write_text("19\n")
+
+
+_lower_priority = lower_priority
 
 
 def bank(preregs: Sequence[Path], root: Path = E0_DIR) -> dict[str, Any]:

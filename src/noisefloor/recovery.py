@@ -27,7 +27,6 @@ import itertools
 import json
 import math
 import multiprocessing as mp
-import os
 import sys
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
@@ -51,6 +50,7 @@ from evalstats.glmm import (
 )
 from noisefloor.analysis import mde as mde_lib
 from noisefloor.e0 import expected_sigmoid
+from noisefloor.e0_run import lower_priority
 from noisefloor.preregs import prereg_block
 
 # Run-level two-level factors of the half fraction 2^(5-1) (defining relation I = ABCDE),
@@ -668,7 +668,7 @@ def _pool_map(jobs: list[Any], func: Any, workers: int) -> Iterator[Any]:
     if workers <= 1:
         yield from map(func, jobs)
         return
-    with mp.get_context("spawn").Pool(workers, initializer=os.nice, initargs=(10,)) as pool:
+    with mp.get_context("spawn").Pool(workers, initializer=lower_priority) as pool:
         yield from pool.imap_unordered(func, jobs)
 
 
