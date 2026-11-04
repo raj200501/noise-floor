@@ -63,7 +63,8 @@ def test_build_check_and_skip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, c
     monkeypatch.setattr(report, "FIGURES", tmp_path / "docs" / "figures")
     assert report.main(["--check"]) == 1
     assert report.main([]) == 0
-    assert "skipped ['e2-epoch-swebench-scores.svg']" in capsys.readouterr().out
+    skipped = "skipped ['e1-shares.svg', 'e1-mde.svg', 'e2-epoch-swebench-scores.svg']"
+    assert skipped in capsys.readouterr().out
     assert report.main(["--check"]) == 0
     manifest = json.loads((tmp_path / "docs" / "figures" / "manifest.json").read_text())
     assert list(manifest["figures"]) == ["e2-tb2-scores.svg"]
@@ -74,3 +75,84 @@ def test_build_check_and_skip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, c
 
 def test_banked_figures_are_current() -> None:
     assert report.main(["--check"]) == 0
+
+
+def write_e1(root: Path) -> None:
+    e1 = root / "artifacts" / "e1"
+    e1.mkdir(parents=True)
+    comps = [
+        {"name": "task", "share": 0.31, "share_lo": 0.22, "share_hi": 0.4},
+        {"name": "residual", "share": 0.52, "share_lo": 0.45, "share_hi": 0.58},
+        {"name": "model:task", "share": 0.08, "share_lo": 0.05, "share_hi": 0.12},
+        {"name": "harness", "share": 0.01, "share_lo": None, "share_hi": None},
+    ]
+    (e1 / "variance_components.json").write_text(
+        json.dumps(
+            {
+                "components": comps,
+                "n_runs": 1440,
+                "prereg": "prereg/0004-x.md",
+                "settings": {"level": 0.95},
+            }
+        )
+    )
+    rows = [
+        {
+            "tasks": t,
+            "runs": k,
+            "mde": 0.5 / (t * k) ** 0.5,
+            "lo": 0.4 / (t * k) ** 0.5,
+            "hi": 0.6 / (t * k) ** 0.5,
+        }
+        for t in (20, 40, 89, 200, 500)
+        for k in (1, 3, 5)
+    ]
+    (e1 / "mde.json").write_text(json.dumps({"rows": rows, "prereg": "prereg/0004-x.md"}))
+
+
+def test_e1_figures(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(report, "REPO", tmp_path)
+    assert report.e1_shares() is None and report.e1_mde() is None
+    write_e1(tmp_path)
+    shares, sources = report.e1_shares()
+    root = ET.fromstring(shares)
+    labels = [e.text for e in root.findall("s:text", NS) if e.get("class") == "label"]
+    assert labels == ["residual (logistic)", "task", "model x task", "harness"]
+    assert "52.0% [45.0%, 58.0%]" in shares and "1.0%" in shares
+    assert sources == [tmp_path / "artifacts" / "e1" / "variance_components.json"]
+    mde, _ = report.e1_mde()
+    root = ET.fromstring(mde)
+    assert len(root.findall("s:polyline", NS)) == 3
+    assert len(root.findall("s:circle", NS)) == 15
+    assert "5 runs per task" in mde and "1 run per task" in mde
+    with pytest.raises(ValueError, match="one to three"):
+        report.line_chart(
+            [], title="", subtitle="", x_label="", y_label="", x_ticks=[1, 2], y_domain=(0, 1)
+        )
+
+
+def test_line_chart_end_labels() -> None:
+    apart = [
+        report.Series("a", [(1, 0.9, None, None), (10, 0.8, None, None)]),
+        report.Series("b", [(1, 0.2, None, None), (10, 0.1, None, None)]),
+    ]
+    close = [
+        report.Series("a", [(1, 0.9, None, None), (10, 0.11, None, None)]),
+        report.Series("b", [(1, 0.2, None, None), (10, 0.1, None, None)]),
+    ]
+    kw = {
+        "title": "t",
+        "subtitle": "s",
+        "x_label": "x",
+        "y_label": "y",
+        "x_ticks": [1, 10],
+        "y_domain": (0.0, 1.0),
+    }
+
+    def labels(svg: str) -> list:
+        return [
+            e.text for e in ET.fromstring(svg).findall("s:text", NS) if e.get("class") == "label"
+        ]
+
+    assert labels(report.line_chart(apart, **kw)) == ["a", "b", "a", "b"]  # legend + ends
+    assert labels(report.line_chart(close, **kw)) == ["a", "b"]  # legend only

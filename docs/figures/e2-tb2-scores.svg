@@ -2,10 +2,10 @@
 <title id="t">Terminal-Bench 2.0: score of each entry with its 95% interval</title>
 <desc id="d">66 entries, 89 tasks; task-clustered t intervals; analysis plan prereg/0001-e2-leaderboard-reanalysis.md. One row per item; the dot is the estimate and the line its interval.</desc>
 <style>svg { --surface: #fcfcfb; --ink: #0b0b0b; --ink2: #52514e; --muted: #898781;
-  --grid: #e1e0d9; --axis: #c3c2b7; --s1: #2a78d6; }
+  --grid: #e1e0d9; --axis: #c3c2b7; --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; }
 @media (prefers-color-scheme: dark) {
   svg { --surface: #1a1a19; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
-    --grid: #2c2c2a; --axis: #383835; --s1: #3987e5; }
+    --grid: #2c2c2a; --axis: #383835; --s1: #3987e5; --s2: #d95926; --s3: #199e70; }
 }
 text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
 .bg { fill: var(--surface); }
@@ -17,7 +17,11 @@ text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
 .grid { stroke: var(--grid); stroke-width: 1; }
 .axis { stroke: var(--axis); stroke-width: 1; }
 .ci { stroke: var(--s1); stroke-width: 2; stroke-linecap: round; }
-.dot { fill: var(--s1); stroke: var(--surface); stroke-width: 2; }</style>
+.dot { fill: var(--s1); stroke: var(--surface); stroke-width: 2; }
+.line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.c1 { stroke: var(--s1); } .c2 { stroke: var(--s2); } .c3 { stroke: var(--s3); }
+.f1 { fill: var(--s1); } .f2 { fill: var(--s2); } .f3 { fill: var(--s3); }
+.ring { stroke: var(--surface); stroke-width: 2; }</style>
 <rect class="bg" x="0" y="0" width="760" height="1160"/>
 <text class="title" x="16" y="24">Terminal-Bench 2.0: score of each entry with its 95% interval</text>
 <text class="sub" x="16" y="42">66 entries, 89 tasks; task-clustered t intervals; analysis plan prereg/0001-e2-leaderboard-reanalysis.md.</text>
