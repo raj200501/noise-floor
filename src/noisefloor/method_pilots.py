@@ -135,7 +135,8 @@ KINDS = {
     "fixed": ("model", *TWO_LEVEL, "day", "block"),
 }
 TIE = 0.01  # rules within this much of the best minimum coverage are tied (D-023)
-FLOOR = 0.90  # a kind whose best minimum is lower gets no headline intervals (D-023)
+FLOOR = 0.90  # every component's coverage must reach this for a headline kind (D-028)
+POOLED_FLOOR = 0.935  # and the kind's pooled coverage this (D-028)
 
 
 def kind_members(names: Sequence[str], kind: str) -> list[str]:
@@ -172,14 +173,23 @@ def choose_rule(rows: Sequence[Mapping[str, Any]], kind: str) -> dict[str, Any]:
         return total
 
     rule = min(tied, key=lambda r: (width(r), r))
+    hits = total = 0
+    for m in members:
+        for row in rows:
+            comp = row["components"].get(m)
+            if comp is not None:
+                total += 1
+                hits += _covers(comp.get(rule), comp["planted"])
+    pooled = hits / total if total else 0.0
     return {
         "kind": kind,
         "components": members,
         "rule": rule,
         "min_coverage": minimum[rule],
+        "pooled_coverage": pooled,
         "min_coverage_by_rule": minimum,
         "tied": tied,
-        "headline": minimum[rule] >= FLOOR,
+        "headline": minimum[rule] >= FLOOR and pooled >= POOLED_FLOOR,
     }
 
 

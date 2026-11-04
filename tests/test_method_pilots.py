@@ -91,6 +91,7 @@ def test_choose_rule() -> None:
     assert picked["components"] == ["task", "model:task"]
     # percentile misses task once (min coverage 0.75): basic wins outright
     assert picked["rule"] == "basic" and picked["min_coverage"] == 1.0 and picked["headline"]
+    assert picked["pooled_coverage"] == 1.0
     assert picked["min_coverage_by_rule"] == {"basic": 1.0, "percentile": 0.75}
     for r in rows:  # now both rules always cover: the narrower one wins the tie
         r["components"]["task"]["percentile"] = [1.9, 2.1]
@@ -132,3 +133,24 @@ def test_plugin_shares_and_choices() -> None:
     picked = mp.choices(aug, ["random", "fixed", "share", "mde"])
     assert picked["share"]["rule"] == "plugin" and picked["share"]["min_coverage"] == 1.0
     assert picked["random"]["rule"] == "basic" and picked["mde"]["components"] == ["mde:T20:k1"]
+
+
+def test_headline_needs_pooled_and_component_floors() -> None:
+    def rows_with(covered: list[bool]) -> list[dict]:
+        return [
+            {
+                "seed": i,
+                "components": {
+                    "task": {
+                        "planted": 1.0,
+                        "estimate": 1.0,
+                        "basic": [0.5, 1.5] if hit else [2.0, 3.0],
+                    }
+                },
+            }
+            for i, hit in enumerate(covered)
+        ]
+
+    assert mp.choose_rule(rows_with([True] * 94 + [False] * 6), "random")["headline"]
+    low = mp.choose_rule(rows_with([True] * 92 + [False] * 8), "random")
+    assert low["pooled_coverage"] == 0.92 and not low["headline"]  # pooled below 0.935
