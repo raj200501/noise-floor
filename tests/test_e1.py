@@ -184,6 +184,7 @@ def test_slot_days_and_eligibility(tmp_path) -> None:
     assert str(e1.arm_start(art)) == "2026-11-05"
 
 
+@pytest.mark.usefixtures("unfrozen_ok")
 def test_run_local_follows_day_and_block(tmp_path) -> None:
     import json
     from datetime import UTC, datetime
@@ -239,6 +240,7 @@ def test_run_local_follows_day_and_block(tmp_path) -> None:
     assert go(never_sleep) == 0
 
 
+@pytest.mark.usefixtures("unfrozen_ok")
 def test_run_local_stops_when_nothing_is_banked(tmp_path) -> None:
     from datetime import UTC, datetime
 
@@ -259,6 +261,7 @@ def test_run_local_stops_when_nothing_is_banked(tmp_path) -> None:
     )
 
 
+@pytest.mark.usefixtures("unfrozen_ok")
 def test_run_claude_and_plan_command(tmp_path, capsys) -> None:
     design = e1.E1Design(models=MODELS[:1], families=("config",), tasks_per_family=2)
     prereg = plan_prereg(tmp_path, design)
@@ -273,3 +276,35 @@ def test_run_claude_and_plan_command(tmp_path, capsys) -> None:
     assert n == len(e1.claude_plan(design)) and calls[0][0] == "e1c"
     assert e1.main(["plan", str(prereg)]) == 0
     assert "Claude runs" in capsys.readouterr().out
+
+
+def test_frozen_plan_and_pins(tmp_path) -> None:
+    import json as _json
+
+    design = e1.E1Design(models=MODELS[:1], families=("config",), tasks_per_family=2)
+    prereg = plan_prereg(tmp_path, design)
+    e1.check_frozen_plan(prereg, design)  # no e1-design block: a fixture, not checked
+    good = {"plan_sha256": e1.plan_sha256(design), "model_pins": e1.model_pins(design)}
+    text = prereg.read_text()
+    prereg.write_text(text + "\n```json e1-design\n" + _json.dumps(good) + "\n```\n")
+    e1.check_frozen_plan(prereg, design)
+    assert len(e1.plan_sha256(design)) == 64 and set(e1.model_pins(design)) == set(MODELS[:1])
+    bad = {**good, "plan_sha256": "0" * 64}
+    prereg.write_text(text + "\n```json e1-design\n" + _json.dumps(bad) + "\n```\n")
+    with pytest.raises(ValueError, match="plan_sha256"):
+        e1.check_frozen_plan(prereg, design)
+    pins = {**good, "model_pins": {MODELS[0]: {"sha256": "x"}}}
+    prereg.write_text(text + "\n```json e1-design\n" + _json.dumps(pins) + "\n```\n")
+    with pytest.raises(ValueError, match="pins"):
+        e1.check_frozen_plan(prereg, design)
+    other = e1.E1Design(models=MODELS[:1], families=("config",), tasks_per_family=2, order_seed=9)
+    assert e1.plan_sha256(other) != e1.plan_sha256(design)
+
+
+def test_runners_refuse_an_unfrozen_prereg(tmp_path) -> None:
+    design = e1.E1Design(models=MODELS[:1], families=("config",), tasks_per_family=2)
+    prereg = plan_prereg(tmp_path, design)
+    with pytest.raises(ValueError, match="not frozen"):
+        e1.run_local(prereg, artifact=tmp_path / "a.jsonl", ledger=tmp_path / "l", wait=False)
+    with pytest.raises(ValueError, match="not frozen"):
+        e1.run_claude(prereg, artifact=tmp_path / "c.jsonl", ledger=tmp_path / "l")

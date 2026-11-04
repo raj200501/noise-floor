@@ -285,6 +285,14 @@ def check_prereg_link(ctx: Ctx, prereg: str, artifact: str) -> None:
     need(strictly_before(ctx.clone, p, a), f"{prereg} does not predate {artifact}")
 
 
+def utc_time(stamp: str) -> Any:
+    """An ISO 8601 timestamp as an aware UTC datetime (``Z`` and offsets accepted)."""
+    from datetime import UTC, datetime
+
+    value = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    return value if value.tzinfo else value.replace(tzinfo=UTC)
+
+
 def coverage_rule(covered: int, reps: int, nominal: float) -> tuple[bool, float, float]:
     """G5 rule: coverage >= nominal - 0.015 - 2 * MCSE. Returns (ok, coverage, threshold)."""
     if reps <= 0:
@@ -742,25 +750,47 @@ def g7(ctx: Ctx) -> str:
     need(len(factors) >= 4, f"design has {len(factors)} non-model factors < 4")
     rows = [json.loads(ln) for ln in runs_path.read_text().splitlines() if ln.strip()]
     conf = [r for r in rows if r.get("confirmatory") is True]
+    entry = next(
+        (
+            json.loads(ln)
+            for ln in rel(ctx, "prereg/CHAIN.jsonl").read_text().splitlines()
+            if ln.strip() and json.loads(ln).get("file") == prereg
+        ),
+        None,
+    )
+    need(entry is not None, f"{prereg} is not in prereg/CHAIN.jsonl")
+    frozen_at = utc_time(str(entry["frozen_at"]))
     for r in conf:
-        need(r.get("prereg") == prereg, f"run {r.get('run_id')} cites another prereg")
-        need(str(r.get("model_id")) in models, f"run {r.get('run_id')} model not in design")
+        rid = r.get("run_id")
+        need(r.get("prereg") == prereg, f"run {rid} cites another prereg")
+        need(r.get("prereg_sha256") == entry["sha256"], f"run {rid} ran under another prereg hash")
+        need(bool(r.get("started_at")), f"run {rid} has no start time")
+        need(utc_time(str(r["started_at"])) >= frozen_at, f"run {rid} started before the freeze")
+        need(str(r.get("model_id")) in models, f"run {rid} model not in design")
         for name, level in r.get("factors", {}).items():
             need(
                 name in factors and level in factors[name],
-                f"run {r.get('run_id')} factor {name}={level} not in design",
+                f"run {rid} factor {name}={level} not in design",
             )
-        need(r.get("outcome") in (0, 1, True, False), f"run {r.get('run_id')} outcome not binary")
-    need(len(conf) >= E1_MIN_RUNS, f"{len(conf)} confirmatory runs < {E1_MIN_RUNS}")
-    claude = sum(1 for r in conf if models[str(r["model_id"])].get("backend") == "claude")
+        need(r.get("outcome") in (0, 1, True, False), f"run {rid} outcome not binary")
+    # A task run counts once it ran: a planned run the runner never started is banked as an
+    # infrastructure error and does not count toward the floors (prereg 0004).
+    ran = [r for r in conf if r.get("status") != "infra_error"]
+    need(len(ran) >= E1_MIN_RUNS, f"{len(ran)} confirmatory task runs < {E1_MIN_RUNS}")
+    claude = sum(1 for r in ran if models[str(r["model_id"])].get("backend") == "claude")
     need(claude >= E1_MIN_CLAUDE_RUNS, f"{claude} Claude-tier runs < {E1_MIN_CLAUDE_RUNS}")
-    used = {str(r["model_id"]) for r in conf}
+    used = {str(r["model_id"]) for r in ran}
     families = {models[m].get("family") for m in used}
     need(len(used) >= 3 and len(families) >= 2, f"{len(used)} models, {len(families)} families")
-    days = {r.get("day") for r in conf}
-    need(len(days) >= 3, f"{len(days)} days < 3")
+    local = [r for r in ran if models[str(r["model_id"])].get("backend") == "local"]
+    days = {r.get("day") for r in local if r.get("day")}
+    need(len(days) >= 3, f"local arm on {len(days)} days < 3")
     vc = load_json(rel(ctx, "artifacts/e1/variance_components.json")).get("components", [])
     need(bool(vc) and all(finite_interval(c) for c in vc), "variance table lacks intervals")
+    need(
+        all(finite_interval(c, ("share", "share_lo", "share_hi")) for c in vc),
+        "variance table lacks share intervals",
+    )
     mde = load_json(rel(ctx, "artifacts/e1/mde.json")).get("rows", [])
     need(
         bool(mde) and all(finite_interval(r, ("mde", "lo", "hi")) for r in mde),
@@ -778,7 +808,7 @@ def g7(ctx: Ctx) -> str:
         )
         need(res.code == 0, f"E1 recompute: {tail(res.out)}")
         note = "; tables recomputed"
-    return f"{len(conf)} runs ({claude} Claude), {len(used)} models, {len(days)} days{note}"
+    return f"{len(ran)} runs ({claude} Claude), {len(used)} models, {len(days)} days{note}"
 
 
 def g8(ctx: Ctx) -> str:

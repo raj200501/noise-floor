@@ -21,6 +21,7 @@ All tasks are procedurally generated mock tasks (nf-tools suite version 2).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import random
 import sys
@@ -31,6 +32,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from noisefloor import preregs
 from noisefloor.models import CLAUDE_TIERS, MODELS
 from noisefloor.preregs import REPO, prereg_block, repo_path
 from noisefloor.recovery import TWO_LEVEL, cell_runs, half_fraction_blocks
@@ -144,6 +146,50 @@ def tasks(design: E1Design) -> list[Task]:
 def manifest(design: E1Design) -> dict[str, Any]:
     """The task manifest (hash of every task) for the preregistration."""
     return suite_manifest(tasks(design))
+
+
+def plan_sha256(design: E1Design) -> str:
+    """SHA-256 of the canonical JSON of every planned run (local, then Claude)."""
+    specs = [s.to_json() for s in (*local_plan(design), *claude_plan(design))]
+    text = json.dumps(specs, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def model_pins(design: E1Design) -> dict[str, dict[str, str]]:
+    """Repository, revision, file, and SHA-256 of every local model's weights."""
+    return {
+        m: {
+            "repo": MODELS[m].repo,
+            "revision": MODELS[m].revision,
+            "filename": MODELS[m].filename,
+            "sha256": MODELS[m].sha256,
+        }
+        for m in design.models
+    }
+
+
+def check_frozen_plan(prereg: Path, design: E1Design) -> None:
+    """Refuse when the code would give another plan or other weights than the frozen ones.
+
+    The ``e1-design`` block records ``plan_sha256`` and the local model pins; a
+    preregistration without that block (a test fixture) is not checked.
+    """
+    try:
+        block = prereg_block(prereg, "e1-design")
+    except ValueError:
+        return
+    if block.get("plan_sha256") not in (None, plan_sha256(design)):
+        raise ValueError("the run plan from this code differs from the frozen plan_sha256")
+    pins = block.get("model_pins")
+    if pins is not None and pins != model_pins(design):
+        raise ValueError("local model pins differ from the frozen e1-design block")
+
+
+def _stamp(prereg: Path, design: E1Design) -> dict[str, Any]:
+    """Fields every confirmatory record carries, after the frozen-prereg checks pass."""
+    entry = preregs.require_frozen(prereg)
+    check_frozen_plan(prereg, design)
+    return {"prereg": repo_path(prereg), "prereg_sha256": entry["sha256"], "confirmatory": True}
 
 
 def _level(design: E1Design, name: str, bit: int) -> Any:
@@ -348,8 +394,8 @@ def run_local(
 
     run = execute or default_execute
     design = E1Design.from_json(prereg_block(prereg, "e1-plan"))
+    stamp = _stamp(prereg, design)
     batches = planned_batches(local_plan(design))
-    stamp = {"prereg": repo_path(prereg), "confirmatory": True}
     banked = 0
     first_day = now().date()
     while True:
@@ -397,7 +443,7 @@ def run_claude(
 
     run = execute or default_execute
     design = E1Design.from_json(prereg_block(prereg, "e1-plan"))
-    stamp = {"prereg": repo_path(prereg), "confirmatory": True}
+    stamp = _stamp(prereg, design)
     return int(
         run(
             claude_plan(design),
@@ -422,6 +468,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         lp, cp = local_plan(design), claude_plan(design)
         print(f"local runs {len(lp)} in {len(planned_batches(lp))} batches; Claude runs {len(cp)}")
         print(f"task manifest {manifest(design)['sha256']}")
+        print(f"plan sha256 {plan_sha256(design)}")
         return 0
     if args.command == "local":
         banked = run_local(args.prereg, wait=not args.no_wait, log=lambda m: print(m, flush=True))

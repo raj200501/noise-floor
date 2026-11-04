@@ -157,3 +157,10 @@ def test_e0_grids_and_frozen_headline_cells(tmp_path: Path) -> None:
     )
     with pytest.raises(ship_check.GateError, match="does not amend"):
         ship_check.e0_grids(ctx)
+
+
+def test_utc_time() -> None:
+    a = ship_check.utc_time("2026-11-05T00:00:00Z")
+    b = ship_check.utc_time("2026-11-05T01:00:00+01:00")
+    c = ship_check.utc_time("2026-11-05T00:00:01")
+    assert a == b and c > a

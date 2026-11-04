@@ -61,7 +61,7 @@ def write_prereg(path: Path) -> Path:
     return path
 
 
-def fake_records() -> list[dict]:
+def fake_records(prereg: str = "p.md") -> list[dict]:
     rng = np.random.default_rng(1)
     task_eff: dict[str, float] = {}
     out = []
@@ -78,6 +78,7 @@ def fake_records() -> list[dict]:
                 "outcome": float(rng.random() < p),
                 "outcome_strict": float(rng.random() < p) if i % 3 else 0.0,
                 "status": status,
+                "prereg": prereg,
                 "end_reason": "submitted",
                 "started_at": f"2026-11-0{day}T{hour:02d}:00:00+00:00",
                 "batch_id": f"b{i // 10}",
@@ -106,7 +107,7 @@ def test_time_block_and_runs_table() -> None:
 @needs_r
 def test_build_and_verify(tmp_path: Path) -> None:
     prereg = write_prereg(tmp_path / "prereg.md")
-    recs = fake_records()
+    recs = fake_records(str(prereg))
     local = [r for r in recs if r["phase"] == "e1"]
     (tmp_path / "local.jsonl").write_text("".join(json.dumps(r) + "\n" for r in local))
     (tmp_path / "claude.jsonl").write_text(
@@ -192,3 +193,31 @@ def test_sensitivity_failure_is_recorded(monkeypatch: pytest.MonkeyPatch) -> Non
     out = a.sensitivity_tables(rows, SETTINGS)
     assert set(out) == {"batch_random_effect", "outcome_strict", "infra_error_as_failure"}
     assert all(v["error"] == "RuntimeError: Response is constant" for v in out.values())
+
+
+def test_runs_table_confirmatory_rules() -> None:
+    spec = local_plan(DESIGN)[0]
+    base = {
+        **spec.to_json(),
+        "outcome": 1.0,
+        "status": "ok",
+        "prereg": "p.md",
+        "started_at": "2026-11-05T03:00:00+00:00",
+    }
+    planned = {spec.run_id: spec.phase}
+    hours = [[0, 12], [12, 24]]
+
+    def one(rec: dict, frozen_at: str | None = "2026-11-05T00:00:00Z") -> dict:
+        return a.runs_table(
+            [rec], prereg="p.md", planned=planned, block_hours=hours, frozen_at=frozen_at
+        )[0]
+
+    assert one(base)["confirmatory"] and not one(base)["start_from_batch"]
+    assert not one({**base, "prereg": "other.md"})["confirmatory"]
+    assert not one({**base, "started_at": "2026-11-04T23:00:00+00:00"})["confirmatory"]
+    assert one({**base, "started_at": "2026-11-04T23:00:00+00:00"}, None)["confirmatory"]
+    placeholder = {k: v for k, v in base.items() if k != "started_at"}
+    row = one(
+        {**placeholder, "batch_started_at": "2026-11-05T13:00:00+00:00", "status": "infra_error"}
+    )
+    assert row["start_from_batch"] and row["block"] == "b2" and row["confirmatory"]

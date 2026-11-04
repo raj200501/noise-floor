@@ -68,12 +68,16 @@ reported bias equals the recomputed mean of estimate minus planted.
 - Prereg ` ```json e1-design ` block: `{"factors": {name: [levels]}, "models": [{"id", "family",
   "tier", "backend"}], ...}` with at least 4 non-model factors.
 - `artifacts/e1/manifest.json`: `{"prereg", "files": {path: sha256}}`, hashes must match.
-- `artifacts/e1/runs.jsonl`: one row per task run with `run_id`, `prereg`, `model_id`, `day`,
-  `factors`, `outcome` (binary), `confirmatory`. At least 1,000 confirmatory runs, at least 150
-  with a `backend: claude` model, at least 3 models over at least 2 families, at least 3 days, all
-  factor levels inside the design.
-- `artifacts/e1/variance_components.json` (`components`: `estimate`, `lo`, `hi`) and
-  `artifacts/e1/mde.json` (`rows`: `mde`, `lo`, `hi`), all finite with lo <= estimate <= hi.
+- `artifacts/e1/runs.jsonl`: one row per task run with `run_id`, `prereg`, `prereg_sha256`,
+  `started_at`, `model_id`, `day`, `factors`, `outcome` (binary), `status`, `confirmatory`. Every
+  confirmatory row cites the E1 prereg with the SHA-256 of its chain entry and started no earlier
+  than that entry's `frozen_at`. Counted task runs are the confirmatory runs that ran (status
+  other than `infra_error`): at least 1,000, at least 150 with a `backend: claude` model, at
+  least 3 models over at least 2 families, local-arm runs on at least 3 days, all factor levels
+  inside the design.
+- `artifacts/e1/variance_components.json` (`components`: `estimate`, `lo`, `hi`, `share`,
+  `share_lo`, `share_hi`) and `artifacts/e1/mde.json` (`rows`: `mde`, `lo`, `hi`), all finite
+  with lo <= estimate <= hi.
 - Full mode: `python -m noisefloor.analysis.e1 --verify` recomputes the tables.
 
 ## G8 Leaderboards and bounds (E2, E3)

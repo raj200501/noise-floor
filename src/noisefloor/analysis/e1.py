@@ -25,6 +25,7 @@ import json
 import math
 import sys
 from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -33,9 +34,9 @@ import pandas as pd
 from evalstats import EvalResults, paired_difference, policy_bounds, score_interval, tasks_needed
 from evalstats.glmm import LOGISTIC_RESIDUAL_VAR, Decomposition, boot_coef_interval, decompose
 from noisefloor.analysis import mde as mde_lib
-from noisefloor.e1 import E1Design, claude_plan, local_plan
+from noisefloor.e1 import E1Design, check_frozen_plan, claude_plan, local_plan
 from noisefloor.models import MODELS, is_claude
-from noisefloor.preregs import prereg_block
+from noisefloor.preregs import chain_entry, prereg_block
 
 REPO = Path(__file__).resolve().parents[3]
 E1_DIR = REPO / "artifacts" / "e1"
@@ -75,16 +76,31 @@ def runs_table(
     prereg: str,
     planned: Mapping[str, str],
     block_hours: Sequence[Sequence[int]],
+    frozen_at: str | None = None,
 ) -> list[dict[str, Any]]:
-    """One row per run; ``planned`` maps each preregistered run id to its phase."""
+    """One row per run; ``planned`` maps each preregistered run id to its phase.
+
+    A run is confirmatory when its id and phase are planned, its record cites ``prereg``,
+    and it started no earlier than ``frozen_at`` (the preregistration's freeze time; not
+    checked when None). A record without ``started_at`` (a planned run the runner never
+    started, banked as a harness error) takes its batch's start, flagged
+    ``start_from_batch``.
+    """
     rows = []
     for rec in sorted(records, key=lambda r: str(r["run_id"])):
-        day, block = time_block(str(rec.get("started_at", "")), block_hours)
+        started = str(rec.get("started_at") or rec.get("batch_started_at") or "")
+        day, block = time_block(started, block_hours)
         model = str(rec["model"])
+        cites = rec.get("prereg") == prereg
+        in_time = frozen_at is None or _utc(started) >= _utc(frozen_at)
+        planned_run = planned.get(str(rec["run_id"])) == rec.get("phase")
         rows.append(
             {
                 "run_id": rec["run_id"],
-                "prereg": prereg,
+                "prereg": rec.get("prereg"),
+                "prereg_sha256": rec.get("prereg_sha256"),
+                "started_at": started,
+                "start_from_batch": not rec.get("started_at"),
                 "model_id": model,
                 "backend": "claude" if is_claude(model) else "local",
                 "family": "claude" if is_claude(model) else MODELS[model].family,
@@ -99,10 +115,16 @@ def runs_table(
                 "outcome_strict": rec.get("outcome_strict"),
                 "status": rec.get("status"),
                 "end_reason": rec.get("end_reason"),
-                "confirmatory": planned.get(str(rec["run_id"])) == rec.get("phase"),
+                "confirmatory": bool(planned_run and cites and in_time),
             }
         )
     return rows
+
+
+def _utc(stamp: str) -> datetime:
+    """A timestamp as an aware UTC datetime (``Z`` and offsets accepted)."""
+    value = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
 def analysis_frame(
@@ -433,11 +455,14 @@ def compute(prereg: Path, directory: Path = E1_DIR) -> dict[str, str]:
     settings = prereg_block(prereg, "e1-analysis")
     design = E1Design.from_json(prereg_block(prereg, "e1-plan"))
     planned = {s.run_id: s.phase for s in [*local_plan(design), *claude_plan(design)]}
+    check_frozen_plan(prereg, design)
+    entry = chain_entry(prereg)
     rows = runs_table(
         read_records(directory),
         prereg=_rel(prereg),
         planned=planned,
         block_hours=settings["block_hours"],
+        frozen_at=None if entry is None else str(entry["frozen_at"]),
     )
     data = analysis_frame(rows, settings["exclude_status"])
     decomp = decomposition(data, settings)
