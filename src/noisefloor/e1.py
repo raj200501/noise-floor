@@ -21,12 +21,13 @@ All tasks are procedurally generated mock tasks (nf-tools suite version 2).
 from __future__ import annotations
 
 import argparse
+import json
 import random
 import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -286,6 +287,34 @@ def seconds_to_next_block(
     return max(1.0, (boundary - now).total_seconds())
 
 
+def slot_day(label: str) -> int:
+    """Planned day (1-based) of a batch labeled ``day<k>-b<n>/b<NNNN>``."""
+    slot = label.split("/", maxsplit=1)[0]
+    return int(slot.split("-", maxsplit=1)[0].removeprefix("day"))
+
+
+def arm_start(artifact: Path) -> date | None:
+    """UTC date on which the earliest banked run started (the arm's day 1), if any."""
+    if not artifact.exists():
+        return None
+    days = [
+        date.fromisoformat(str(started)[:10])
+        for ln in artifact.read_text().splitlines()
+        if ln.strip() and (started := json.loads(ln).get("started_at"))
+    ]
+    return min(days) if days else None
+
+
+def eligible_batches(pending: Sequence[str], block: int, day: int) -> list[str]:
+    """Pending batches that may start now, earliest planned first.
+
+    A batch of slot ``day<k>-b<n>`` may start only in time-of-day block ``n`` of the arm's
+    day ``k`` or a later day, so the arm spans at least as many UTC days as the plan has,
+    and a slot that overruns its block continues in the same block of the next day.
+    """
+    return [k for k in pending if k.split("/")[0].endswith(f"-b{block}") and slot_day(k) <= day]
+
+
 def planned_batches(plan: Sequence[RunSpec]) -> dict[str, list[RunSpec]]:
     """Planned batches by ``block`` label, in plan order."""
     batches: dict[str, list[RunSpec]] = {}
@@ -307,10 +336,12 @@ def run_local(
 ) -> int:
     """Run the local arm of the preregistered plan; returns the number of runs banked now.
 
-    A planned batch starts only in its time-of-day block (its slot's ``b<n>``); the earliest
-    unfinished eligible batch runs next, so a slot that overruns its block continues in the
-    same block of the next day, and the analysis uses each run's actual start. Without
-    ``wait``, the call returns when no batch is eligible instead of sleeping. Resumable.
+    A planned batch of slot ``day<k>-b<n>`` starts only in time-of-day block ``n`` of the
+    arm's day ``k`` or later (:func:`eligible_batches`; day 1 is the UTC date of the first
+    banked run, or today before any); the earliest unfinished eligible batch runs next, so a
+    slot that overruns its block continues in the same block of the next day, and the
+    analysis uses each run's actual start. Without ``wait``, the call returns when no batch
+    is eligible instead of sleeping. Resumable.
     """
     from noisefloor.orchestrate import banked_ids  # noqa: PLC0415 - orchestrate imports runner
     from noisefloor.orchestrate import execute as default_execute  # noqa: PLC0415
@@ -320,19 +351,22 @@ def run_local(
     batches = planned_batches(local_plan(design))
     stamp = {"prereg": repo_path(prereg), "confirmatory": True}
     banked = 0
+    first_day = now().date()
     while True:
         done = banked_ids(artifact)
         pending = [k for k, specs in batches.items() if any(s.run_id not in done for s in specs)]
         if not pending:
             log("e1 local arm: every planned run is banked")
             return banked
-        block = current_block(now())
-        eligible = [k for k in pending if k.split("/")[0].endswith(f"-b{block}")]
+        clock = now()
+        day = (clock.date() - (arm_start(artifact) or first_day)).days + 1
+        block = current_block(clock)
+        eligible = eligible_batches(pending, block, day)
         if not eligible:
             if not wait:
                 return banked
-            pause = seconds_to_next_block(now())
-            log(f"e1 local arm: no batch planned for block b{block}; waiting {pause:.0f} s")
+            pause = seconds_to_next_block(clock)
+            log(f"e1 local arm: nothing eligible in block b{block}, day {day}; wait {pause:.0f} s")
             sleep(min(pause, 600.0))
             continue
         label = eligible[0]

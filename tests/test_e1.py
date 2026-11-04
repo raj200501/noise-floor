@@ -125,7 +125,7 @@ def plan_prereg(tmp_path, design):
     return path
 
 
-def fake_execute(calls):
+def fake_execute(calls, clock=None):
     import json as _json
 
     def run(specs, *, artifact, ledger, prefix, stamp, log):
@@ -133,7 +133,10 @@ def fake_execute(calls):
         artifact.parent.mkdir(parents=True, exist_ok=True)
         with artifact.open("a") as fh:
             for s in specs:
-                fh.write(_json.dumps({"run_id": s.run_id, **stamp}) + "\n")
+                rec = {"run_id": s.run_id, **stamp}
+                if clock is not None:
+                    rec["started_at"] = clock[0].isoformat()
+                fh.write(_json.dumps(rec) + "\n")
         return len(specs)
 
     return run
@@ -155,66 +158,85 @@ def never_sleep(seconds):
     raise AssertionError(f"slept {seconds} s")
 
 
-def block_runs(design):
-    batches = e1.planned_batches(e1.local_plan(design))
-    out = {1: 0, 2: 0}
-    for label, specs in batches.items():
-        out[int(label.split("/")[0][-1])] += len(specs)
+def slot_runs(design):
+    out: dict[str, int] = {}
+    for label, specs in e1.planned_batches(e1.local_plan(design)).items():
+        slot = label.split("/")[0]
+        out[slot] = out.get(slot, 0) + len(specs)
     return out
 
 
-def test_run_local_follows_time_of_day(tmp_path) -> None:
+def test_slot_days_and_eligibility(tmp_path) -> None:
+    import json
+
+    assert e1.slot_day("day3-b2/b0009") == 3
+    pending = ["day1-b1/b0001", "day2-b1/b0002", "day2-b2/b0003", "day3-b1/b0004"]
+    assert e1.eligible_batches(pending, 1, 2) == ["day1-b1/b0001", "day2-b1/b0002"]
+    assert e1.eligible_batches(pending, 2, 1) == []
+    assert e1.eligible_batches(pending, 1, 9) == ["day1-b1/b0001", "day2-b1/b0002", "day3-b1/b0004"]
+    art = tmp_path / "a.jsonl"
+    assert e1.arm_start(art) is None
+    art.write_text(json.dumps({"run_id": "x"}) + "\n")
+    assert e1.arm_start(art) is None  # no start times recorded
+    rows = [{"run_id": "a", "started_at": "2026-11-06T01:00:00+00:00"}]
+    rows.append({"run_id": "b", "started_at": "2026-11-05T23:00:00+00:00"})
+    art.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    assert str(e1.arm_start(art)) == "2026-11-05"
+
+
+def test_run_local_follows_day_and_block(tmp_path) -> None:
+    import json
     from datetime import UTC, datetime
 
-    design = e1.E1Design(models=MODELS[:2], families=("config",), tasks_per_family=3)
-    per_block = block_runs(design)
-    assert per_block[1] and per_block[2]  # this design has batches in both blocks
+    # Batches of 2 give every (model, concurrency) group one batch in each of the 6 slots.
+    design = e1.E1Design(models=MODELS[:2], families=("config",), tasks_per_family=3, batch_size=2)
+    per_slot = slot_runs(design)
+    assert len(per_slot) == 6 and all(per_slot.values())
     prereg = plan_prereg(tmp_path, design)
     artifact = tmp_path / "local.jsonl"
     calls: list = []
     clock = [datetime(2026, 11, 5, 3, 0, tzinfo=UTC)]
-    banked = e1.run_local(
-        prereg,
-        artifact=artifact,
-        ledger=tmp_path / "l",
-        now=lambda: clock[0],
-        sleep=never_sleep,
-        log=lambda m: None,
-        wait=False,
-        execute=fake_execute(calls),
-    )
-    assert banked == per_block[1] and all("-b1-" in prefix for prefix, _ in calls)
-    sleeps: list = []
 
-    def tick(seconds):
-        sleeps.append(seconds)
-        clock[0] = datetime(2026, 11, 5, 13, 0, tzinfo=UTC)
-
-    rest = e1.run_local(
-        prereg,
-        artifact=artifact,
-        ledger=tmp_path / "l",
-        now=lambda: clock[0],
-        sleep=tick,
-        log=lambda m: None,
-        execute=fake_execute(calls),
-    )
-    assert rest == per_block[2] and sleeps == [600.0]  # waited for b2 once (capped at 600 s)
-    lines = [__import__("json").loads(ln) for ln in artifact.read_text().splitlines()]
-    assert len(lines) == len(e1.local_plan(design)) and all(r["confirmatory"] for r in lines)
-    assert all(r["prereg"] == str(prereg) for r in lines)
-    assert (
-        e1.run_local(
+    def go(sleep, wait=True):
+        return e1.run_local(
             prereg,
             artifact=artifact,
             ledger=tmp_path / "l",
             now=lambda: clock[0],
-            sleep=never_sleep,
+            sleep=sleep,
             log=lambda m: None,
-            execute=fake_execute(calls),
+            wait=wait,
+            execute=fake_execute(calls, clock),
         )
-        == 0
+
+    assert go(never_sleep, wait=False) == per_slot["day1-b1"]
+    assert all(prefix.startswith("e1-day1-b1-") for prefix, _ in calls)
+    assert go(never_sleep, wait=False) == 0  # day 2 and 3 slots wait for their days
+    clock[0] = datetime(2026, 11, 5, 13, 0, tzinfo=UTC)
+    assert go(never_sleep, wait=False) == per_slot["day1-b2"]
+    clock[0] = datetime(2026, 11, 6, 3, 0, tzinfo=UTC)  # a restart: day 2 comes from the artifact
+    assert go(never_sleep, wait=False) == per_slot["day2-b1"]
+    times = iter(
+        [
+            datetime(2026, 11, 6, 13, 0, tzinfo=UTC),
+            datetime(2026, 11, 7, 3, 0, tzinfo=UTC),
+            datetime(2026, 11, 7, 13, 0, tzinfo=UTC),
+        ]
     )
+    sleeps: list = []
+
+    def tick(seconds):
+        sleeps.append(seconds)
+        clock[0] = next(times)
+
+    rest = go(tick)
+    assert rest == per_slot["day2-b2"] + per_slot["day3-b1"] + per_slot["day3-b2"]
+    assert len(sleeps) == 3 and all(s <= 600.0 for s in sleeps)
+    lines = [json.loads(ln) for ln in artifact.read_text().splitlines()]
+    assert len(lines) == len(e1.local_plan(design)) and all(r["confirmatory"] for r in lines)
+    assert all(r["prereg"] == str(prereg) for r in lines)
+    assert len({r["started_at"][:10] for r in lines}) == 3  # three UTC days
+    assert go(never_sleep) == 0
 
 
 def test_run_local_stops_when_nothing_is_banked(tmp_path) -> None:
