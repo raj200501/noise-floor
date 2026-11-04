@@ -44,6 +44,12 @@ class PilotPlan:
 
 PLANS: dict[str, PilotPlan] = {
     "p1": PilotPlan(models=("qwen2.5-0.5b", "qwen2.5-1.5b", "granite-3.3-2b", "smollm2-1.7b")),
+    # Second-round screening (D-018): stronger candidates, difficulties 1 and 3, seed 900001.
+    "s2": PilotPlan(
+        models=("qwen3-1.7b", "qwen3-4b", "granite-4.0-micro", "smollm3-3b", "phi-4-mini"),
+        difficulties=(1, 3),
+        seed_offset=1,
+    ),
 }
 
 
