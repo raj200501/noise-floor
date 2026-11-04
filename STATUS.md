@@ -18,7 +18,7 @@ Last fast ship-check (does not count) at dea4149: 8/14.
 | G4 Offline demo | PASS | runs in a network namespace in seconds, matches golden |
 | G5 Library validity | PASS (part 1) | E0 part 2 (0005) cells must run and pass once 0005 is frozen |
 | G6 Orchestrator validity | FAIL | 0006 to freeze, then 200 datasets (`runs/e0g6/driver.sh`) |
-| G7 Factorial study | FAIL | 0004 in final review (80 local tasks, 4 days); local arm after G6 and E0 part 2; Claude slice needs Raj |
+| G7 Factorial study | FAIL | 0004 final-review fixes in (85 local tasks, 4 days); local arm after G6 and E0 part 2; Claude slice needs Raj |
 | G8 Leaderboards and bounds | FAIL | E2 and both reports done; E3 on E1 comes with the E1 analysis |
 | G9 Library shipped | PASS | wheel installs in a clean venv; 5 examples run; API reference generated |
 | G10 Claim integrity | FAIL | README and docs/REPORT.md not written yet |
@@ -29,23 +29,24 @@ Last fast ship-check (does not count) at dea4149: 8/14.
 
 ## Now
 
-goal_turn 3: the second review of the 0004 to 0006 drafts (five lenses, adversarially
-verified) is answered in code and text (D-033). The power analysis now sets the local sample:
-80 tasks (16 per family, the smallest count at which every local harness contrast and model pair
-has power 0.8 under the Holm reading), over 4 days; the Claude slice keeps 30 tasks. New: code
-pins from G6 and E0 part 2 to the E1 analysis, run-code checks before every batch, server
-settings in the pins, a runner lock, per-pair Claude checks (failure streak, contamination,
-smoke, per-tier end), cell labels that make every failing cell's function warn, replicates in
-the simulator with a test that the G6 and E1 analysis code agree, validated ranges per kind,
-and a sampling simulator. A final review of the third drafts is running before the freeze.
+goal_turn 3: the final review of the 0004 to 0006 drafts (three lenses, adversarially
+verified, 40 confirmed findings) is answered in code and text (D-034), before the freeze and
+before G6 and E0 part 2 run, so the analysis-code pin fixes the corrected code. Main changes:
+the sizing rule now simulates the t tests E1 runs, which moves the local sample to 85 tasks (17
+per family, D-034 item 1); the batch rule uses a bounded upper end (`batch_var_upper`); the
+Claude-local rows are labeled scaffold-confounded with their confounds; the sandbox now gets
+SIGKILL when its launcher dies (the earlier SIGTERM was blocked by `unshare --fork`), and no
+batch starts beside any live runner; the analysis-code pin covers the plan, truth, and
+exclusion modules; amendments must name what they allow; G5 to G8 check their full contracts.
+A verification pass over the fixes runs before the freeze.
 
 ## Next three actions
 
-1. Read the final review, fix what it confirms, freeze 0004 to 0006 in one commit,
-   `make prepush`, push.
-2. Run G6 and E0 part 2 (1,200 GLMM datasets at about 8 core-minutes each, about 40 hours on 4
-   workers), commit raw rows at check-ins, bank both; then launch the E1 local arm at 00:00 UTC
-   (at least 4 UTC days), with check-ins.
+1. Read the verification of the fixes, fix what it confirms, freeze 0004 to 0006 in one commit
+   (`freeze.sh`: fresh blocks, pin assert, consistency check), `make prepush`, push.
+2. Run G6 and E0 part 2 (1,200 GLMM datasets at the 85-task shape, a little over 40 hours on 4
+   workers), commit and push raw rows at check-ins, bank both, run `e0_validity` and commit
+   it; then launch the E1 local arm at 00:00 UTC (at least 4 UTC days), with check-ins.
 3. Ask Raj to start the Claude slice on his machine once G6 and E0 part 2 are banked
    (docs/PLAN.md); the slice takes about 30 days at 6 runs a day.
 

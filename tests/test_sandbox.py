@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -82,7 +83,7 @@ def test_scrubbed_env_and_command_line() -> None:
     ]
     assert cmd[-4:] == ["/w", "--", "echo", "hi"]
     if start:  # setpriv found: unshare dies with the process that launched it
-        assert cmd[1:4] == ["--pdeathsig", "TERM", "--"]
+        assert cmd[1:4] == ["--pdeathsig", "KILL", "--"]  # unshare --fork blocks TERM
 
 
 def test_parse_args_and_ro_paths(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -116,3 +117,50 @@ def test_main_usage_and_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_available_false_off_linux(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sandbox.sys, "platform", "darwin")
     assert sandbox.available() is False
+
+
+@pytest.mark.skipif(not sandbox.available(), reason="needs user, network, and mount namespaces")
+def test_a_killed_launcher_leaves_no_sandboxed_process(tmp_path: Path) -> None:
+    import signal
+    import subprocess
+    import sys
+    import time
+
+    tag = f"{4000 + os.getpid() % 1000}.{time.time_ns() % 10**6:06d}"  # a unique sleep length
+
+    def alive() -> list[int]:
+        found = []
+        for entry in Path("/proc").iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                args = (entry / "cmdline").read_bytes().split(b"\0")
+            except OSError:
+                continue
+            if tag.encode() in args and int(entry.name) != os.getpid():
+                found.append(int(entry.name))
+        return found
+
+    script = tmp_path / "launch.py"
+    script.write_text(
+        "from noisefloor import sandbox\n"
+        f"sandbox.run(['sleep', '{tag}'], {str(tmp_path / 'ws')!r})\n"
+    )
+    launcher = subprocess.Popen([sys.executable, str(script)])
+    try:
+        deadline = time.monotonic() + 30
+        while not alive() and time.monotonic() < deadline:
+            time.sleep(0.1)
+        assert alive(), "the sandboxed command never started"
+        launcher.send_signal(signal.SIGKILL)
+        launcher.wait(10)
+        deadline = time.monotonic() + 10
+        while alive() and time.monotonic() < deadline:
+            time.sleep(0.1)
+        left = alive()
+    finally:
+        for pid in alive():
+            os.kill(pid, signal.SIGKILL)
+        if launcher.poll() is None:
+            launcher.kill()
+    assert left == []

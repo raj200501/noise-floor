@@ -610,8 +610,10 @@ STOP_KINDS = (
     "day_limit",
     "end_point",
     "tier_ended",
+    "note",
 )
 FINAL_STOPS = ("day_limit", "end_point")  # stops that end an arm for good
+NOT_STOPS = ("tier_ended", "note")  # rows of the stop log that stop nothing
 RESUME_HINT = "after a repair: python -m noisefloor.e1 resume %s --note '<what was repaired>'"
 
 
@@ -638,8 +640,13 @@ def arm_lock(artifact: Path) -> Iterator[None]:
 
 
 def open_stop(stops: Path) -> dict[str, Any] | None:
-    """The arm's latest stop, unless a resume follows it (``tier_ended`` notes are not stops)."""
-    rows = [r for r in jsonl.read(stops) if r["kind"] != "tier_ended"]
+    """The arm's latest stop, unless a resume follows it (:data:`NOT_STOPS` rows are not stops).
+
+    A ``note`` records an event that stops nothing, such as banked runs lost with a
+    container before their push, which then run again under their planned run ids (a
+    deviation, prereg 0004).
+    """
+    rows = [r for r in jsonl.read(stops) if r["kind"] not in NOT_STOPS]
     return rows[-1] if rows and rows[-1]["kind"] != "resume" else None
 
 
@@ -682,8 +689,9 @@ def resume(
 
     A day-limit or end-point stop never resumes. A defect stop resumes only under a frozen
     amendment of this preregistration (``amendment``) that says how the affected runs are
-    handled. A new Claude Code version is accepted only after a smoke run on it printed
-    SMOKE: PASS (``python -m noisefloor.claude_arm smoke``).
+    handled and names the stop it answers: its ```json defect-resume``` block gives the
+    stop's ``at`` (one time, or a list). A new Claude Code version is accepted only after a
+    smoke run on it printed SMOKE: PASS (``python -m noisefloor.claude_arm smoke``).
     """
     stop = open_stop(stops)
     if stop is None:
@@ -699,6 +707,12 @@ def resume(
         preregs.require_frozen(amendment)
         if preregs.amends(amendment) != E1_PREREG:
             raise ValueError(f"{amendment.name} does not amend prereg {E1_PREREG}")
+        answers = prereg_block(amendment, "defect-resume").get("at")
+        if stop["at"] not in (answers if isinstance(answers, list) else [answers]):
+            raise ValueError(
+                f"{amendment.name} answers the defect stop at {answers}, not the one at "
+                f"{stop['at']}"
+            )
         row["amendment"] = repo_path(amendment)
     if stop["kind"] == "cli_changed":
         if not smoke(str(stop.get("to"))):
@@ -773,14 +787,26 @@ def _code_stop(
     return True
 
 
-def check_server(prereg: Path, artifact: Path) -> None:
-    """Before the local arm's first run, the llama-server binary must be the frozen one."""
+def check_server(prereg: Path, artifact: Path) -> str | None:
+    """Before the local arm's first run, the llama-server build must be the frozen one.
+
+    The build's digest (its binary and the shared libraries beside it,
+    :func:`noisefloor.models.server_build_sha256`) must equal the frozen ``llama_server``
+    pin, or the ``sha256`` of a ```json llama-server``` block in a frozen amendment of this
+    preregistration (a rebuilt server, a deviation); returns that amendment, if one was
+    needed. After the first run, a changed build is a ``code_changed`` stop instead.
+    """
     if arm_start(artifact) is not None or preregs.chain_entry(prereg) is None:
-        return
+        return None
     pinned = prereg_block(prereg, "e1-design").get("llama_server", {}).get("sha256")
     actual = server_pin()["sha256"]
-    if pinned != actual:
-        raise ValueError(f"the llama-server binary ({actual}) is not the frozen one ({pinned})")
+    if pinned == actual and actual is not None:
+        return None
+    for amendment in preregs.amendments_with(E1_PREREG, "llama-server"):
+        preregs.require_frozen(amendment)
+        if actual is not None and prereg_block(amendment, "llama-server").get("sha256") == actual:
+            return repo_path(amendment)
+    raise ValueError(f"the llama-server build ({actual}) is not the frozen one ({pinned})")
 
 
 def run_local(
@@ -816,7 +842,9 @@ def run_local(
     design = E1Design.from_json(prereg_block(prereg, "e1-plan"))
     stamp = _stamp(prereg, design)
     require_validation(prereg)
-    check_server(prereg, artifact)
+    allowed = check_server(prereg, artifact)
+    if allowed:
+        log(f"e1 local arm: the llama-server build is the one {allowed} names (a deviation)")
     batches = planned_batches(local_plan(design))
     stops = stops_path(artifact)
     banked = 0
@@ -929,13 +957,16 @@ def cli_versions(record: Mapping[str, Any]) -> list[str]:
     return list(dict.fromkeys(found))
 
 
-def claude_changes(artifact: Path, stops: Path) -> tuple[dict[str, str], str | None]:
+def claude_changes(
+    artifact: Path, stops: Path, smoke: Callable[[str | None], bool] | None = None
+) -> tuple[dict[str, str], str | None]:
     """(model changes by tier, new CLI version) in the banked Claude runs.
 
     A tier's first banked run fixes its model ID for the slice; each tier later served by
-    another ID maps to a reason. The CLI version of the first banked run, and each version
-    that a ``cli_changed`` stop recorded (accepted once resumed), are allowed; the first
-    other version is returned.
+    another ID maps to a reason. The CLI version of the first banked run is allowed when a
+    smoke run on that version passed (``smoke``), and so is each version that a
+    ``cli_changed`` stop recorded (accepted once resumed, which needs a smoke run on it);
+    the first other version is returned.
     """
     rows = jsonl.read(artifact, tail_ok=True)
     first: dict[str, str] = {}
@@ -947,8 +978,10 @@ def claude_changes(artifact: Path, stops: Path) -> tuple[dict[str, str], str | N
             if model_id != known and tier not in changes:
                 changes[tier] = f"{tier} was served by {model_id} after {known}"
     versions = [v for r in rows for v in cli_versions(r)]
-    accepted = {versions[0]} if versions else set()
-    accepted |= {str(s.get("to")) for s in jsonl.read(stops) if s["kind"] == "cli_changed"}
+    accepted = {str(s.get("to")) for s in jsonl.read(stops) if s["kind"] == "cli_changed"}
+    passed = smoke_passed if smoke is None else smoke
+    if versions and versions[0] not in accepted and passed(versions[0]):
+        accepted.add(versions[0])
     return changes, next((v for v in versions if v not in accepted), None)
 
 
@@ -973,10 +1006,11 @@ def claude_problem(
     """(stop kind, reason, fields) of the first rule that stops the Claude slice now.
 
     In order: the end point (:data:`CLAUDE_END_DAYS` days after the freeze), a new
-    Claude Code version, a child that did not start clean, and three infra_error runs in a
-    row since the slice started or resumed (the batch-level rule of the local arm, across
-    the two-run Claude batches; those runs stay banked). A tier served by another model ID
-    ends that tier only (:func:`note_tier_changes`).
+    Claude Code version (or a first one no smoke run passed on), a child that did not
+    start clean, and three infra_error runs in a row anywhere in banking order since the
+    slice started or resumed (the batch-level rule of the local arm, across the two-run
+    Claude batches; those runs stay banked). A tier served by another model ID ends that
+    tier only (:func:`note_tier_changes`).
     """
     from noisefloor.orchestrate import banked_ids  # noqa: PLC0415 - orchestrate imports runner
 
@@ -991,13 +1025,12 @@ def claude_problem(
     dirty = [r["run_id"] for r in recent if (r.get("claude") or {}).get("clean") is False]
     if dirty:
         return "contaminated", f"run {dirty[0]} did not start clean", {"runs": dirty}
-    streak = 0
-    for row in reversed(recent):
-        if row.get("status") != "infra_error":
-            break
-        streak += 1
-    if streak >= ABORT_STREAK:
-        return "batch_failure", f"{streak} infra_error runs in a row", {}
+    streak = longest = 0
+    for row in recent:  # banking order: a streak may end inside a pair
+        streak = streak + 1 if row.get("status") == "infra_error" else 0
+        longest = max(longest, streak)
+    if longest >= ABORT_STREAK:
+        return "batch_failure", f"{longest} infra_error runs in a row", {}
     return None
 
 
@@ -1068,6 +1101,8 @@ def run_claude(
     stops = stops_path(artifact)
     banked = 0
     with arm_lock(artifact):
+        if _claude_day_end(prereg, artifact, stops, now(), log):
+            return banked
         for group in claude_groups(claude_plan(design)):
             if all(s.run_id in banked_ids(artifact) for s in group):
                 continue
@@ -1081,17 +1116,41 @@ def run_claude(
             banked += added
             if not go_on:
                 return banked
-        if open_stop(stops) is None:
+        last = open_stop(stops)
+        if last is None or last["kind"] not in FINAL_STOPS:
             reason = "every planned run of the tiers still served is banked"
             record_stop(stops, "end_point", reason, now(), banked=len(banked_ids(artifact)))
         log("e1 Claude slice: every planned run is banked")
         return banked
 
 
+def _claude_day_end(
+    prereg: Path, artifact: Path, stops: Path, at: datetime, log: Callable[[str], None]
+) -> bool:
+    """True (after recording the end point once) from :data:`CLAUDE_END_DAYS` days on.
+
+    The slice ends then whether or not it is stopped, as the local arm ends on its day
+    limit (prereg 0004), so a stop open at that time does not keep the analysis waiting.
+    """
+    from noisefloor.orchestrate import banked_ids  # noqa: PLC0415 - orchestrate imports runner
+
+    frozen = frozen_at(prereg)
+    if frozen is None or at < frozen + timedelta(days=CLAUDE_END_DAYS):
+        return False
+    stop = open_stop(stops)
+    if stop is None or stop["kind"] not in FINAL_STOPS:
+        reason = f"{CLAUDE_END_DAYS} days after the freeze"
+        record_stop(stops, "end_point", reason, at, banked=len(banked_ids(artifact)))
+    log(f"e1 Claude slice: ended ({CLAUDE_END_DAYS} days after the freeze, stopped or not)")
+    return True
+
+
 def _claude_may_start(
     prereg: Path, artifact: Path, stops: Path, at: datetime, log: Callable[[str], None]
 ) -> bool:
     """False (after saying why) when the next Claude pair must not start."""
+    if _claude_day_end(prereg, artifact, stops, at, log):
+        return False
     stop = open_stop(stops)
     if stop is not None:
         hint = RESUME_HINT % "claude"
@@ -1203,6 +1262,9 @@ def _parser() -> argparse.ArgumentParser:
     end_cmd = sub.add_parser("end", help="end the Claude slice early (a deviation)")
     end_cmd.add_argument("arm", choices=["claude"])
     end_cmd.add_argument("--reason", required=True)
+    note_cmd = sub.add_parser("note", help="record an event that stops nothing (a deviation)")
+    note_cmd.add_argument("arm", choices=["local", "claude"])
+    note_cmd.add_argument("--reason", required=True)
     dry_cmd = sub.add_parser("dry-run", help="exploratory dry run at the E1 server settings")
     dry_cmd.add_argument("plan", type=Path, help="a file with the e1-plan block (a draft works)")
     dry_cmd.add_argument("--runs", type=int, default=4, help="runs per model and setting")
@@ -1211,7 +1273,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _stop_command(args: argparse.Namespace) -> int:
-    """``stop``, ``resume``, or ``end`` of an arm (the Claude slice's only where it runs)."""
+    """``stop``, ``resume``, ``end``, or ``note`` of an arm (the Claude slice's where it runs)."""
     if args.arm == "claude" and billing_guard_findings():
         print("e1: the Claude slice's stops are recorded where it runs", file=sys.stderr)
         return 5
@@ -1221,6 +1283,8 @@ def _stop_command(args: argparse.Namespace) -> int:
         record_stop(stops, "defect", args.reason, at)
     elif args.command == "end":
         record_stop(stops, "end_point", f"ended early: {args.reason}", at, early=True)
+    elif args.command == "note":
+        record_stop(stops, "note", args.reason, at)
     else:
         resume(stops, args.note, at, args.amendment)
     print(f"{stops.name}: {args.command} recorded")
@@ -1228,10 +1292,11 @@ def _stop_command(args: argparse.Namespace) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """``python -m noisefloor.e1 plan|local|claude PREREG``, ``stop|resume|end ARM``, ``dry-run``.
+    """``python -m noisefloor.e1 COMMAND``: plan, local, claude, stop, resume, end, note, dry-run.
 
-    Exit codes: 0 done or waiting, 3 the arm is stopped (``resume`` after a repair), 4
-    another runner holds the arm's lock, 5 a Claude-slice stop, resume, or end refused on a
+    ``plan|local|claude PREREG``, ``stop|resume|end|note ARM``, and ``dry-run PLAN``. Exit
+    codes: 0 done or waiting, 3 the arm is stopped (``resume`` after a repair), 4 another
+    runner holds the arm's lock, 5 a Claude-slice stop, resume, end, or note refused on a
     machine where the billing guard is not clean (the slice's files are written only on
     the machine that runs it).
     """
@@ -1242,7 +1307,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         for line in dry_summary(jsonl.read(DRY_ARTIFACT, tail_ok=True)):
             print(json.dumps(line, sort_keys=True))
         return 0
-    if args.command in ("stop", "resume", "end"):
+    if args.command in ("stop", "resume", "end", "note"):
         return _stop_command(args)
     design = E1Design.from_json(prereg_block(args.prereg, "e1-plan"))
     if args.command == "plan":

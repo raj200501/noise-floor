@@ -75,6 +75,7 @@ def test_run_bank_and_resume(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert 0 <= by_id["T-r"]["covered"] <= 3
     text = (root / "coverage.json").read_text()
     assert "NaN" not in text and json.loads(text)["confirmatory"] is True
+    assert json.loads(text)["synthetic"] is True  # rule 4: simulated data is labeled
     # Every raw line carries a stamp; the artifact names the one environment behind them.
     lines = [json.loads(ln) for ln in (root / "raw" / "T-a.jsonl").read_text().splitlines()]
     assert all(len(ln["stamp"]["env"]) == 16 and ln["stamp"]["at"] for ln in lines)

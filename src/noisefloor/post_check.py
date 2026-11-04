@@ -14,16 +14,18 @@ its three task-by-factor variances, planted together (if that fit fails, the pri
 in ``artifacts/e1/variance_components.json`` without interactions, labeled in the
 config). The task truth the check scores is the planted task variance plus half of each
 task-by-factor variance, which the primary model's task term targets
-(:func:`noisefloor.recovery.planted_values`). The batch variance planted is the upper end
-of the batch-term sensitivity fit's interval (``sensitivity.json``), since its point
-estimate runs low (D-022). A component whose coverage fails the rule is reported as
-resting on an unsupported method; if that batch variance exceeds :data:`BATCH_RULE`, or
-the batch-term fit failed, the concurrency, day, and block intervals are also reported as
-not validated.
+(:func:`noisefloor.recovery.planted_values`). The batch variance planted is the batch-term
+sensitivity fit's ``batch_var_upper`` (``sensitivity.json``): the upper percentile of its
+bootstrap replicate batch variances, since its point estimate runs low (D-022). A
+component whose coverage fails the rule is reported as resting on an unsupported method;
+if that batch variance exceeds :data:`BATCH_RULE`, or the batch-term fit failed or gave
+no such value, the concurrency, day, and block intervals are also reported as not
+validated (and the check plants no batch variance).
 
 ``python -m noisefloor.post_check run PREREG`` appends one row per dataset to
 ``artifacts/e1/post_check/raw.jsonl`` (resumable, stamped as G6 rows are);
-``bank PREREG`` writes ``artifacts/e1/post_check.json``.
+``bank PREREG`` writes ``artifacts/e1/post_check.json``. Both take ``--amendment`` when a
+frozen amendment of prereg 0004 allows other analysis code.
 """
 
 from __future__ import annotations
@@ -44,7 +46,12 @@ from noisefloor import jsonl, preregs
 from noisefloor.e0_run import record_environment
 from noisefloor.e1 import E1Design
 from noisefloor.preregs import prereg_block
-from noisefloor.provenance import check_same_environment, single_environment, stamp
+from noisefloor.provenance import (
+    check_same_environment,
+    single_analysis_code,
+    single_environment,
+    stamp,
+)
 from noisefloor.recovery import TWO_LEVEL, AnalysisSettings, Design, Planted, recover
 
 REPO = Path(__file__).resolve().parents[2]
@@ -140,6 +147,8 @@ def planted_from_fit(
         batch_size=design.batch_size,
         days=len(days),
         blocks_per_day=len(blocks),
+        # The replicate placeholders are dealt into batches and then left out, as in E1.
+        replicates=tuple(tuple(int(b) for b in r) for r in design.replicates),
     )
     planted = Planted(
         intercept=intercept,
@@ -178,11 +187,11 @@ def prepare(prereg: Path, directory: Path = E1_DIR) -> dict[str, Any]:
     variance = json.loads((directory / "variance_components.json").read_text())
     sensitivity = json.loads((directory / "sensitivity.json").read_text())
     batch_fit = sensitivity["batch_random_effect"]
-    # The batch variance planted, and compared with the 0.05 rule, is the upper end of the
-    # batch-term fit's interval (its point estimate runs low, D-022). A failed batch-term
-    # fit plants 0, and then concurrency, day, and block are reported as not validated.
-    batch_row = next((c for c in batch_fit.get("components", []) if c["name"] == "batch"), None)
-    batch = 0.0 if batch_row is None else float(batch_row.get("hi") or batch_row["estimate"])
+    # The batch variance planted, and compared with the 0.05 rule, is the batch-term fit's
+    # batch_var_upper (the upper percentile of its bootstrap replicates; the point estimate
+    # runs low, D-022). A failed batch-term fit, or one without that value, plants 0, and
+    # then concurrency, day, and block are reported as not validated.
+    batch_error, batch = batch_term(batch_fit)
     # The auxiliary fit's fixed effects and variances are planted with its task-by-factor
     # variances; if it fails, the check runs with the primary fit and no interactions.
     try:
@@ -209,12 +218,27 @@ def prepare(prereg: Path, directory: Path = E1_DIR) -> dict[str, Any]:
         "settings": settings_from(settings).__dict__,
         "seeds": [POST_SEEDS[0], POST_SEEDS[-1]],
         "batch_rule": BATCH_RULE,
-        "batch_fit_error": batch_fit.get("error") if batch_row is None else None,
+        "batch_fit_error": batch_error,
         "auxiliary_fit_error": aux_error,
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(config, indent=1, sort_keys=True) + "\n")
     return dict(json.loads(path.read_text()))  # the same value every later call reads
+
+
+def batch_term(batch_fit: Mapping[str, Any]) -> tuple[str | None, float]:
+    """(why the batch-term fit counts as failed, or None; the batch variance to plant).
+
+    The batch-term fit counts as failed when it raised, or when it gave its batch variance
+    no ``batch_var_upper`` (no batch term, or more than 10 percent of the replicates
+    failed); the check then plants 0 (prereg 0004 items 9 and 10).
+    """
+    if batch_fit.get("error"):
+        return str(batch_fit["error"]), 0.0
+    upper = batch_fit.get("batch_var_upper")
+    if upper is None or not math.isfinite(float(upper)):
+        return "the batch-term fit gave its batch variance no upper end", 0.0
+    return None, float(upper)
 
 
 def _job(job: tuple[dict[str, Any], int]) -> dict[str, Any]:
@@ -228,16 +252,19 @@ def _job(job: tuple[dict[str, Any], int]) -> dict[str, Any]:
 def run(
     prereg: Path,
     directory: Path = E1_DIR,
+    *,
     workers: int = 1,
     log: Any = print,
     seeds: Sequence[int] = POST_SEEDS,
+    amendment: Path | None = None,
 ) -> int:
     """Append a row for every post-check seed not yet run (resumable)."""
     from noisefloor.analysis import e1 as analysis  # noqa: PLC0415 - analysis imports e1
     from noisefloor.recovery import _pool_map, dumps  # noqa: PLC0415
 
-    # The check runs the analysis code G6 and E0 part 2 ran (prereg 0004), in one environment.
-    analysis.check_analysis_code(prereg, prereg_block(prereg, "e1-analysis"))
+    # The check runs the analysis code G6 and E0 part 2 ran (prereg 0004), or code a frozen
+    # amendment of 0004 allows, in one environment.
+    analysis.check_analysis_code(prereg, prereg_block(prereg, "e1-analysis"), amendment)
     config = prepare(prereg, directory)
     raw = directory / "post_check" / "raw.jsonl"
     jsonl.repair_tail(raw)
@@ -293,10 +320,21 @@ def summarize(
 
 
 def bank(
-    prereg: Path, directory: Path = E1_DIR, seeds: Sequence[int] = POST_SEEDS
+    prereg: Path,
+    directory: Path = E1_DIR,
+    seeds: Sequence[int] = POST_SEEDS,
+    *,
+    amendment: Path | None = None,
 ) -> dict[str, Any]:
-    """Write ``post_check.json`` from the rows of every post-check seed."""
+    """Write ``post_check.json`` from the rows of every post-check seed.
+
+    The rows must share one environment and have run the analysis code the E1 analysis
+    accepts (that of G6 and E0 part 2, or one a frozen ``amendment`` of 0004 allows).
+    """
+    from noisefloor.analysis import e1 as analysis  # noqa: PLC0415 - analysis imports e1
+
     entry = preregs.require_frozen(prereg)
+    code = analysis.check_analysis_code(prereg, prereg_block(prereg, "e1-analysis"), amendment)
     config = prepare(prereg, directory)
     rows = {int(r["seed"]): r for r in jsonl.read(directory / "post_check" / "raw.jsonl")}
     missing = [s for s in seeds if s not in rows]
@@ -304,12 +342,17 @@ def bank(
         raise ValueError(f"{len(missing)} post-check datasets are not run yet")
     ordered = [rows[s] for s in seeds]
     env = single_environment(r.get("stamp") for r in ordered)
+    ran = single_analysis_code(r.get("stamp") for r in ordered)
+    if ran != code["hash"]:
+        raise ValueError(f"the rows ran analysis code {ran}, not {code['hash']}")
     artifact = {
         "prereg": preregs.repo_path(prereg),
         "prereg_sha256": entry["sha256"],
         "synthetic": True,
         "label": "post-E1 check at the fitted values (D-028 item 4)",
         "environment": env,
+        "analysis_code": ran,
+        "amendment": code["amendment"],
         "config": config,
         **summarize(
             ordered,
@@ -330,11 +373,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("command", choices=["run", "bank"])
     parser.add_argument("prereg", type=Path)
     parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument(
+        "--amendment", type=Path, help="a frozen amendment of 0004 that allows other analysis code"
+    )
     args = parser.parse_args(list(argv) if argv is not None else None)
     if args.command == "run":
-        print(f"added {run(args.prereg, workers=args.workers)} datasets")
+        added = run(args.prereg, workers=args.workers, amendment=args.amendment)
+        print(f"added {added} datasets")
     else:
-        result = bank(args.prereg)
+        result = bank(args.prereg, amendment=args.amendment)
         print(f"not validated: {', '.join(result['not_validated']) or 'none'}")
     return 0
 

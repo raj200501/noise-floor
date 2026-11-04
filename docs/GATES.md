@@ -52,7 +52,11 @@ dead proxies (evidence says `env-only`), plus `UV_OFFLINE=1`, `NOISEFLOOR_OFFLIN
 - Headline cells come from the frozen preregistrations: the base grid's "Headline cells (...)"
   list and every amendment's ` ```json headline ` block, less the cells an amendment frozen
   before the first confirmatory E1 run lists in a ` ```json retired-headline ` block, which it
-  may do only beside new headline cells of the same kinds (its ` ```json headline-kinds `). All
+  may do only beside new headline cells of the same kinds (its ` ```json headline-kinds `) that
+  test another method (another `method` or `interval_type`; for a GLMM kind, another rule in the
+  amendment's own ` ```json recovery-config ` settings: `boot_interval`, `fixed_interval` or
+  `box_interval`, `share_interval`, `mde_interval`), and only when a frozen amendment of the E1
+  preregistration (0004) from before that run exists (D-034 item 13). All
   must pass, and all must appear in `artifacts/headline_cells.json` (`{"cells": [...]}`, written
   by `python -m noisefloor.e0_validity`). Every failing cell must be in
   `evalstats.validity.UNSUPPORTED_CELLS`, and `evalstats.validity.check` with the cell's own
@@ -63,15 +67,16 @@ dead proxies (evidence says `env-only`), plus `UV_OFFLINE=1`, `NOISEFLOOR_OFFLIN
 - Property-based suite: `pytest -m property` runs at least one test and all pass.
 
 ## G6 Orchestrator validity
-`artifacts/g6/recovery.json`: `{"prereg", "nominal", "config", "environment", "datasets":
+`artifacts/g6/recovery.json`: `{"prereg", "nominal", "config", "environment", "analysis_code", "datasets":
 [{"seed", "components": {name: {"planted", "estimate", "lo", "hi"}}, "error"}], "bias": {name:
 value}}`. At least 200 datasets; seeds equal the prereg's ` ```json g6-seeds ` list; `config`
 equals its ` ```json recovery-config ` block and `nominal` that block's level; the components are
 exactly its ` ```json g6-components ` list, and each one's coverage meets the G5 rule (a dataset
 without an interval, such as a failed fit, counts as a miss); `environment.env` names the one
-environment every row ran in (`noisefloor.provenance`), and `analysis_code` the one analysis-code
-hash, which prereg 0004's analysis requires; reported bias equals the recomputed mean of
-estimate minus planted.
+environment every row ran in (`noisefloor.provenance`), and `analysis_code` the one 16-hex
+analysis-code hash, which prereg 0004's analysis requires and which must equal the
+`analysis_code` of `artifacts/e0/coverage-0005.json` once E0 part 2 is banked; reported bias
+equals the recomputed mean of estimate minus planted.
 
 ## G7 Factorial study (E1)
 - Prereg ` ```json e1-design ` block: `{"factors": {name: [levels]}, "models": [{"id", "family",
@@ -88,16 +93,23 @@ estimate minus planted.
 - `artifacts/e1/variance_components.json` (`components`: `estimate`, `lo`, `hi`, `share`,
   `share_lo`, `share_hi`) and `artifacts/e1/mde.json` (`rows`: `mde`, `lo`, `hi`), all finite
   with lo <= estimate <= hi.
-- Full mode: `python -m noisefloor.analysis.e1 --verify` recomputes the tables; it refuses
-  analysis code other than the code G6 and E0 part 2 ran (their `analysis_code`), unless the
-  manifest names a frozen amendment of the E1 preregistration that allows it.
+- `artifacts/e1/post_check.json`, the post-E1 check of prereg 0004 item 10 (which alone applies
+  item 10's labels and item 9's batch rule): it cites the E1 preregistration with its chain
+  SHA-256, which predates it, has `synthetic` true, every entry of `components` on
+  `datasets` 200, a `not_validated` list, and an `analysis_code` equal to
+  `variance_components.json`'s `analysis_code.hash`.
+- Full mode: `python -m noisefloor.analysis.e1 --verify` recomputes the tables (four GLMM fits
+  with bootstrap and jackknife, so it has its own 6-hour timeout); it refuses analysis code other
+  than the code G6 and E0 part 2 ran (their `analysis_code`), unless the manifest names a frozen
+  amendment of the E1 preregistration whose ` ```json analysis-code ` block allows it.
 
 ## G8 Leaderboards and bounds (E2, E3)
 At least 2 `artifacts/e2/<board>/manifest.json` with `source_url`, `retrieved`, `license`,
 `snapshot`, `sha256` (snapshot hash checked unless the snapshot is under `private/`, where the
 private manifest covers it); `docs/leaderboards/<board>.md` for each; `artifacts/e3/bounds.json`
 `entries` with `source` covering every board; and E3 on E1, `artifacts/e1/e3_bounds.json`
-(`source` `e1`, non-empty `entries`, with `rankings` and `adjacent`), written by the E1 analysis
+(`source` `e1`, non-empty `entries`, a non-empty `rankings` object, and a non-empty `adjacent`
+list), written by the E1 analysis
 under the E1 preregistration, which must predate it. Full mode: `python -m noisefloor.reanalysis --verify` (E1's file is
 recomputed by G7's verify).
 

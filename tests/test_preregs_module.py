@@ -55,3 +55,23 @@ def test_amends_reads_the_front_matter(tmp_path) -> None:
     b = tmp_path / "0008-b.md"
     b.write_text("# no front matter\namends: 0004\n")
     assert preregs.amends(a) == "0004" and preregs.amends(b) is None
+
+
+def test_amendments_with_reads_the_chain_in_order(tmp_path) -> None:
+    import json
+
+    from noisefloor import preregs
+
+    one = tmp_path / "0007-a.md"
+    one.write_text("---\namends: 0004\n---\n\n```json llama-server\n{}\n```\n")
+    two = tmp_path / "0008-b.md"
+    two.write_text("---\namends: 0004\n---\n# no block\n")
+    three = tmp_path / "0009-c.md"
+    three.write_text("---\namends: 0003\n---\n\n```json llama-server\n{}\n```\n")
+    chain = tmp_path / "CHAIN.jsonl"
+    rows = [{"file": p.name, "seq": i} for i, p in enumerate((three, two, one), start=1)]
+    chain.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    assert preregs.chain_files(chain, repo=tmp_path) == [three, two, one]
+    assert preregs.amendments_with("0004", "llama-server", chain, repo=tmp_path) == [one]
+    assert preregs.amendments_with("0003", "llama-server", chain, repo=tmp_path) == [three]
+    assert preregs.chain_files(tmp_path / "missing.jsonl") == []

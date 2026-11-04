@@ -592,7 +592,8 @@ drafts of 0004 to 0006. These choices answer them; none rests on E1 data, which 
    the local sample: the smallest tasks per family at which every local harness contrast and
    local model pair has power 0.8 under the Holm reading within its family, at the assumed
    effects (normal test statistics simulated with a fixed seed, the smaller power over test
-   correlations 0 and 0.5). That is 16 tasks per family, 80 tasks; `tools/prereg_blocks.py`
+   correlations 0 and 0.5). That is 16 tasks per family, 80 tasks (revised by D-034 item 1: 17
+   tasks per family, 85 tasks, under the t statistics of the tests E1 runs); `tools/prereg_blocks.py`
    checks the rule when it writes the `e1-power` block. The local arm runs 3 models x 80 tasks x
    18 runs over 4 days x 2 blocks; the `e1-design` block estimates each slot's hours from the
    dry run (a planning estimate, not a result). The Claude slice keeps 30 tasks, the first 6 of
@@ -642,10 +643,12 @@ drafts of 0004 to 0006. These choices answer them; none rests on E1 data, which 
    compares its run code (the `src/` tree, the lock, and the llama-server binary) with the arm's
    first banked run: a change stops the arm until a resume accepts it as a deviation, and
    uncommitted changes block every batch. G6 and E0 part 2 refuse to add rows beside rows from
-   another environment; a study with rows from two environments runs again in one.
+   another environment; a study with rows from two environments runs again in one. (D-034
+   items 8 and 9 widen the pinned files and correct what the server digest covers.)
 11. Server settings (ops-8): the model pins include each model's server arguments (thinking off
    for both Qwen3 models) and the context per slot, the `e1-design` block pins the llama-server
-   build and its binary's SHA-256, and the local arm's first batch needs that binary.
+   build and its binary's SHA-256, and the local arm's first batch needs that binary (corrected
+   by D-034 item 9: the SHA-256 covers the binary and the shared libraries beside it).
 12. Claude slice (code-9, ops-3, ops-5, ops-9, ops-10, resolution-6). The slice checks its stops
    before every (tier, task) pair; three infra_error runs in a row stop it (those runs stay
    banked); a Claude Code child that did not start clean stops it, and that run is left out and
@@ -661,7 +664,8 @@ drafts of 0004 to 0006. These choices answer them; none rests on E1 data, which 
    within 15 minutes after 00:00 UTC. After a batch aborts, every run recorded later is dropped,
    whatever its status. A defect stop takes effect when the running batch ends. A relaunch never
    runs beside a live runner of the same arm (the runner holds a lock, and its model server gets
-   SIGTERM if the runner dies). The analysis treats the arm as ended once the clock passes its day
+   SIGTERM if the runner dies). (Corrected by D-034 item 10: that lock covered one planned batch
+   only, and the sandboxed runner did not die with a killed orchestrator.) The analysis treats the arm as ended once the clock passes its day
    7. A defect stop resumes only under a frozen amendment of 0004. The batch term of the
    sensitivity fit is the planned batch; day and block are those of each executed piece's start.
 14. Analysis (code-1, code-3, code-4, code-15, brief-6, stats-6, stats-8, resolution-8). The
@@ -682,3 +686,82 @@ drafts of 0004 to 0006. These choices answer them; none rests on E1 data, which 
    local groups with model-by-harness effects and with two equal models, Claude tier and harness
    cells at larger gaps, Claude-local cells at low local rates, bound cells at larger ambiguous
    shares, and sampling cells that simulate the sampling table's own data.
+
+## D-034 2026-11-04 Final review of 0004 to 0006 (before freezing)
+The final review of the third drafts (three lenses, then adversarial verification) confirmed 40
+findings. These changes answer them before the freeze and before G6 and E0 part 2 run, so the
+analysis-code pin fixes the corrected code; none rests on E1 data, which do not exist.
+1. Sample size (final-stats-5, stats-6). The sizing rule of D-033 item 1 simulated normal test
+   statistics, while the local families are tested with `cluster_t` on tasks - 1 degrees of
+   freedom. The Holm power rows now simulate each family's own test statistic (t, with its own
+   chi-square draw per member for the estimated standard error, for the `cluster_t` families;
+   normal for the Wilson families), and the single-comparison power of a `cluster_t` row is the
+   noncentral t power. Under t the rule gives 17 tasks per family, 85 tasks; the local arm runs
+   3 models x 85 tasks x 18 runs over the same 4 days x 2 blocks (the `e1-design` block's slot
+   estimate stays inside the 12-hour blocks). Each power row names its test, and
+   `tasks_for_power_0.8` is described as the tasks one comparison needs (the Holm reading needs
+   more).
+2. Validated spans (final-stats-7): a difference kind's span starts at 0 when one of its cells
+   plants no difference (e1-local-mh harness m0, e1-local-eq pairs m0-m1). Those truths come from
+   one simulated dataset and lie near 0 on either side, so a positive lower end was seed noise.
+3. Batch rule (final-stats-2, res-7). Items 9 and 10 of 0004 now use `batch_var_upper`, the upper
+   97.5 percent quantile of the batch-term fit's finite bootstrap replicate batch variances,
+   which the replicates bound. The `basic_log` upper end, estimate^2 over the lower quantile,
+   grows without bound as that quantile nears 0. A batch-term fit without that value (more than
+   10 percent of its replicates failed) counts as failed: the post-E1 check plants 0 and reports
+   concurrency, day, and block as not validated.
+4. Post-E1 check (final-stats-8, stats-9, res-6, ops-5): the MDE truth uses the task truth of the
+   other components (the planted task variance plus half of each task-by-factor variance); the
+   simulated batches include the replicate placeholders, as in E1, G6, and E0 part 2; `run` and
+   `bank` take `--amendment`; `post_check.json` records its analysis code and amendment; and G7
+   requires `post_check.json`.
+5. Labels (final-stats-3, res-2, ops-3, res-13). The Claude-local rows are labeled
+   `scaffold-confounded` with a `confounds` list. The analysis also writes each Claude row's
+   complete pairs and `matches_e0_cells`. The labels that rest on other banked artifacts
+   (underpowered families from `family_verdicts`, the fixed factors' power from G6's
+   `above_zero`, and a kind resting on an unsupported method) are applied by the report step
+   from those artifacts, not by the analysis.
+6. Independence reading (final-stats-10): kept as drafted, and 0004 states that it treats the
+   implied E[p (1 - p)] as known and has no stated false-positive rate. Comparing the measured
+   interval with an interval for the implied value would make a false "violated" rarer at a cost
+   in power to see dependence, and the reading changes labels only.
+7. Sampling estimate (res-14): 0004 defines it as the code computes it, the mean over tasks of
+   the per-task mean of (y1 - y2)^2 / 2.
+8. Code pins (res-15, ops-9, ops-8). `ANALYSIS_CODE` adds `evalstats/validity.py`,
+   `noisefloor/e0.py` (truths and simulators), `e0_run.py` (cell hits), `e1.py` (plan and
+   exclusion rules), and `models.py` (model families); the library's list of failing cells stays
+   out, since it is rebuilt after E0 part 2 by design. An amendment of 0004 allows other analysis
+   code only through a ```json analysis-code``` block naming that code's hash, and a defect
+   stop resumes only under an amendment whose ```json defect-resume``` block names the stop.
+9. llama-server (final-stats-1, res-1, ops-1, ops-13): the pin is the digest of the binary and
+   the shared libraries beside it (`noisefloor.models.server_build_sha256`), and the freeze
+   asserts that it equals this machine's build. The build lives in a cache a new container does
+   not keep, so a rebuilt server may start the local arm only under a frozen amendment of 0004
+   whose ```json llama-server``` block names its digest, a deviation.
+10. Runner (res-8, ops-2). `unshare --fork` blocks SIGINT and SIGTERM, so the parent-death
+   SIGTERM added in f4a1046 stayed pending, and a killed orchestrator left its runner and model
+   server alive. The sandbox now uses `setpriv --pdeathsig KILL`, tested by killing a real
+   launcher. No batch starts while any runner under the work root holds its lock, not only a
+   runner of the same planned batch.
+11. Claude slice (res-3, ops-6, res-4, ops-7, res-9): the 45-day end point is recorded whatever
+   stop is open; three infra_error runs in a row anywhere in banking order since the start or
+   last resume stop the slice, also when they end inside a pair; the first banked CLI version
+   counts as accepted only if a smoke run on it passed; 0004 states that the clean-start check
+   covers the Claude Code harness (minimal-agent steps are single calls without tools or MCP
+   servers, and every stream refuses an API-key login).
+12. Order and containers (res-5, ops-11, ops-13). G6 and E0 part 2 write all their rows before
+   either is banked; `e0_validity` then runs, and its commit, the one change under `src/` from
+   the start of G6 to the E1 analysis, lands before the local arm's first batch and before the
+   Claude clone. Rows are committed and pushed at check-ins. Runs banked after the last push and
+   lost with a container are noted in the stop log (`python -m noisefloor.e1 note`, which stops
+   nothing) and run again under their planned run ids, a deviation.
+13. Gates (final-stats-4, ops-4, res-11, ops-12). G5 accepts a retired headline kind only beside
+   new cells that test another method (for a GLMM kind, another rule in the amendment's own
+   recovery-config) and a frozen amendment of 0004 from before E1 data. G7's recompute runs four
+   GLMM fits with bootstrap and jackknife and gets a 6-hour timeout. G6 requires a 16-hex
+   `analysis_code` equal to E0 part 2's once that is banked. G8 requires the rankings and
+   adjacent-pair bounds of E3 on E1.
+14. Texts (ops-10, res-12, ops-14, res-10, ops-15): 0004 and 0005 state that replacing a kind's
+   method takes amendments of 0003, 0004, and (for a GLMM kind) 0006; 0006 names 0004's
+   fixed-factor reading; the E0 coverage artifacts are labeled synthetic; CORRECTIONS.md records
+   the withdrawn and corrected claims.

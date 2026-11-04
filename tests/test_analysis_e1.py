@@ -148,7 +148,8 @@ def test_build_and_verify(tmp_path: Path) -> None:
     assert "model:granite-4.0-micro-phi-4-mini" in labels
     assert "model:claude-haiku-qwen3-4b" in labels
     claude_rows = [r for r in contrasts["models"] if r["a"] == "claude-haiku"]
-    assert all(r["label"] == "temperature-confounded" for r in claude_rows)
+    assert all(r["label"] == "scaffold-confounded" for r in claude_rows)
+    assert all(len(r["confounds"]) == 4 for r in claude_rows)  # prereg 0004 item 5
     assert all(r["p_holm"] >= r["p_value"] for r in contrasts["models"])
     for r in [*contrasts["harness"], *contrasts["models"]]:
         assert r["supported"] == (r["p_holm"] < 0.05)
@@ -669,8 +670,24 @@ def test_the_analysis_refuses_code_that_g6_and_e0_did_not_run(
     other.write_text("---\namends: 0003\n---\n# x\n")
     with pytest.raises(ValueError, match="does not amend"):
         a.check_analysis_code(prereg, settings, other)
+    unrelated = tmp_path / "0009-defect.md"  # amends 0004 for another purpose
+    unrelated.write_text("---\namends: 0004\ndate: 2026-11-20\n---\n# defect\n")
+    with pytest.raises(ValueError, match="no ```json analysis-code``` block"):
+        a.check_analysis_code(prereg, settings, unrelated)
+    stale = tmp_path / "0009-stale.md"
+    stale.write_text(
+        "---\namends: 0004\n---\n# x\n\n```json analysis-code\n"
+        + json.dumps({"allows": "c" * 16})
+        + "\n```\n"
+    )
+    with pytest.raises(ValueError, match="not the code in use"):
+        a.check_analysis_code(prereg, settings, stale)
     fix = tmp_path / "0009-fix.md"
-    fix.write_text("---\namends: 0004\ndate: 2026-11-20\n---\n# fix\n")
+    fix.write_text(
+        "---\namends: 0004\ndate: 2026-11-20\n---\n# fix\n\n```json analysis-code\n"
+        + json.dumps({"allows": "b" * 16})
+        + "\n```\n"
+    )
     assert a.check_analysis_code(prereg, settings, fix)["amendment"] == str(fix)
     code["dirty"] = True
     with pytest.raises(ValueError, match="uncommitted changes"):
@@ -691,3 +708,76 @@ def test_independence_reading_labels_the_k_run_mde_rows() -> None:
     assert "violated" in mde["tasks_needed"][0]["independence"]
     a.mark_independence(mde, [])
     assert "not checked" in mde["rows"][1]["independence"]
+
+
+def test_the_batch_rule_uses_a_bounded_upper_end() -> None:
+    from evalstats.glmm import Decomposition, boot_variance_interval
+
+    rng = np.random.default_rng(3)
+    draws = np.concatenate([[1e-13] * 6, rng.gamma(2.0, 0.015, 194)])  # 2.5% quantile ~1e-13
+
+    def fit(values: np.ndarray) -> Decomposition:
+        return Decomposition(
+            backend="lme4",
+            formula="y ~ 1",
+            n_obs=10,
+            level=0.95,
+            components=(),
+            fixed_effects={},
+            converged=True,
+            replicates={"batch": tuple(float(v) for v in values)},
+        )
+
+    upper = a.batch_upper(fit(draws), 0.95)
+    assert upper == pytest.approx(float(np.quantile(draws, 0.975)))
+    # basic_log's upper end estimate**2 / q_lo explodes here; the rule's value does not.
+    basic_log = boot_variance_interval(0.245, draws, 0.95, "basic_log")
+    assert basic_log is not None and basic_log[1] > 1e9 and upper < float(draws.max()) + 1e-12
+    failed = draws.copy()
+    failed[:25] = np.nan  # more than 10 percent of the replicates failed
+    assert a.batch_upper(fit(failed), 0.95) is None
+    assert a.batch_upper(fit(np.array([])), 0.95) is None
+
+
+def test_claude_rows_record_complete_pairs_and_whether_they_match_their_cells() -> None:
+    def run(tier: str, task: str, rid: str, status: str = "ok") -> dict:
+        return {
+            "run_id": rid,
+            "model_id": tier,
+            "backend": "claude",
+            "task": task,
+            "status": status,
+            "confirmatory": True,
+            "excluded": None,
+            "replicate": False,
+        }
+
+    rows = [
+        run("claude-haiku", "t1", "a1"),
+        run("claude-haiku", "t1", "a2"),
+        run("claude-haiku", "t2", "a3"),
+        run("claude-haiku", "t2", "a4", status="infra_error"),  # leaves t2 incomplete
+        run("claude-sonnet", "t1", "b1"),
+        run("claude-sonnet", "t1", "b2"),
+        run("claude-sonnet", "t2", "b3"),
+        run("claude-sonnet", "t2", "b4"),
+    ]
+    pairs = a.complete_pairs(rows, ["infra_error"], 2)
+    assert pairs == {"claude-haiku": 1, "claude-sonnet": 2}
+    scores = {"rows": [{"model": "claude-haiku", "backend": "claude"}, {"model": "qwen3-4b"}]}
+    contrasts = {
+        "harness": [
+            {"contrast": "harness:claude-sonnet", "family": "harness-claude", "a": "native"},
+            {"contrast": "harness:qwen3-4b", "family": "harness-local", "a": "native", "b": "x"},
+        ],
+        "models": [{"family": "tiers-claude", "a": "claude-haiku", "b": "claude-sonnet"}],
+    }
+    a.mark_complete_pairs(pairs, 2, scores, contrasts)
+    assert scores["rows"][0]["matches_e0_cells"] is False
+    assert scores["rows"][0]["complete_pairs"] == {"claude-haiku": 1}
+    assert "matches_e0_cells" not in scores["rows"][1]
+    assert contrasts["harness"][0]["matches_e0_cells"] is True
+    assert "complete_pairs" not in contrasts["harness"][1]
+    pair = contrasts["models"][0]
+    assert pair["complete_pairs"] == {"claude-haiku": 1, "claude-sonnet": 2}
+    assert pair["matches_e0_cells"] is False

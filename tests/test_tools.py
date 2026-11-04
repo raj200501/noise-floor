@@ -167,7 +167,9 @@ def test_utc_time() -> None:
     assert a == b and c > a
 
 
-def _g7_repo(root: Path, rows: list[dict[str, Any]]) -> None:
+def _g7_repo(
+    root: Path, rows: list[dict[str, Any]], post_datasets: int = 200, post_code: str = ""
+) -> None:
     """A git repo with a frozen E1 preregistration, then E1 artifacts built from ``rows``."""
     import hashlib
     import json
@@ -208,8 +210,18 @@ def _g7_repo(root: Path, rows: list[dict[str, Any]]) -> None:
         row.update(prereg="prereg/0004-e1.md", prereg_sha256=sha)
     (e1 / "runs.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
     interval = {"estimate": 0.1, "lo": 0.05, "hi": 0.2, "share": 0.1, "share_lo": 0.0}
-    vc = {"components": [{**interval, "name": "task", "share_hi": 0.3}]}
+    code = {"hash": "c" * 16, "validated_by": {}, "amendment": None}
+    vc = {"components": [{**interval, "name": "task", "share_hi": 0.3}], "analysis_code": code}
     (e1 / "variance_components.json").write_text(json.dumps(vc))
+    post = {
+        "prereg": "prereg/0004-e1.md",
+        "prereg_sha256": sha,
+        "synthetic": True,
+        "analysis_code": post_code or code["hash"],
+        "components": {"task": {"datasets": 200}, "harness": {"datasets": post_datasets}},
+        "not_validated": [],
+    }
+    (e1 / "post_check.json").write_text(json.dumps(post))
     (e1 / "mde.json").write_text(json.dumps({"rows": [{"mde": 0.1, "lo": 0.05, "hi": 0.2}]}))
     files = {
         f"artifacts/e1/{n}": hashlib.sha256((e1 / n).read_bytes()).hexdigest()
@@ -264,6 +276,20 @@ def test_g7_counts_runs_that_ran_and_rejects_duplicates(tmp_path: Path) -> None:
     _g7_repo(dup, [*rows, dict(rows[0])])
     with pytest.raises(ship_check.GateError, match="banked more than once"):
         ship_check.g7(_ctx(dup))
+    # The post-E1 check must have run on all its datasets, under the tables' analysis code.
+    short = tmp_path / "post-short"
+    _g7_repo(short, _g7_rows(900, 160), post_datasets=150)
+    with pytest.raises(ship_check.GateError, match="lacks 200 datasets"):
+        ship_check.g7(_ctx(short))
+    other = tmp_path / "post-code"
+    _g7_repo(other, _g7_rows(900, 160), post_code="d" * 16)
+    with pytest.raises(ship_check.GateError, match="ran other analysis code"):
+        ship_check.g7(_ctx(other))
+    missing = tmp_path / "post-missing"
+    _g7_repo(missing, _g7_rows(900, 160))
+    (missing / "artifacts" / "e1" / "post_check.json").unlink()
+    with pytest.raises(ship_check.GateError):
+        ship_check.g7(_ctx(missing))
 
 
 def test_budget_counts_both_ledgers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -279,7 +305,9 @@ def test_budget_counts_both_ledgers(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert budget.main() == 1  # 8 on one day across the two ledgers
 
 
-def _g6_repo(root: Path, components: list[str], *, rows_ok: bool = True) -> Path:
+def _g6_repo(
+    root: Path, components: list[str], *, rows_ok: bool = True, code: str | None = "a" * 16
+) -> Path:
     import hashlib
     import json
     import subprocess
@@ -324,6 +352,7 @@ def _g6_repo(root: Path, components: list[str], *, rows_ok: bool = True) -> Path
         "nominal": 0.95,
         "config": config,
         "environment": {"env": hashlib.sha256(b"e").hexdigest()[:16]},
+        "analysis_code": code,
         "datasets": datasets,
         "bias": bias,
     }
@@ -346,6 +375,17 @@ def test_g6_checks_components_config_and_coverage(tmp_path: Path) -> None:
     low = _g6_repo(tmp_path / "low", ["task", "harness"], rows_ok=False)
     with pytest.raises(ship_check.GateError, match="coverage"):
         ship_check.g6(_ctx(low))
+    blank = _g6_repo(tmp_path / "blank", ["task", "harness"], code=None)
+    with pytest.raises(ship_check.GateError, match="analysis_code"):
+        ship_check.g6(_ctx(blank))
+    # E0 part 2, once banked, must have run the same analysis code.
+    e0 = good / "artifacts" / "e0"
+    e0.mkdir(parents=True)
+    (e0 / "coverage-0005.json").write_text('{"analysis_code": "b' + "b" * 15 + '"}')
+    with pytest.raises(ship_check.GateError, match="E0 part 2"):
+        ship_check.g6(_ctx(good))
+    (e0 / "coverage-0005.json").write_text('{"analysis_code": "' + "a" * 16 + '"}')
+    assert ship_check.g6(_ctx(good)).startswith("200 datasets")
 
 
 def test_retired_headline_cells_count_only_before_e1_data(tmp_path: Path) -> None:
@@ -357,37 +397,72 @@ def test_retired_headline_cells_count_only_before_e1_data(tmp_path: Path) -> Non
         "# 0003\n\nHeadline cells (E2): `S-a`. Every headline cell must\npass.\n\n"
         '```json e0-grid\n[{"cell": "S-a"}]\n```\n'
     )
+    config = '```json recovery-config\n{"settings": {"share_interval": "%s"}}\n```\n\n'
     (pre / "0005-more.md").write_text(
         "---\namends: 0003\n---\n# 0005\n\n"
-        '```json e0-grid\n[{"cell": "G-c"}, {"cell": "G-d"}]\n```\n\n'
-        '```json headline\n{"e1 c": "G-c", "e1 d": "G-d"}\n```\n\n'
-        '```json headline-kinds\n{"G-c": "share", "G-d": "mde"}\n```\n'
+        '```json e0-grid\n[{"cell": "G-c"}, {"cell": "G-d"}, {"cell": "L-a", "method": "m",'
+        ' "interval_type": "cluster_t"}]\n```\n\n'
+        '```json headline\n{"e1 c": "G-c", "e1 d": "G-d", "e1 l": "L-a"}\n```\n\n'
+        '```json headline-kinds\n{"G-c": "share", "G-d": "mde", "L-a": "local-score"}\n```\n\n'
+        + config
+        % "plugin"
     )
     swap = (
         "---\namends: 0003\n---\n# 0007\n\n"
         '```json e0-grid\n[{"cell": "G-e"}]\n```\n\n'
         '```json headline\n{"e1 c": "G-e"}\n```\n\n'
         '```json headline-kinds\n{"G-e": "%s"}\n```\n\n'
-        '```json retired-headline\n["G-c"]\n```\n'
+        '```json retired-headline\n["G-c"]\n```\n\n'
     )
-    (pre / "0007-swap.md").write_text(swap % "share")
+    (pre / "0007-swap.md").write_text(swap % "share" + config % "percentile")
+    (pre / "0008-e1.md").write_text("---\namends: 0004\n---\n# allows the new code\n")
     chain = [
         {"file": "prereg/0003-grid.md", "frozen_at": "2026-11-01T00:00:00Z"},
         {"file": "prereg/0005-more.md", "frozen_at": "2026-11-02T00:00:00Z"},
-        {"file": "prereg/0007-swap.md", "frozen_at": "2026-11-06T00:00:00Z"},
+        {"file": "prereg/0007-swap.md", "frozen_at": "2026-11-03T00:00:00Z"},
+        {"file": "prereg/0008-e1.md", "frozen_at": "2026-11-06T00:00:00Z"},
     ]
     (pre / "CHAIN.jsonl").write_text("".join(json.dumps(e) + "\n" for e in chain))
     ctx = _ctx(tmp_path)
     grids = ship_check.e0_grids(ctx)
-    assert ship_check.frozen_headline_cells(ctx, grids) == {"S-a", "G-d", "G-e"}
-    (pre / "0007-swap.md").write_text(swap % "mde")  # no replacement share cell
+    assert ship_check.frozen_headline_cells(ctx, grids) == {"S-a", "G-d", "G-e", "L-a"}
+    (pre / "0007-swap.md").write_text(swap % "mde" + config % "percentile")  # no share cell
     with pytest.raises(ship_check.GateError, match="retires share cells with no replacement"):
         ship_check.frozen_headline_cells(ctx, grids)
-    (pre / "0007-swap.md").write_text(swap % "share")
+    # The same method on new seeds is no replacement (review final-stats-4).
+    (pre / "0007-swap.md").write_text(swap % "share" + config % "plugin")
+    with pytest.raises(ship_check.GateError, match="test the same method"):
+        ship_check.frozen_headline_cells(ctx, grids)
+    (pre / "0007-swap.md").write_text(swap % "share")  # no recovery-config of its own
+    with pytest.raises(ship_check.GateError, match="test the same method"):
+        ship_check.frozen_headline_cells(ctx, grids)
+    # A replaced non-GLMM kind needs new cells with another method or interval type.
+    local = (
+        "---\namends: 0003\n---\n# 0007\n\n"
+        '```json e0-grid\n[{"cell": "L-b", "method": "m", "interval_type": "%s"}]\n```\n\n'
+        '```json headline\n{"e1 l": "L-b"}\n```\n\n'
+        '```json headline-kinds\n{"L-b": "local-score"}\n```\n\n'
+        '```json retired-headline\n["L-a"]\n```\n'
+    )
+    (pre / "0007-swap.md").write_text(local % "cluster_t")
+    with pytest.raises(ship_check.GateError, match="test the same method"):
+        ship_check.frozen_headline_cells(ctx, grids)
+    (pre / "0007-swap.md").write_text(local % "cluster_bootstrap")
+    assert "L-b" in ship_check.frozen_headline_cells(ctx, grids)
+    # Without an amendment of the E1 preregistration, nothing allows the new method.
+    (pre / "CHAIN.jsonl").write_text("".join(json.dumps(e) + "\n" for e in chain[:3]))
+    with pytest.raises(ship_check.GateError, match="no amendment of prereg 0004"):
+        ship_check.frozen_headline_cells(ctx, grids)
+    (pre / "CHAIN.jsonl").write_text("".join(json.dumps(e) + "\n" for e in chain))
+    (pre / "0007-swap.md").write_text(swap % "share" + config % "percentile")
     e1 = tmp_path / "artifacts" / "e1"
     e1.mkdir(parents=True)
     run = {"confirmatory": True, "started_at": "2026-11-05T00:01:00+00:00"}
     (e1 / "runs.jsonl").write_text(json.dumps(run) + "\n")
+    with pytest.raises(ship_check.GateError, match="no amendment of prereg 0004"):
+        ship_check.frozen_headline_cells(ctx, grids)  # 0008 was frozen after E1 data
+    late = [*chain[:2], {**chain[2], "frozen_at": "2026-11-06T00:00:00Z"}, chain[3]]
+    (pre / "CHAIN.jsonl").write_text("".join(json.dumps(e) + "\n" for e in late))
     with pytest.raises(ship_check.GateError, match="after E1 data exist"):
         ship_check.frozen_headline_cells(ctx, grids)
 

@@ -50,15 +50,26 @@ days) and the Claude arm is rate-capped per day.
 
 Order: freeze preregistrations 0004 (E1), 0005 (E0 part 2), and 0006 (G6) in one commit; run
 G6 and E0 part 2 (synthetic, CPU only, Laplace bootstrap with task-jackknife refits at the
-80-task E1 shape: about 8 core-minutes per dataset in a timing run, 1,200 GLMM datasets (G6 200,
-E0 groups `e1` and `e1-het` 500 each), so about 40 hours on 4 workers, plus the cheap local-arm
-and non-GLMM cells); bank both; then the E1 local arm (both arms refuse to start before the G6
-and E0 part 2 artifacts are banked). Running G6 and E0 part 2 first lets a failing kind of
+85-task E1 shape (D-034 item 1): about 8 core-minutes per dataset in a timing run at 80 tasks,
+1,200 GLMM datasets (G6 200, E0 groups `e1` and `e1-het` 500 each), so a little over 40 hours on
+4 workers, plus the cheap local-arm and non-GLMM cells). Both studies write all their rows before
+either is banked; then bank both, run `python -m noisefloor.e0_validity`, and commit its outputs
+(the list of failing cells under `src/evalstats/data/`) before the local arm's first batch and
+before Raj clones for the Claude slice; then the E1 local arm (both arms refuse to start before
+the G6 and E0 part 2 artifacts are banked). Running G6 and E0 part 2 first lets a failing kind of
 interval be replaced by a dated amendment with its own passing cells before any E1 data exist.
-No commit changes `src/` or `uv.lock` from the start of G6 to the E1 analysis: the studies
-refuse rows from a second environment, the arms stop on new run code, and the analysis runs
-only under the analysis code G6 and E0 part 2 ran (D-033 item 10). Raw rows are committed at
-check-ins so a lost container loses no banked work. Nothing else runs on the CPU while E1 runs,
+No commit changes `src/` or `uv.lock` from the start of G6 to the E1 analysis, except the one
+`e0_validity` commit above, which lands after G6 and E0 part 2 have written all their rows (the
+list of failing cells is outside the analysis-code pin): the studies refuse rows from a second
+environment, the arms stop on new run code, and the analysis runs only under the analysis code
+G6 and E0 part 2 ran (D-033 item 10, D-034 item 8). Raw rows are committed and pushed at
+check-ins (while E1 runs, pushes wait for the gaps between blocks), because this container is
+not persistent: only pushed rows survive a new one. Runs banked after the last push and lost with
+a container are noted in the stop log (`python -m noisefloor.e1 note local --reason "..."`) and
+run again under their planned run ids, a deviation. The llama-server build lives in
+`~/.cache/noisefloor`, which a new container does not keep: a rebuilt server whose digest
+differs from the frozen pin starts the local arm only under a frozen amendment of 0004 with a
+```json llama-server``` block naming the new digest, a deviation (D-034 item 9). Nothing else runs on the CPU while E1 runs,
 because its runs have wall-clock limits.
 
 - The local arm runs as `python -m noisefloor.e1 local prereg/0004-e1-factorial.md`, detached
@@ -66,10 +77,11 @@ because its runs have wall-clock limits.
   restart banks completed runs from the work directories and starts unfinished ones again.
 - The first batch starts within 15 minutes after 00:00 UTC (launched later, the runner waits).
   A batch of slot day k, block b starts only in block b of the arm's day k or later, so the arm
-  takes at least four UTC days (8 slots of about 9 hours at the dry run's rates, `e1-design`
+  takes at least four UTC days (8 slots of 9 to 10 hours at the dry run's rates, `e1-design`
   `duration_estimate`); slots that overrun move to the same block of the next day.
-- Banked runs are committed locally after each check-in. Pushes (after `make prepush`, which
-  needs the CPU) happen only while the arm waits between blocks. The same holds for tests,
+- Banked runs are committed after each check-in and pushed (after `make prepush`, which needs
+  the CPU) at the next gap between blocks; pushes happen only while the arm waits between
+  blocks. The same holds for tests,
   simulations, and anything else CPU-heavy in this session: CPU contention would lengthen runs
   and could turn some into timeouts, an effect outside the design.
 - Check-ins keep the session awake while the arm runs; each one checks the process, the log,
@@ -78,8 +90,10 @@ because its runs have wall-clock limits.
   `artifacts/e1/local.jsonl` is read only by the runner until the arm ends.
 - One runner at a time: each arm holds an exclusive lock (`artifacts/e1/.local.lock`,
   git-ignored); a second runner exits with code 4. Each batch runner holds a lock on its work
-  directory, so a relaunch after a killed orchestrator waits for a live runner instead of
-  running beside it, and a runner's model server stops when the runner dies.
+  directory, and no batch starts while any runner under the work root holds its lock, so a
+  relaunch after a killed orchestrator waits for a live runner instead of running beside it.
+  The sandboxed runner gets SIGKILL when the process that launched it dies (`unshare --fork`
+  blocks SIGTERM, D-034 item 10), and a runner's model server stops when the runner dies.
 - Stops (prereg 0004): a batch that fails as a whole (the model file fails its hash check, the
   server does not start or fails its health check after a run, three infra_error runs in a row,
   or the runner exits before every run is recorded) banks only the runs the failure did not
@@ -89,11 +103,12 @@ because its runs have wall-clock limits.
   `artifacts/e1/stops-local.jsonl` (reported as a deviation), and the runner exits with code 3
   until `python -m noisefloor.e1 resume local --note "<repair>"` records the repair. A batch
   that banks nothing because its calls were refused, or new run code (a commit under `src/`, a
-  new lock, or another llama-server binary), also stops the arm; uncommitted changes under
+  new lock, or another llama-server build, its binary or shared libraries), also stops the arm; uncommitted changes under
   `src/` block every batch until they are committed. A defect found during the arm is recorded
   with `python -m noisefloor.e1 stop local --reason "..."` (it takes effect when the running
   batch ends) and resumes only with `--amendment` naming a frozen amendment of prereg 0004 that
-  says how the affected runs are handled. The day-7 stop does not resume.
+  says how the affected runs are handled and names the stop's time in a ```json defect-resume```
+  block. The day-7 stop does not resume.
 
 ## Claude arm on Raj's machine (G7)
 
@@ -124,14 +139,18 @@ clean (D-004, D-019). This hosted session cannot run them by design. Steps for R
    planned 8 steps is refused, so do not set `CAP_SHARE` below 0.2.
 4. The slice ends when every planned run of the tiers still served is banked or 45 days after
    the freeze, whichever comes first; the runner then records an end point (run it once on or
-   after day 45 if the slice has not finished), and its outcomes are not analyzed before then.
+   after day 45 if the slice has not finished; it records the end whatever stop is open), and
+   its outcomes are not analyzed before then.
    An early end is `uv run python -m noisefloor.e1 end claude --reason "..."`, a deviation. Do
-   not update Claude Code while it runs (its children run with `DISABLE_AUTOUPDATER=1`); a new
-   CLI version stops the slice until a smoke run on it prints SMOKE: PASS and
+   not update Claude Code while it runs (its children run with `DISABLE_AUTOUPDATER=1`), and
+   run the smoke check on the version the slice will use: a first run on a version no smoke run
+   passed on, or a later new version, stops the slice until a smoke run on it prints SMOKE: PASS
+   and
    `uv run python -m noisefloor.e1 resume claude --note "<version change>"` accepts it as a
    deviation. If a tier is served by a model ID other than its first run's, that tier starts no
    further run and the others go on. A Claude Code child that did not start clean, or three
-   infra_error runs in a row, stop the slice for repair. Any stop prints its reason and the
+   infra_error runs in a row (in banking order, also across a pair), stop the slice for
+   repair. Any stop prints its reason and the
    resume command (exit code 3). Stops, resumes, and ends of the slice are recorded only on
    this machine (the commands refuse where the billing guard is not clean).
 5. Commit `artifacts/e1/claude.jsonl`, `artifacts/e1/stops-claude.jsonl`, and

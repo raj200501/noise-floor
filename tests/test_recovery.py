@@ -579,3 +579,22 @@ def test_task_truth_includes_half_of_each_task_by_factor_variance() -> None:
             rc.Planted(model=(0.0, 0.0), model_factors={"harness": (1.0,)}),
             1,
         )
+
+
+def test_the_mde_truth_uses_the_task_truth_of_the_other_components() -> None:
+    import dataclasses
+
+    design = rc.Design()
+    with_terms = rc.Planted(interactions={"harness": 0.25, "steps": 0.25, "timeout": 0.25})
+    data = rc.simulate(design, with_terms, 3)
+    truth = rc.planted_values(design, with_terms, data)["task"]
+    assert truth == pytest.approx(with_terms.task_var + 0.375)
+    folded = dataclasses.replace(with_terms, task_var=truth, interactions={})
+    designs = [(20, 1), (80, 3)]
+    assert rc.planted_mde(design, with_terms, data, designs) == pytest.approx(
+        rc.planted_mde(design, folded, data, designs)
+    )
+    plain = dataclasses.replace(with_terms, interactions={})
+    assert rc.planted_mde(design, with_terms, data, designs)[(20, 1)] != pytest.approx(
+        rc.planted_mde(design, plain, data, designs)[(20, 1)], rel=1e-4
+    )

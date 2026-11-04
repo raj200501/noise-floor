@@ -97,3 +97,51 @@ def test_a_failed_batch_fit_leaves_the_batch_factors_not_validated() -> None:
     out = pc.summarize([row] * 10, 0.95, batch_var=0.0, batch_failed=True)
     assert out["batch_fit_failed"] and out["not_validated"] == ["block", "concurrency", "day"]
     assert pc.summarize([row] * 10, 0.95, batch_var=0.0)["not_validated"] == []
+
+
+def test_a_batch_term_without_an_upper_end_counts_as_failed() -> None:
+    assert pc.batch_term({"error": "FitFailedError: no fit"}) == ("FitFailedError: no fit", 0.0)
+    reason, planted = pc.batch_term({"components": [], "batch_var_upper": None})
+    assert "no upper end" in reason and planted == 0.0
+    assert pc.batch_term({"batch_var_upper": float("nan")})[1] == 0.0
+    assert pc.batch_term({"batch_var_upper": 0.08}) == (None, 0.08)
+
+
+def test_the_post_check_simulates_the_batches_of_the_e1_plan() -> None:
+    import collections
+
+    from noisefloor import e1
+    from noisefloor.recovery import simulate
+
+    design = E1Design(
+        models=MODELS,
+        runs_per_cell=16,
+        tasks_per_family=2,
+        replicates=((0, 1, 1, 0, 0), (0, 1, 1, 1, 1)),
+    )
+    n = len(e1.tasks(design)) * len(MODELS)
+    data = pd.DataFrame(
+        {
+            "model": [MODELS[i % 3] for i in range(n)],
+            "task": [f"t{i // 3}" for i in range(n)],
+            "day": [f"d{i % 4 + 1}" for i in range(n)],
+            "block": [f"b{i % 2 + 1}" for i in range(n)],
+        }
+    )
+    sim, planted = pc.planted_from_fit(
+        {"(Intercept)": 0.0},
+        {"task": 4.0, "model:task": 0.5},
+        batch_var=0.0,
+        interactions={},
+        design=design,
+        data=data,
+    )
+    assert sim.replicates == design.replicates
+    per_group = collections.Counter(
+        (s.model, s.factors["concurrency"])
+        for specs in e1.planned_batches(e1.local_plan(design)).values()
+        for s in specs[:1]
+    )
+    frame = simulate(sim, planted, 1)
+    batches = frame.groupby(["model", "concurrency"])["batch"].nunique()
+    assert sorted(batches.tolist()) == sorted(per_group.values())

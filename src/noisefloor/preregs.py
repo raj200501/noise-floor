@@ -60,6 +60,24 @@ def chain_entry(path: Path, chain: Path = CHAIN) -> dict[str, Any] | None:
     return None
 
 
+def chain_files(chain: Path = CHAIN, repo: Path = REPO) -> list[Path]:
+    """The files of prereg/CHAIN.jsonl, in the order they were frozen."""
+    if not chain.exists():
+        return []
+    rows = [json.loads(ln) for ln in chain.read_text().splitlines() if ln.strip()]
+    return [repo / str(r["file"]) for r in sorted(rows, key=lambda r: int(r["seq"]))]
+
+
+def amendments_with(number: str, block: str, chain: Path = CHAIN, repo: Path = REPO) -> list[Path]:
+    """Frozen files that amend prereg ``number`` and carry a ```json <block>``` block."""
+    pattern = re.compile(rf"```json[ \t]+{re.escape(block)}[ \t]*\n")
+    return [
+        path
+        for path in chain_files(chain, repo)
+        if path.exists() and amends(path) == number and pattern.search(path.read_text())
+    ]
+
+
 def _committed(rel: str, repo: Path) -> bytes | None:
     proc = subprocess.run(
         ["git", "-C", str(repo), "show", f"HEAD:{rel}"], capture_output=True, check=False

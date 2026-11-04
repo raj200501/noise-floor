@@ -56,9 +56,10 @@ INTERACTIONS = {"harness": 0.25, "steps": 0.25, "timeout": 0.25}  # D-028 item 5
 GLMM_REPLICATES, OTHER_REPLICATES = 500, 2000  # G5: 500 for GLMM intervals, else 2,000
 # D-033: the power analysis sets the local sample (the smallest tasks per family at which
 # every local harness contrast and model pair has power 0.8 under the Holm reading at the
-# assumed effects; e1_power checks it); the Claude slice keeps the first 6 tasks per
-# family, as its caps bind; the local arm spreads over 4 days at the dry run's rates.
-LOCAL_TASKS_PER_FAMILY, CLAUDE_TASKS_PER_FAMILY, DAYS = 16, 6, 4
+# assumed effects, with the t statistics of their cluster_t tests, D-034; e1_power checks
+# it); the Claude slice keeps the first 6 tasks per family, as its caps bind; the local
+# arm spreads over 4 days at the dry run's rates.
+LOCAL_TASKS_PER_FAMILY, CLAUDE_TASKS_PER_FAMILY, DAYS = 17, 6, 4
 N_LOCAL_TASKS = len(FAMILY_NAMES) * LOCAL_TASKS_PER_FAMILY
 N_CLAUDE_TASKS = len(FAMILY_NAMES) * CLAUDE_TASKS_PER_FAMILY
 DAY_EFFECTS = (0.0, 0.1, -0.1, 0.05)  # D-032 values for days 1 to 3; day 4 added by D-033
@@ -76,6 +77,24 @@ FAMILY_SIZE = {
 }
 SIZING_FAMILIES = ("harness-local", "models-local")  # the families that set the sample
 HOLM_DRAWS = 200_000
+# Each contrast family's interval (prereg 0004 item 7). The power rows of a cluster_t
+# family use t statistics on tasks - 1 degrees of freedom, as its test does (review
+# final-stats-5); the Wilson families use normal statistics.
+CONTRAST_INTERVAL = {
+    "harness-local": "cluster_t",
+    "harness-claude": "mover_wilson",
+    "harness-diff-local": "cluster_t",
+    "models-local": "cluster_t",
+    "tiers-claude": "mover_wilson",
+    "models-claude": "mover_wilson",
+}
+# Cells that plant no difference, so a kind's validated span starts at 0 (final-stats-7):
+# model m0 of e1-local-mh has harness effect 0.5 - 0.5, and e1-local-eq plants m0 = m1.
+NULL_CELLS = {
+    "local-harness": ("e1-local-mh", "harness:m0"),
+    "local-hdiff": ("e1-local-eq", "hdiff:m0-m1"),
+    "local-pair": ("e1-local-eq", "pair:m0-m1"),
+}
 # Local-arm groups: at other intercepts, so the validated range spans low and high scores
 # (review writing-5); with model-by-harness effects, so it spans harness differences of
 # the size E1 can detect; and with two equal models, so it spans pairs near 0 (brief-10).
@@ -206,14 +225,7 @@ def e1_blocks(threads: int, rules: dict[str, Any]) -> dict[str, Any]:
         "share_interval": rules["share"],
         "fixed_interval": "jackknife",  # D-028 item 1, D-029
         "score_interval": {"local": "cluster_t", "claude": "cluster_wilson"},
-        "contrast_interval": {
-            "harness-local": "cluster_t",
-            "harness-claude": "mover_wilson",
-            "harness-diff-local": "cluster_t",
-            "models-local": "cluster_t",
-            "tiers-claude": "mover_wilson",
-            "models-claude": "mover_wilson",
-        },
+        "contrast_interval": dict(CONTRAST_INTERVAL),
         "sampling_interval": "cluster_wilson",  # D-031 item 1
         "validated_range": "prereg/0005-e0-glmm-cells.md",  # its validated-range block
         "seed": SEED,
@@ -582,6 +594,7 @@ def _row(
 ) -> dict[str, Any]:
     needed = tasks_needed(abs(effect), design, runs, power=POWER_TARGET) if effect else None
     shift = abs(effect) / design.se(tasks, runs) if effect else 0.0
+    df = tasks - 1 if CONTRAST_INTERVAL[family] == "cluster_t" else None
     return {
         "family": family,
         "comparison": comparison,
@@ -589,18 +602,30 @@ def _row(
         "tasks": tasks,
         "runs_per_side": runs,
         "effect": effect,
-        "power": power_at(effect, design, tasks, runs),
-        "power_holm": holm_power(shift, FAMILY_SIZE[family]),
+        "test": f"t on {df} df" if df is not None else "normal",
+        "power": power_at(effect, design, tasks, runs) if df is None else t_power(shift, df),
+        "power_holm": holm_power(shift, FAMILY_SIZE[family], df),
         "tasks_for_power_0.8": needed,
     }
 
 
-def holm_power(shift: float, members: int) -> float:
-    """Power of the Holm reading for one comparison of a family (normal approximation).
+def t_power(shift: float, df: int) -> float:
+    """Power of one two-sided t test at alpha 0.05 on ``df`` degrees of freedom."""
+    from scipy import stats
+
+    crit = float(stats.t.ppf(0.975, df))
+    return float(stats.nct.sf(crit, df, shift) + stats.nct.cdf(-crit, df, shift))
+
+
+def holm_power(shift: float, members: int, df: int | None = None) -> float:
+    """Power of the Holm reading for one comparison of a family.
 
     Every member of the family has the comparison's standardized effect ``shift``; the
     smaller of the powers with independent test statistics and with correlation 0.5
-    (a positive correlation lowers it here) is returned, from fixed-seed simulation.
+    (a positive correlation lowers it here) is returned, from fixed-seed simulation. With
+    ``df``, each member's statistic is a t statistic on ``df`` degrees of freedom (its
+    own chi-square draw for the estimated standard error), as in a cluster_t test;
+    otherwise a normal one.
     """
     from scipy import stats
 
@@ -612,7 +637,11 @@ def holm_power(shift: float, members: int) -> float:
         common = rng.standard_normal((HOLM_DRAWS, 1))
         own = rng.standard_normal((HOLM_DRAWS, members))
         z = shift + math.sqrt(rho) * common + math.sqrt(1 - rho) * own
-        p = 2 * stats.norm.sf(np.abs(z))
+        if df is None:
+            p = 2 * stats.norm.sf(np.abs(z))
+        else:
+            scale = np.sqrt(rng.chisquare(df, (HOLM_DRAWS, members)) / df)
+            p = 2 * stats.t.sf(np.abs(z / scale), df)
         order = np.argsort(p, axis=1)
         steps = np.take_along_axis(p, order, axis=1) <= 0.05 / (members - np.arange(members))
         rejected = np.cumprod(steps, axis=1).astype(bool)
@@ -732,19 +761,23 @@ def e1_power(rules: dict[str, Any]) -> dict[str, Any]:
             "design calculations at assumed effects and planted variances (task variance "
             f"{TASK_VAR}, model:task {MODEL_TASK_VAR}; Claude cells task "
             f"{CLAUDE_DGP['task_var']}, model:task {CLAUDE_DGP['model_task_var']}), not "
-            "estimates; normal approximation, two-sided alpha 0.05"
+            "estimates; two-sided alpha 0.05, with t statistics on tasks - 1 df for the "
+            "cluster_t families and normal statistics for the Wilson families (test)"
         ),
         "power_target": POWER_TARGET,
         "power_columns": (
             "power: one comparison at two-sided alpha 0.05 (an upper bound for the Holm "
             "reading); power_holm: the Holm reading within the family when every member has "
             "this effect, the smaller over test correlations 0 and 0.5 (fixed-seed simulation "
-            "of normal test statistics)"
+            "of the row's test statistics); tasks_for_power_0.8: the tasks one comparison "
+            "needs for power 0.8 at two-sided alpha 0.05 (normal approximation; the Holm "
+            "reading needs more)"
         ),
         "sizing": {
             "rule": (
                 "the smallest tasks per family at which every harness-local and models-local "
-                "row has power_holm of at least 0.8 (D-033)"
+                "row has power_holm of at least 0.8, with the t statistics of their cluster_t "
+                "tests (D-033, D-034)"
             ),
             "families": list(SIZING_FAMILIES),
             "tasks_per_family": LOCAL_TASKS_PER_FAMILY,
@@ -806,6 +839,7 @@ def validated_range(config: dict[str, Any], grid: list[dict[str, Any]]) -> dict[
     design, base, _ = config_from(config)
     data = simulate(design, base, 1)
     local: dict[str, dict[str, list[float]]] = {}
+    truths_by_group: dict[str, dict[str, Any]] = {}
     for group, overrides in LOCAL_GROUPS:
         changes = dict(overrides)
         if "model_factors" in changes:
@@ -817,6 +851,7 @@ def validated_range(config: dict[str, Any], grid: list[dict[str, Any]]) -> dict[
         planted = dataclasses.replace(base, **changes)
         group_data = simulate(design, planted, 1)
         truths = local_intervals(group_data, planted, AnalysisSettings())
+        truths_by_group[group] = truths
         for name, entry in sorted(truths.items()):
             local.setdefault(f"local-{name.split(':')[0]}", {}).setdefault(group, []).append(
                 float(entry["planted"])
@@ -851,10 +886,19 @@ def validated_range(config: dict[str, Any], grid: list[dict[str, Any]]) -> dict[
             by_kind.setdefault("bounds", []).append(float(p["ambiguous_rate"]) * side)
     for kind, values in sorted(by_kind.items()):
         kinds[kind] = {"values": values}
+    for kind, (group, name) in NULL_CELLS.items():
+        truth = float(truths_by_group[group][name]["planted"])
+        if abs(truth) > 0.005:  # a null cell's truth is 0 up to the batch dealing of one seed
+            raise ValueError(f"{group} {name} is not a null difference ({truth})")
+        kinds[kind]["null_cells"] = [f"{group} {name}"]
     for kind, entry in kinds.items():
         if kind in DIFFERENCE_KINDS:
-            entry["compare"] = "absolute value of the estimated difference"
-            entry["span"] = _span([abs(v) for v in entry["values"]])
+            entry["compare"] = (
+                "absolute value of the estimated difference; the span starts at 0 when a "
+                "cell of the kind plants no difference (null_cells, or an effect of 0)"
+            )
+            span = _span([abs(v) for v in entry["values"]])
+            entry["span"] = [0.0, span[1]] if entry.get("null_cells") else span
         elif kind == "sampling":
             entry["compare"] = (
                 "the estimated within-configuration variance (half the discordant share)"

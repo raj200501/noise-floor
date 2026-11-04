@@ -322,7 +322,12 @@ FIXED_TERMS = ("model", *TWO_LEVEL, "day", "block")
 def planted_mde(
     design: Design, planted: Planted, data: pd.DataFrame, designs: Sequence[tuple[int, int]]
 ) -> dict[tuple[int, int], float]:
-    """The true MDE of each design, from the planted parameters at the reference levels."""
+    """The true MDE of each design, from the planted parameters at the reference levels.
+
+    The task variance is the task truth of :func:`planted_values` (the planted task
+    variance plus half of each planted task-by-factor variance), the quantity the analysis
+    model's task term, and so the estimated MDE, targets.
+    """
     coefs: dict[str, float] = {"(Intercept)": planted.intercept}
     for m in range(design.n_models):
         coefs[f"modelm{m}"] = planted.model[m] - planted.model[0]
@@ -337,7 +342,8 @@ def planted_mde(
     coefs["(Intercept)"] += planted.block[0]
     models = [f"m{m}" for m in range(design.n_models)]
     etas = mde_lib.reference_eta(coefs, data, models, MDE_REFERENCE, MDE_AVERAGED)
-    pooled = mde_lib.pooled_design(etas, planted.task_var, planted.model_task_var)
+    task_truth = planted.task_var + sum(planted.interactions.values()) / 2
+    pooled = mde_lib.pooled_design(etas, task_truth, planted.model_task_var)
     return mde_lib.mde_values(pooled, designs)
 
 

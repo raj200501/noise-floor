@@ -235,7 +235,8 @@ def test_no_batch_runs_beside_a_live_runner(tmp_path) -> None:
 
     from noisefloor import orchestrate, runner
 
-    workspace = tmp_path / "work" / "p-b0000-deadbeef"
+    # The orphan belongs to another planned batch (another prefix): it still blocks.
+    workspace = tmp_path / "work" / "e1-day1-b1-b0008-b0000-deadbeef"
     assert not runner.running(workspace)
     ready, release = mp.get_context("spawn").Event(), mp.get_context("spawn").Event()
     holder = mp.get_context("spawn").Process(target=_hold, args=(workspace, ready, release))
@@ -248,7 +249,7 @@ def test_no_batch_runs_beside_a_live_runner(tmp_path) -> None:
                 [],
                 artifact=tmp_path / "a.jsonl",
                 ledger=tmp_path / "l.jsonl",
-                prefix="p",
+                prefix="e1-day1-b2-b0010",
                 executor=lambda batch, ws: [],
                 work_root=tmp_path / "work",
                 log=lambda m: None,

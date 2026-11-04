@@ -221,6 +221,7 @@ def bank(
             "prereg_sha256": entry["sha256"],
             "environment": {"env": env, "key": known.get(env)} if env else None,
             "analysis_code": code,
+            "synthetic": True,  # every E0 cell simulates its data (rule 4)
             "confirmatory": True,
             "generator": "python -m noisefloor.e0_run bank "
             + " ".join(str(p.resolve().relative_to(REPO)) for p in preregs),

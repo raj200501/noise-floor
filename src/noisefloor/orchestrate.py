@@ -54,7 +54,7 @@ class Batch:
 
 
 class RunnerBusyError(RuntimeError):
-    """A runner of the plan, left by an earlier orchestrator, is still running."""
+    """A runner left by an earlier orchestrator is still running under the work root."""
 
 
 class BatchFailedError(RuntimeError):
@@ -379,9 +379,12 @@ def execute(
     done = banked_ids(artifact)
     run_batch = executor or default_executor(ledger)
     root = work_root or Path(os.environ.get("NOISEFLOOR_WORK", DEFAULT_WORK))
-    live = sorted(ws.name for ws in root.glob(f"{prefix}-b*") if running(ws))
+    # Any live runner under the work root blocks a new batch, not only one of this planned
+    # batch: a runner left by a killed orchestrator in another time-of-day block would
+    # otherwise run beside it, with a second model server on the same CPUs (prereg 0004).
+    live = sorted(ws.name for ws in root.glob("*") if ws.is_dir() and running(ws))
     if live:
-        raise RunnerBusyError(f"a runner of this plan is still running in {live[0]}")
+        raise RunnerBusyError(f"a runner is still running in {live[0]}")
     base = base_provenance()
     artifact.parent.mkdir(parents=True, exist_ok=True)
     banked = 0

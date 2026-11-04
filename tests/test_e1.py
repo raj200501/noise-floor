@@ -396,6 +396,8 @@ def test_one_runner_at_a_time(tmp_path) -> None:
 
 @pytest.mark.usefixtures("unfrozen_ok")
 def test_stop_and_resume_commands(tmp_path, monkeypatch, capsys) -> None:
+    import json
+
     from noisefloor import preregs
 
     design = e1.E1Design(models=MODELS[:1], families=("config",), tasks_per_family=2)
@@ -414,12 +416,17 @@ def test_stop_and_resume_commands(tmp_path, monkeypatch, capsys) -> None:
     amendment.write_text("---\namends: 0003\n---\n# a fix of another file\n")
     with pytest.raises(ValueError, match="does not amend prereg 0004"):
         e1.main(["resume", "local", "--note", "fixed", "--amendment", str(amendment)])
-    amendment.write_text("---\namends: 0004\ndate: 2026-11-20\n---\n# fix\n")
+    answer = "\n```json defect-resume\n" + json.dumps({"at": stop["at"]}) + "\n```\n"
+    amendment.write_text("---\namends: 0004\ndate: 2026-11-20\n---\n# fix\n" + answer)
     seen.clear()
     assert e1.main(["resume", "local", "--note", "fixed", "--amendment", str(amendment)]) == 0
     resumed = e1.jsonl.read(tmp_path / "stops-local.jsonl")[-1]
     assert seen == [amendment] and resumed["kind"] == "resume" and resumed["after"] == stop["at"]
     assert resumed["amendment"] == str(amendment)
+    # A note (runs lost with a container, rerun under their ids) stops nothing.
+    assert e1.main(["note", "local", "--reason", "runs r1, r2 lost with the container"]) == 0
+    assert e1.jsonl.read(tmp_path / "stops-local.jsonl")[-1]["kind"] == "note"
+    assert e1.open_stop(tmp_path / "stops-local.jsonl") is None
     with e1.arm_lock(tmp_path / "claude.jsonl"):
         assert e1.main(["claude", str(prereg)]) == 4
     assert "another runner" in capsys.readouterr().err
@@ -578,6 +585,7 @@ def test_claude_slice_end_point_and_changes(tmp_path, monkeypatch) -> None:
     frozen = datetime(2026, 11, 5, tzinfo=UTC)
     clock = [frozen + timedelta(days=3)]
     monkeypatch.setattr(e1, "frozen_at", lambda path: frozen)
+    monkeypatch.setattr(e1, "smoke_passed", lambda version=None, artifact=None: True)
     calls: list = []
 
     def go():
@@ -628,6 +636,15 @@ def test_claude_slice_end_point_and_changes(tmp_path, monkeypatch) -> None:
     stops.unlink()
     clock[0] = frozen + timedelta(days=e1.CLAUDE_END_DAYS)
     assert go() == 0 and e1.open_stop(stops)["reason"] == "45 days after the freeze"
+    # The end point is recorded at day 45 whatever stop is open (prereg 0004).
+    stops.unlink()
+    clock[0] = frozen + timedelta(days=40)
+    e1.record_stop(stops, "defect", "grader bug", clock[0])
+    assert go() == 0 and e1.open_stop(stops)["kind"] == "defect"
+    clock[0] = frozen + timedelta(days=46)
+    assert go() == 0 and e1.open_stop(stops)["kind"] == "end_point"
+    assert [r["kind"] for r in e1.jsonl.read(stops)] == ["defect", "end_point"]
+    assert go() == 0 and len(e1.jsonl.read(stops)) == 2  # recorded once
 
 
 def test_frozen_at_reads_the_chain_entry(tmp_path, monkeypatch) -> None:
@@ -794,6 +811,7 @@ def test_claude_slice_checks_for_changes_before_every_pair(tmp_path, monkeypatch
     stops = tmp_path / "stops-claude.jsonl"
     frozen = datetime(2026, 11, 5, tzinfo=UTC)
     monkeypatch.setattr(e1, "frozen_at", lambda path: frozen)
+    monkeypatch.setattr(e1, "smoke_passed", lambda version=None, artifact=None: True)
     calls: list = []
 
     def reporting(specs, *, artifact, ledger, prefix, stamp, log):
@@ -889,7 +907,21 @@ def test_the_local_arm_starts_only_with_the_frozen_server(tmp_path, monkeypatch)
     with pytest.raises(ValueError, match="not the frozen one"):
         e1.check_server(prereg, artifact)
     monkeypatch.setattr(e1, "server_pin", lambda: {"sha256": "a" * 64})
-    e1.check_server(prereg, artifact)
+    assert e1.check_server(prereg, artifact) is None
+    # A rebuilt server starts only under a frozen amendment naming its digest (a deviation).
+    rebuilt = tmp_path / "0009-server.md"
+    rebuilt.write_text(
+        "---\namends: 0004\n---\n# rebuilt\n\n```json llama-server\n"
+        + _json.dumps({"sha256": "c" * 64})
+        + "\n```\n"
+    )
+    monkeypatch.setattr(preregs, "amendments_with", lambda number, block: [rebuilt])
+    monkeypatch.setattr(preregs, "require_frozen", lambda path: {"sha256": "1" * 64})
+    monkeypatch.setattr(e1, "server_pin", lambda: {"sha256": "c" * 64})
+    assert e1.check_server(prereg, artifact) == str(rebuilt)
+    monkeypatch.setattr(e1, "server_pin", lambda: {"sha256": None})  # no build at all
+    with pytest.raises(ValueError, match="not the frozen one"):
+        e1.check_server(prereg, artifact)
     pins = e1.model_pins(e1.E1Design(models=("qwen3-4b",)))
     assert pins["qwen3-4b"]["server_args"] and pins["qwen3-4b"]["ctx_per_slot"] == 32768
 
@@ -916,6 +948,13 @@ def test_claude_slice_stops_on_a_failure_streak_and_on_contamination(tmp_path, m
         [{"run_id": "f0", **failed}, {"run_id": "ok", "status": "ok", "model": "claude-haiku"}],
     )
     assert e1.claude_problem(prereg, artifact, stops, at) is None
+    # Pairs [infra, infra][infra, ok]: three in a row that end inside a pair still stop it.
+    ok = {"run_id": "ok", "status": "ok", "model": "claude-haiku"}
+    write_rows(artifact, [*({"run_id": f"f{i}", **failed} for i in range(3)), ok])
+    assert e1.claude_problem(prereg, artifact, stops, at)[:2] == (
+        "batch_failure",
+        "3 infra_error runs in a row",
+    )
     dirty = {"run_id": "d", "model": "claude-haiku", "status": "ok", "claude": {"clean": False}}
     write_rows(artifact, [dirty])
     kind, _reason, fields = e1.claude_problem(prereg, artifact, stops, at)
@@ -967,3 +1006,50 @@ def test_arms_start_only_after_g6_and_e0_part_2(tmp_path, monkeypatch) -> None:
     g6.write_text("{}")
     e0.write_text("{}")
     e1.require_validation(prereg)
+
+
+def test_the_first_claude_code_version_needs_a_smoke_run(tmp_path) -> None:
+    from datetime import UTC, datetime
+
+    artifact = tmp_path / "claude.jsonl"
+    stops = tmp_path / "stops-claude.jsonl"
+    child = {"model_id": "m1", "cli_version": "2.0.1"}
+    write_rows(artifact, [{"run_id": "a", "model": "claude-haiku", "claude": child}])
+    # The smoke ran on 2.0.0 and the slice's first run reports 2.0.1: not accepted.
+    assert e1.claude_changes(artifact, stops, smoke=lambda v: v == "2.0.0") == ({}, "2.0.1")
+    assert e1.claude_changes(artifact, stops, smoke=lambda v: v == "2.0.1") == ({}, None)
+    at = datetime(2026, 11, 6, tzinfo=UTC)
+    e1.record_stop(stops, "cli_changed", "Claude Code 2.0.1 in use", at, to="2.0.1")
+    assert e1.claude_changes(artifact, stops, smoke=lambda v: False) == ({}, None)
+
+
+def test_a_defect_resume_needs_an_amendment_that_names_the_stop(tmp_path, monkeypatch) -> None:
+    import json as _json
+    from datetime import UTC, datetime
+
+    from noisefloor import preregs
+
+    stops = tmp_path / "stops-local.jsonl"
+    at = datetime(2026, 11, 8, 3, tzinfo=UTC)
+    e1.record_stop(stops, "defect", "grader bug", at)
+    monkeypatch.setattr(preregs, "require_frozen", lambda path: {"sha256": "1" * 64})
+    other = tmp_path / "0009-other.md"
+    other.write_text(
+        "---\namends: 0004\n---\n# x\n\n```json defect-resume\n"
+        + _json.dumps({"at": "2026-11-07T00:00:00+00:00"})
+        + "\n```\n"
+    )
+    with pytest.raises(ValueError, match="not the one at"):
+        e1.resume(stops, "fixed", at, amendment=other)
+    bare = tmp_path / "0009-bare.md"
+    bare.write_text("---\namends: 0004\n---\n# x\n")
+    with pytest.raises(ValueError, match="no ```json defect-resume``` block"):
+        e1.resume(stops, "fixed", at, amendment=bare)
+    fix = tmp_path / "0009-fix.md"
+    fix.write_text(
+        "---\namends: 0004\n---\n# fix\n\n```json defect-resume\n"
+        + _json.dumps({"at": [at.isoformat(timespec="seconds")]})
+        + "\n```\n"
+    )
+    e1.resume(stops, "fixed", at, amendment=fix)
+    assert e1.open_stop(stops) is None and e1.jsonl.read(stops)[-1]["amendment"] == str(fix)

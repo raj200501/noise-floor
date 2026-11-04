@@ -81,6 +81,9 @@ FUNCTION_OF = {
 G6_MIN_DATASETS = 200
 E1_MIN_RUNS = 1000
 E1_MIN_CLAUDE_RUNS = 150
+POST_E1_DATASETS = 200  # prereg 0004 item 10: the post-E1 check's seeds 980000 to 980199
+E1_VERIFY_TIMEOUT = 6 * 3600  # the recompute fits four GLMMs with bootstrap and jackknife
+E0_PART2_ARTIFACT = "artifacts/e0/coverage-0005.json"  # prereg 0005, banked beside G6
 E2_MIN_BOARDS = 2
 REQUIRED_FILES = ("LICENSE", "CITATION.cff", "SECURITY.md", "CONTRIBUTING.md")
 SECRET_ENV = (
@@ -615,6 +618,50 @@ def first_e1_run(ctx: Ctx) -> Any:
     return min(starts) if starts else None
 
 
+E1_NUMBER = "0004"  # the E1 preregistration, whose analysis names each kind's method
+# The recovery-config setting that is a GLMM kind's method (its cells' interval_type label
+# does not change with it): a replacement of the kind must change one of these.
+GLMM_RULE_KEYS = {
+    "random": ("boot_interval",),
+    "fixed": ("fixed_interval", "box_interval"),
+    "share": ("share_interval",),
+    "mde": ("mde_interval",),
+}
+
+
+def _settings(ctx: Ctx, prereg: str) -> dict[str, Any]:
+    if not has_block(ctx, prereg, "recovery-config"):
+        return {}
+    return dict(prereg_block(ctx, prereg, "recovery-config").get("settings") or {})
+
+
+def method_replaced(
+    ctx: Ctx, prereg: str, kind: str, gone: set[str], new: set[str], grid: dict[str, Any]
+) -> bool:
+    """True when ``prereg``'s new cells of ``kind`` test another method than ``gone`` did.
+
+    ``grid`` maps every frozen cell to (its preregistration, its cell entry). A GLMM kind
+    must change its rule in ``prereg``'s own recovery-config block; another kind's new
+    cells must name another (method, interval_type) than every retired cell.
+    """
+    if kind in GLMM_RULE_KEYS:
+        mine = _settings(ctx, prereg)
+        if not mine or not new:
+            return False
+        sources = {grid[c][0] for c in gone if c in grid}
+        return all(
+            any(mine.get(k) != _settings(ctx, src).get(k) for k in GLMM_RULE_KEYS[kind])
+            for src in sources
+        )
+
+    def label(cid: str) -> tuple[str, str]:
+        entry = grid[cid][1]
+        return str(entry.get("method")), str(entry.get("interval_type"))
+
+    old = {label(c) for c in gone if c in grid}
+    return bool(new) and not ({label(c) for c in new if c in grid} & old)
+
+
 def frozen_headline_cells(ctx: Ctx, grids: list[tuple[str, str]]) -> set[str]:
     """Headline cells named by the frozen preregistrations: the base grid's list and every
     amendment's ```json headline``` block, less the cells of a replaced method.
@@ -622,7 +669,9 @@ def frozen_headline_cells(ctx: Ctx, grids: list[tuple[str, str]]) -> set[str]:
     An amendment that replaces a kind's method lists the replaced cells in a ```json
     retired-headline``` block (prereg 0005); they then back no headline interval, so G5
     needs only their listing and warning. The block counts only from an amendment frozen
-    before the first confirmatory E1 run.
+    before the first confirmatory E1 run, beside new headline cells of the kind that test
+    another method (:func:`method_replaced`) and a frozen amendment of the E1
+    preregistration from before that run (which allows the new analysis code).
     """
     base = grids[0][0]
     found = PART1_HEADLINE_RE.search(rel(ctx, base).read_text())
@@ -631,16 +680,22 @@ def frozen_headline_cells(ctx: Ctx, grids: list[tuple[str, str]]) -> set[str]:
     retired: set[str] = set()
     kinds: dict[str, str] = {}
     first = first_e1_run(ctx)
+    grid: dict[str, Any] = {}
+    for prereg, _ in grids:
+        for entry in prereg_block(ctx, prereg, "e0-grid"):
+            grid[str(entry["cell"])] = (prereg, entry)
     for prereg, _ in grids[1:]:
         own_kinds: dict[str, str] = {}
         if has_block(ctx, prereg, "headline-kinds"):
             own_kinds = {
                 str(k): str(v) for k, v in prereg_block(ctx, prereg, "headline-kinds").items()
             }
+        own_cells: set[str] = set()
         if has_block(ctx, prereg, "headline"):
             block = prereg_block(ctx, prereg, "headline")
             need(isinstance(block, dict), f"{prereg} headline block is not an object")
-            cells |= {str(v) for v in block.values()}
+            own_cells = {str(v) for v in block.values()}
+            cells |= own_cells
         if has_block(ctx, prereg, "retired-headline"):
             gone = prereg_block(ctx, prereg, "retired-headline")
             need(isinstance(gone, list), f"{prereg} retired-headline block is not a list")
@@ -653,6 +708,24 @@ def frozen_headline_cells(ctx: Ctx, grids: list[tuple[str, str]]) -> set[str]:
             # kind, which G5 then requires to pass (prereg 0005).
             missing = sorted({kinds.get(str(c), "?") for c in gone} - set(own_kinds.values()))
             need(not missing, f"{prereg} retires {', '.join(missing)} cells with no replacement")
+            for kind in sorted({kinds[str(c)] for c in gone}):
+                old = {str(c) for c in gone if kinds.get(str(c)) == kind}
+                new = {c for c in own_cells if own_kinds.get(c) == kind}
+                need(
+                    method_replaced(ctx, prereg, kind, old, new, grid),
+                    f"{prereg} retires {kind} cells but its new cells test the same method",
+                )
+            e1_amendments = [
+                f
+                for f in chain_files(ctx)
+                if amends(ctx, f) == E1_NUMBER
+                and (first is None or chain_frozen_at(ctx, f) < first)
+            ]
+            need(
+                bool(e1_amendments),
+                f"{prereg} retires headline cells, but no amendment of prereg {E1_NUMBER} "
+                "frozen before E1 data allows the new method",
+            )
             retired |= {str(c) for c in gone}
         kinds.update(own_kinds)
     return cells - retired
@@ -802,6 +875,17 @@ def g6(ctx: Ctx) -> str:
     nominal = float(data["nominal"])
     need(nominal == float(config["settings"]["level"]), "nominal level differs from the prereg's")
     need(bool((data.get("environment") or {}).get("env")), "rows carry no single environment")
+    # The one analysis-code hash the E1 analysis requires (prereg 0004), and the same one
+    # E0 part 2 ran once it is banked.
+    code = data.get("analysis_code")
+    need(
+        isinstance(code, str) and re.fullmatch(r"[0-9a-f]{16}", code) is not None,
+        "no 16-hex analysis_code",
+    )
+    e0 = rel(ctx, E0_PART2_ARTIFACT)
+    if e0.exists():
+        other = load_json(e0).get("analysis_code")
+        need(other == code, f"G6 ran analysis code {code}, E0 part 2 {other}")
     names = sorted({n for d in datasets for n in d["components"]})
     need(bool(names), "no variance components")
     # Every preregistered component, and only those, decides the gate (prereg 0006).
@@ -896,6 +980,10 @@ def g7(ctx: Ctx) -> str:
         bool(mde) and all(finite_interval(r, ("mde", "lo", "hi")) for r in mde),
         "MDE table lacks intervals",
     )
+    vc_code = (
+        load_json(rel(ctx, "artifacts/e1/variance_components.json")).get("analysis_code") or {}
+    ).get("hash")
+    post_check_ran(ctx, prereg, str(entry["sha256"]), vc_code)
     note = ""
     if ctx.fast:
         note = "; recompute skipped (fast)"
@@ -905,10 +993,33 @@ def g7(ctx: Ctx) -> str:
             ctx,
             "e1-verify",
             ["uv", "run", "--no-sync", "python", "-m", "noisefloor.analysis.e1", "--verify"],
+            timeout=E1_VERIFY_TIMEOUT,
         )
         need(res.code == 0, f"E1 recompute: {tail(res.out)}")
         note = "; tables recomputed"
     return f"{len(ran)} runs ({claude} Claude), {len(used)} models, {len(days)} days{note}"
+
+
+def post_check_ran(ctx: Ctx, prereg: str, sha256: str, code: Any) -> None:
+    """The post-E1 check of prereg 0004 item 10 ran, under the E1 tables' analysis code.
+
+    It alone applies item 10's labels and item 9's batch rule, so G7 needs its artifact:
+    synthetic, citing the E1 preregistration and its chain hash, every component on all
+    :data:`POST_E1_DATASETS` datasets, and its list of intervals not validated.
+    """
+    art = "artifacts/e1/post_check.json"
+    post = load_json(rel(ctx, art))
+    need(post.get("prereg") == prereg, f"{art} cites {post.get('prereg')}, not {prereg}")
+    need(post.get("prereg_sha256") == sha256, f"{art} ran under another prereg hash")
+    check_prereg_link(ctx, prereg, art)
+    need(post.get("synthetic") is True, f"{art} is not labeled synthetic")
+    comps = post.get("components") or {}
+    need(
+        bool(comps) and all(int(c.get("datasets", 0)) == POST_E1_DATASETS for c in comps.values()),
+        f"{art} lacks {POST_E1_DATASETS} datasets per component",
+    )
+    need(isinstance(post.get("not_validated"), list), f"{art} has no not_validated list")
+    need(bool(code) and post.get("analysis_code") == code, f"{art} ran other analysis code")
 
 
 def g8(ctx: Ctx) -> str:
@@ -936,6 +1047,14 @@ def g8(ctx: Ctx) -> str:
     # E3 on E1 comes from the E1 analysis under the E1 preregistration (prereg 0004).
     on_e1 = load_json(rel(ctx, "artifacts/e1/e3_bounds.json"))
     need(on_e1.get("source") == "e1" and bool(on_e1.get("entries")), "E3 bounds do not cover E1")
+    need(
+        isinstance(on_e1.get("rankings"), dict) and bool(on_e1["rankings"]),
+        "E3 on E1 has no rankings",
+    )
+    need(
+        isinstance(on_e1.get("adjacent"), list) and bool(on_e1["adjacent"]),
+        "E3 on E1 has no adjacent-pair bounds",
+    )
     check_prereg_link(ctx, str(on_e1.get("prereg", "")), "artifacts/e1/e3_bounds.json")
     note = ""
     if ctx.fast:

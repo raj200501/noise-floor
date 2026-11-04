@@ -53,6 +53,7 @@ from evalstats.glmm import (
     Decomposition,
     FitFailedError,
     boot_coef_interval,
+    boot_variance_interval,
     decompose,
     enough,
 )
@@ -64,6 +65,7 @@ from noisefloor.e1 import (
     E1Design,
     check_frozen_plan,
     claude_plan,
+    claude_tasks,
     local_plan,
     served_models,
 )
@@ -90,6 +92,12 @@ MOCK_TASKS = (
     "results are model results on these mock tasks, not on real-world work"
 )
 GAPS = (0.02, 0.05, 0.10)
+CLAUDE_LOCAL_CONFOUNDS = (  # prereg 0004 item 5: how a Claude-local pair differs besides the model
+    "the Claude side runs at the CLI's default temperature",
+    "no reply cap reaches the CLI (the reply cap applies only to the local server)",
+    "each Claude step is sent as one role-tagged prompt",
+    "the Claude timeout alternates between 150 s and 300 s by task",
+)
 
 
 def _rel(path: Path) -> str:
@@ -477,8 +485,9 @@ def sampling_table(
     """Run-to-run sampling, from the replicate runs, on the probability scale (D-028 item 3).
 
     Each replicate pairs with the planned run of the same model, task, and configuration
-    (run id without ``-rep``), when both are usable. Per configuration, the mean of
-    ``(y1 - y2)**2 / 2`` over pairs estimates the within-configuration outcome variance,
+    (run id without ``-rep``), when both are usable. Per configuration, the mean over
+    tasks of the per-task mean of ``(y1 - y2)**2 / 2`` (half the task-clustered estimate of
+    the share of discordant pairs) estimates the within-configuration outcome variance,
     which equals ``E[p (1 - p)]`` when repeated runs are independent; its interval is the
     task-clustered Wilson interval (``settings["sampling_interval"]``, default
     ``cluster_wilson``) of the share of discordant pairs, halved. The row of the
@@ -487,7 +496,9 @@ def sampling_table(
     each model's value (``assumed_by_model``). The frozen reading (prereg 0004 item 6): when
     the mean lies above the upper end of the reference row's interval, repeated runs at
     the reference are not independent draws (``independence``: ``violated``), and the
-    MDE rows with more than one run per task overstate what extra runs buy.
+    MDE rows with more than one run per task overstate what extra runs buy. The reading
+    treats the implied mean as known (its estimation error is ignored), so it has no
+    stated false-positive rate.
     """
     usable = {
         str(r["run_id"]): r for r in _usable(rows, settings["exclude_status"], replicates=True)
@@ -695,7 +706,8 @@ def contrasts_table(
     contrast minus the second's, paired by task (:func:`evalstats.contrast_difference`).
     Models: every pair of local models on minimal-agent runs; every pair of Claude tiers
     under each harness; and every Claude tier against every local model on minimal-agent
-    runs with the Claude step budget (temperature-confounded). Holm families: local harness
+    runs with the Claude step budget (``scaffold-confounded``, with every known difference
+    in ``confounds``, prereg 0004 item 5). Holm families: local harness
     contrasts, Claude harness contrasts, local harness differences, local model pairs,
     Claude tier pairs, and Claude-local pairs. The interval method is
     ``settings["contrast_interval"]`` (default ``cluster_t``), one method or one per family.
@@ -760,7 +772,8 @@ def contrasts_table(
                     method=method("models-claude"),
                     family="models-claude",
                 )
-                row["label"] = "temperature-confounded"
+                row["label"] = "scaffold-confounded"
+                row["confounds"] = list(CLAUDE_LOCAL_CONFOUNDS)
                 models.append(row)
     every = (*harness, *differences, *models)
     for name in sorted({r["family"] for r in every}):
@@ -886,8 +899,9 @@ def check_analysis_code(
     libraries from G6 and E0 part 2 to the E1 analysis: for a preregistration in the chain,
     both artifacts must record the analysis-code hash in use now, and the files must have
     no uncommitted changes. A frozen ``amendment`` of this preregistration may allow other
-    code (a deviation, recorded in the outputs). A file outside the chain (a test fixture)
-    is not checked.
+    code (a deviation, recorded in the outputs): its ```json analysis-code``` block must
+    name the hash in use (``{"allows": "<16 hex>"}``), so an amendment written for another
+    purpose allows nothing. A file outside the chain (a test fixture) is not checked.
     """
     from noisefloor import provenance  # noqa: PLC0415 - provenance loads R lazily
 
@@ -911,6 +925,12 @@ def check_analysis_code(
     require_frozen(amendment)
     if amends(amendment) != Path(prereg).name[:4]:
         raise ValueError(f"{amendment} does not amend {Path(prereg).name}")
+    allows = prereg_block(amendment, "analysis-code").get("allows")
+    if allows != current["hash"]:
+        raise ValueError(
+            f"{_rel(amendment)} allows analysis code {allows}, not the code in use "
+            f"({current['hash']})"
+        )
     found["amendment"] = _rel(amendment)
     return found
 
@@ -1012,6 +1032,8 @@ def compute(
     ranges = validated_ranges(settings)
     if ranges is not None:
         mark_ranges(ranges, scores, contrasts, sampling, bounds)
+    pairs = complete_pairs(rows, settings["exclude_status"], design.claude_runs_per_task)
+    mark_complete_pairs(pairs, len(claude_tasks(design)), scores, contrasts)
     tables = {
         "variance_components.json": variance,
         "mde.json": mde,
@@ -1091,6 +1113,51 @@ def _outside(inside: bool | None) -> bool | None:
     return None if inside is None else not inside
 
 
+def complete_pairs(
+    rows: Sequence[Mapping[str, Any]], exclude: Sequence[str], runs_per_task: int
+) -> dict[str, int]:
+    """Per Claude tier, the tasks with every planned run of that tier analyzed."""
+    counts: dict[tuple[str, str], int] = {}
+    for r in _usable(rows, exclude):
+        if r["backend"] == "claude":
+            key = (str(r["model_id"]), str(r["task"]))
+            counts[key] = counts.get(key, 0) + 1
+    out: dict[str, int] = {}
+    for (tier, _task), n in sorted(counts.items()):
+        out[tier] = out.get(tier, 0) + int(n >= runs_per_task)
+    return out
+
+
+def _claude_tiers(row: Mapping[str, Any]) -> list[str]:
+    """The Claude tiers a score or contrast row rests on."""
+    if row.get("family") == "harness-claude":
+        return [str(row["contrast"]).removeprefix("harness:")]
+    names = [row["model"]] if "model" in row else [row["a"], row["b"]]
+    return [str(m) for m in names if is_claude(str(m))]
+
+
+def mark_complete_pairs(
+    pairs: Mapping[str, int],
+    planned: int,
+    scores: Mapping[str, Any],
+    contrasts: Mapping[str, Any],
+) -> None:
+    """Label the Claude rows whose realized design differs from their E0 cells.
+
+    The Claude cells of prereg 0005 simulate ``planned`` tasks with every run of a tier
+    present. Each score and contrast row that rests on a Claude tier records each tier's
+    complete pairs (tasks with both runs analyzed, :func:`complete_pairs`) and
+    ``matches_e0_cells``: False when a tier has fewer than ``planned`` (prereg 0004).
+    """
+    rows = [*scores["rows"], *contrasts["harness"], *contrasts["models"]]
+    for row in rows:
+        tiers = _claude_tiers(row)
+        if not tiers:
+            continue
+        row["complete_pairs"] = {t: int(pairs.get(t, 0)) for t in tiers}
+        row["matches_e0_cells"] = all(pairs.get(t, 0) >= planned for t in tiers)
+
+
 def bounds_table(rows: Sequence[Mapping[str, Any]], settings: Mapping[str, Any]) -> dict[str, Any]:
     """E3 on E1: the local models' scores and ranking under every policy for ambiguous runs.
 
@@ -1168,7 +1235,9 @@ def sensitivity_tables(
     """The sensitivity decompositions of prereg 0004 item 6, beside the primary one.
 
     With a random intercept for the planned batch, with the strict grade as the outcome,
-    and with ``infra_error`` runs counted as failures; each uses the primary settings.
+    and with ``infra_error`` runs counted as failures; each uses the primary settings. The
+    batch-term fit also records ``batch_var_upper`` (:func:`batch_upper`), the value the
+    batch rule of prereg 0004 items 9 and 10 uses.
     """
     exclude = list(settings["exclude_status"])
     batch = {**settings, "random": [*settings["random"], "batch"]}
@@ -1193,7 +1262,32 @@ def sensitivity_tables(
             "converged": decomp.converged,
             "components": components_json(decomp),
         }
+        if name == "batch_random_effect":
+            out[name]["batch_var_upper"] = batch_upper(decomp, float(settings["level"]))
+            out[name]["batch_var_upper_method"] = BATCH_UPPER_METHOD
     return out
+
+
+BATCH_UPPER_METHOD = (
+    "upper percentile of the batch variance's finite bootstrap replicates at the primary "
+    "level (97.5 percent at 0.95); none when more than 10 percent of them failed"
+)
+
+
+def batch_upper(decomp: Decomposition, level: float) -> float | None:
+    """The batch variance the batch rule uses (prereg 0004 items 9 and 10).
+
+    The upper ``(1 + level) / 2`` quantile of the batch-term fit's finite bootstrap
+    replicate batch variances: bounded by the replicates, unlike the ``basic_log`` upper
+    end ``estimate**2 / q_lo``, which grows without bound as the lower quantile nears 0.
+    None (the batch-term fit then counts as failed) when the fit has no batch term or more
+    than ``MAX_FAILED_SHARE`` of its replicates failed.
+    """
+    draws = np.asarray(decomp.replicates.get("batch", ()), dtype=float)
+    if not enough(draws):
+        return None
+    ci = boot_variance_interval(0.0, draws, level, "percentile")
+    return None if ci is None else ci[1]
 
 
 def sha256_text(text: str) -> str:

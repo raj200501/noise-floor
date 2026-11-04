@@ -35,8 +35,11 @@ import scipy
 
 REPO = Path(__file__).resolve().parents[2]
 _PROCESS: dict[str, Any] | None = None
-# The files that compute E1's intervals, the G6 and E0 part 2 analyses, and the post-E1
-# check (prereg 0004 pins them from G6 to the E1 analysis).
+# The files that compute E1's intervals, the G6 and E0 part 2 analyses (with the truths
+# and simulators they score against), and the post-E1 check, with the modules the
+# analysis takes its plan, exclusion rules, and model families from (prereg 0004 pins
+# them from G6 to the E1 analysis). The library's list of failing cells
+# (src/evalstats/data/validity.json) is left out: it is rebuilt after E0 part 2 by design.
 ANALYSIS_CODE = (
     "src/evalstats/bounds.py",
     "src/evalstats/compare.py",
@@ -45,8 +48,13 @@ ANALYSIS_CODE = (
     "src/evalstats/power.py",
     "src/evalstats/rank.py",
     "src/evalstats/schema.py",
+    "src/evalstats/validity.py",
     "src/noisefloor/analysis/e1.py",
     "src/noisefloor/analysis/mde.py",
+    "src/noisefloor/e0.py",
+    "src/noisefloor/e0_run.py",
+    "src/noisefloor/e1.py",
+    "src/noisefloor/models.py",
     "src/noisefloor/post_check.py",
     "src/noisefloor/recovery.py",
 )

@@ -111,3 +111,14 @@ def test_check_same_environment_and_analysis_code(monkeypatch: pytest.MonkeyPatc
     assert provenance.single_analysis_code([None]) is None
     with pytest.raises(ValueError, match="2 versions of the analysis code"):
         provenance.single_analysis_code([{"analysis": "x"}, {"analysis": "y"}])
+
+
+def test_the_analysis_code_covers_the_modules_the_analysis_reads() -> None:
+    from noisefloor import provenance
+
+    assert all((provenance.REPO / path).is_file() for path in provenance.ANALYSIS_CODE)
+    # The truths and simulators (e0), the plan and exclusion rules (e1), the families.
+    for needed in ("e0.py", "e0_run.py", "e1.py", "models.py", "recovery.py", "post_check.py"):
+        assert f"src/noisefloor/{needed}" in provenance.ANALYSIS_CODE
+    # The list of failing cells is rebuilt after E0 part 2, so it stays out of the pin.
+    assert not any(path.endswith(".json") for path in provenance.ANALYSIS_CODE)
