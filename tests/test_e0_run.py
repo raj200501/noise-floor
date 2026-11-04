@@ -83,6 +83,21 @@ def test_grid_errors_and_cli(
     monkeypatch.setattr(e0_run, "run_cell", run_here)
     assert e0_run.main(["run", str(prereg), "--cells", "T-a", "--workers", "1"]) == 0
     assert e0_run.main(["run", str(prereg), "--cells", "nothing"]) == 0
+    grouped = {
+        "cell": "G-x",
+        "method": "glmm_component",
+        "interval_type": "parametric_bootstrap",
+        "nominal": 0.95,
+        "replicates": 2,
+        "params": {"group": "e1", "component": "task", "n_tasks": 30},
+    }
+    both = write_prereg(tmp_path / "0004-both.md", [grouped, GRID[0]])
+    capsys.readouterr()
+    assert e0_run.main(["run", str(both)]) == 0
+    assert (
+        "G-x: skipped; run it with python -m noisefloor.recovery e0-run" in capsys.readouterr().out
+    )
+    assert not (tmp_path / "e0" / "raw" / "G-x.jsonl").exists()
     monkeypatch.setattr(e0_run, "bank", lambda paths, root=None: {"cells": [1]})
     assert e0_run.main(["bank", str(prereg)]) == 0
     assert "banked 1 cells" in capsys.readouterr().out

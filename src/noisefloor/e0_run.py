@@ -174,6 +174,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         for cell in grid_from_prereg(args.prereg):
             if args.cells and cell.cell not in args.cells:
                 continue
+            if cell.method == "glmm_component" and "group" in cell.params:
+                # E1-shaped GLMM cells share datasets across components (one fit per dataset).
+                print(f"{cell.cell}: skipped; run it with python -m noisefloor.recovery e0-run")
+                continue
             run_cell(cell, args.workers, log=lambda m: print(m, flush=True))
         return 0
     artifact = bank(args.preregs)
