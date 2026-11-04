@@ -288,3 +288,22 @@ def test_e0_local_group(tmp_path: Path) -> None:
     bad = write_prereg(tmp_path / "b.md", e0_grid=mixed, recovery_config=small_config())
     with pytest.raises(ValueError, match="mixes analyses"):
         rc.run_e0_glmm(bad, root=tmp_path, log=lambda m: None)
+
+
+def test_simulated_batches_spread_like_the_plan() -> None:
+    import collections
+
+    design = rc.Design(n_models=3, n_tasks=30, runs_per_cell=16)
+    data = rc.simulate(design, rc.Planted(model=(0.6, 0.0, -0.6), batch_var=0.0), 11)
+    per_batch = data.groupby("batch").agg(
+        model=("model", "first"),
+        conc=("concurrency", "first"),
+        day=("day", "first"),
+        block=("block", "first"),
+        n_models=("model", "nunique"),
+        n_conc=("concurrency", "nunique"),
+    )
+    assert (per_batch["n_models"] == 1).all() and (per_batch["n_conc"] == 1).all()
+    for _, group in per_batch.groupby(["model", "conc"]):
+        slots = collections.Counter(zip(group["day"], group["block"], strict=True))
+        assert len(slots) == 6 and max(slots.values()) - min(slots.values()) <= 1

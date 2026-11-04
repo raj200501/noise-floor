@@ -383,3 +383,18 @@ exploratory and banked in `artifacts/method_pilots/` (synthetic data, seeds from
   is first committed after it. G5 now finds the grids in `prereg/CHAIN.jsonl` (every frozen file
   with an e0-grid block) and the headline cells in the frozen texts (0003's list and each
   amendment's headline block), and requires every one of them. D-017's rule is unchanged.
+
+## D-027 2026-11-04 E1 day and block per batch; the arm starts in block 1; simulator batches
+From the prereg review, before freezing E1:
+- Day and block enter the E1 analysis per batch: the UTC date and time-of-day block of the
+  batch's start (`batch_started_at`), so all runs of a batch share them as the plan and the
+  simulator assume (a run that starts after 12:00 or 24:00 in a batch begun before stays in the
+  batch's block). A salvaged batch keeps the start it recorded when it began (`.started` in its
+  workspace), not the salvage time.
+- The local arm's first batch starts in block 1 (00:00 to 12:00 UTC) and day 1 is the date it
+  starts; with day gating (D-025 follow-up in `eligible_batches`) each slot then runs on its
+  planned day unless a slot overruns its 12-hour block.
+- The recovery simulator now deals each (model, concurrency) group's batches over the six slots
+  round robin from a random offset, as `noisefloor.e1.local_plan` does, instead of one global
+  permutation. Method pilots 1 to 6 ran with the earlier assignment (exploratory; noted in
+  `artifacts/method_pilots/manifest.json`).

@@ -382,12 +382,12 @@ def run_local(
 ) -> int:
     """Run the local arm of the preregistered plan; returns the number of runs banked now.
 
-    A planned batch of slot ``day<k>-b<n>`` starts only in time-of-day block ``n`` of the
-    arm's day ``k`` or later (:func:`eligible_batches`; day 1 is the UTC date of the first
-    banked run, or today before any); the earliest unfinished eligible batch runs next, so a
-    slot that overruns its block continues in the same block of the next day, and the
-    analysis uses each run's actual start. Without ``wait``, the call returns when no batch
-    is eligible instead of sleeping. Resumable.
+    The arm's first batch starts in time-of-day block 1 (00:00 to 12:00 UTC), and day 1 is
+    the UTC date on which it starts (before any run is banked, today). A planned batch of
+    slot ``day<k>-b<n>`` then starts only in block ``n`` of the arm's day ``k`` or later
+    (:func:`eligible_batches`); the earliest unfinished eligible batch runs next, so a slot
+    that overruns its block continues in the same block of the next day. Without ``wait``,
+    the call returns when no batch is eligible instead of sleeping. Resumable.
     """
     from noisefloor.orchestrate import banked_ids  # noqa: PLC0415 - orchestrate imports runner
     from noisefloor.orchestrate import execute as default_execute  # noqa: PLC0415
@@ -397,7 +397,6 @@ def run_local(
     stamp = _stamp(prereg, design)
     batches = planned_batches(local_plan(design))
     banked = 0
-    first_day = now().date()
     while True:
         done = banked_ids(artifact)
         pending = [k for k, specs in batches.items() if any(s.run_id not in done for s in specs)]
@@ -405,9 +404,12 @@ def run_local(
             log("e1 local arm: every planned run is banked")
             return banked
         clock = now()
-        day = (clock.date() - (arm_start(artifact) or first_day)).days + 1
+        start = arm_start(artifact)
+        day = 1 if start is None else (clock.date() - start).days + 1
         block = current_block(clock)
         eligible = eligible_batches(pending, block, day)
+        if start is None and block != 1:
+            eligible = []  # the arm starts at the beginning of a day's first block
         if not eligible:
             if not wait:
                 return banked

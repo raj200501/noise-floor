@@ -341,7 +341,13 @@ def execute(
     banked = 0
     for workspace, rows in salvage(root, prefix, by_id, done):
         batch = Batch(workspace.name, tuple(by_id[r["run_id"]] for r in rows))
-        started = datetime.now(UTC).isoformat(timespec="seconds")
+        # The batch's own start, recorded when it began (salvage time only as a fallback).
+        stamp_file = workspace / ".started"
+        started = (
+            stamp_file.read_text().strip()
+            if stamp_file.exists()
+            else datetime.now(UTC).isoformat(timespec="seconds")
+        )
         _bank(
             rows,
             batch,
@@ -360,6 +366,8 @@ def execute(
     for batch in make_batches(todo, prefix, max_batch):
         workspace = root / batch.batch_id
         started = datetime.now(UTC).isoformat(timespec="seconds")
+        workspace.mkdir(parents=True, exist_ok=True)
+        (workspace / ".started").write_text(started + "\n")
         rows = run_batch(batch, workspace)
         _bank(
             rows,

@@ -221,3 +221,12 @@ def test_runs_table_confirmatory_rules() -> None:
         {**placeholder, "batch_started_at": "2026-11-05T13:00:00+00:00", "status": "infra_error"}
     )
     assert row["start_from_batch"] and row["block"] == "b2" and row["confirmatory"]
+    # Day and block follow the batch's start even when the run itself started later.
+    late = one(
+        {
+            **base,
+            "batch_started_at": "2026-11-05T11:58:00+00:00",
+            "started_at": "2026-11-05T12:03:00+00:00",
+        }
+    )
+    assert late["block"] == "b1" and late["day"] == "2026-11-05"

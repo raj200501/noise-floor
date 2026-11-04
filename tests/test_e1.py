@@ -308,3 +308,31 @@ def test_runners_refuse_an_unfrozen_prereg(tmp_path) -> None:
         e1.run_local(prereg, artifact=tmp_path / "a.jsonl", ledger=tmp_path / "l", wait=False)
     with pytest.raises(ValueError, match="not frozen"):
         e1.run_claude(prereg, artifact=tmp_path / "c.jsonl", ledger=tmp_path / "l")
+
+
+@pytest.mark.usefixtures("unfrozen_ok")
+def test_run_local_starts_in_the_first_block(tmp_path) -> None:
+    from datetime import UTC, datetime
+
+    design = e1.E1Design(models=MODELS[:2], families=("config",), tasks_per_family=3, batch_size=2)
+    per_slot = slot_runs(design)
+    prereg = plan_prereg(tmp_path, design)
+    calls: list = []
+    clock = [datetime(2026, 11, 5, 19, 0, tzinfo=UTC)]  # launched in block 2
+
+    def go(sleep, wait=True):
+        return e1.run_local(
+            prereg,
+            artifact=tmp_path / "local.jsonl",
+            ledger=tmp_path / "l",
+            now=lambda: clock[0],
+            sleep=sleep,
+            log=lambda m: None,
+            wait=wait,
+            execute=fake_execute(calls, clock),
+        )
+
+    assert go(never_sleep, wait=False) == 0  # nothing starts in block 2 of the first day
+    clock[0] = datetime(2026, 11, 6, 0, 5, tzinfo=UTC)
+    assert go(never_sleep, wait=False) == per_slot["day1-b1"]  # the arm's day 1 is Nov 6
+    assert all(prefix.startswith("e1-day1-b1-") for prefix, _ in calls)

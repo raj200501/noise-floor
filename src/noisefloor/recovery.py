@@ -152,13 +152,17 @@ def simulate(design: Design, planted: Planted, seed: int) -> pd.DataFrame:
     for index in order:
         m, _, levels = runs[int(index)]
         groups.setdefault((m, levels[BATCH_FACTOR]), []).append(int(index))
-    batches: list[list[int]] = []
-    for members in groups.values():
-        batches += [
-            members[i : i + design.batch_size] for i in range(0, len(members), design.batch_size)
-        ]
+    # As noisefloor.e1.local_plan does: each (model, concurrency) group's batches are dealt
+    # round robin over the slots from a random offset, so every group spreads evenly.
     slots = design.days * design.blocks_per_day
-    batch_slot = rng.permutation(np.arange(len(batches)) % slots)
+    batches: list[list[int]] = []
+    batch_slot: list[int] = []
+    for key in sorted(groups):
+        members = groups[key]
+        offset = int(rng.integers(slots))
+        for j, start in enumerate(range(0, len(members), design.batch_size)):
+            batches.append(members[start : start + design.batch_size])
+            batch_slot.append((offset + j) % slots)
     batch_eff = rng.normal(0.0, math.sqrt(planted.batch_var), len(batches))
     rows = []
     for b, members in enumerate(batches):

@@ -84,12 +84,14 @@ def runs_table(
     and it started no earlier than ``frozen_at`` (the preregistration's freeze time; not
     checked when None). A record without ``started_at`` (a planned run the runner never
     started, banked as a harness error) takes its batch's start, flagged
-    ``start_from_batch``.
+    ``start_from_batch``. Day and block are those of the batch's start
+    (``batch_started_at``), so every run of a batch shares them, as planned.
     """
     rows = []
     for rec in sorted(records, key=lambda r: str(r["run_id"])):
         started = str(rec.get("started_at") or rec.get("batch_started_at") or "")
-        day, block = time_block(started, block_hours)
+        batch_start = str(rec.get("batch_started_at") or started)
+        day, block = time_block(batch_start, block_hours)
         model = str(rec["model"])
         cites = rec.get("prereg") == prereg
         in_time = frozen_at is None or _utc(started) >= _utc(frozen_at)
@@ -100,6 +102,7 @@ def runs_table(
                 "prereg": rec.get("prereg"),
                 "prereg_sha256": rec.get("prereg_sha256"),
                 "started_at": started,
+                "batch_started_at": batch_start,
                 "start_from_batch": not rec.get("started_at"),
                 "model_id": model,
                 "backend": "claude" if is_claude(model) else "local",

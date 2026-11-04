@@ -117,6 +117,7 @@ def test_salvage_banks_completed_runs_of_an_interrupted_batch(tmp_path: Path) ->
         + "\n"
     )
     (old / "ledger.jsonl").write_text('{"kind": "local"}\n')
+    (old.parent / ".started").write_text("2026-11-05T03:00:00+00:00\n")
     calls: list[str] = []
     n = execute(
         [a, spec("b")],
@@ -130,6 +131,12 @@ def test_salvage_banks_completed_runs_of_an_interrupted_batch(tmp_path: Path) ->
     rows = {json.loads(ln)["run_id"]: json.loads(ln) for ln in artifact.read_text().splitlines()}
     assert n == 2 and set(rows) == {"a", "b"} and rows["a"]["salvaged"] is True
     assert "salvaged" not in rows["b"] and len(calls) == 1
+    # A salvaged run keeps its batch's recorded start; a new batch records its own.
+    assert rows["a"]["batch_started_at"] == "2026-11-05T03:00:00+00:00"
+    new_ws = [w for w in (tmp_path / "work").iterdir() if w.name != "s-b0000-deadbeef"]
+    assert len(new_ws) == 1 and (new_ws[0] / ".started").read_text().strip() == (
+        rows["b"]["batch_started_at"]
+    )
     assert (old.parent / ".banked").exists()
     again = execute(
         [a, spec("b")],
