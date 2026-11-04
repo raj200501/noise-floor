@@ -8,45 +8,50 @@ docs/LOG.md.
 
 ## Gates
 
-Fast ship-check (does not count) at 90b4028: 4/14 (G2, G4, G11, G14 pass).
+Last fast ship-check (does not count) at 90b4028: 4/14. Fixes since then (G1 temp roots, G5
+stdout parsing, G9 `__version__`) wait for the next fast check, which runs when no screening run
+shares the CPU.
 
 | Gate | Status | Evidence / next step |
 |------|--------|----------------------|
-| G1 Build and tests | FAIL | full suite passes in this checkout; `make test` fails in the fresh clone (prepush run diagnosing) |
+| G1 Build and tests | FAIL | fresh-clone `make test` failure traced to concurrent pytest temp roots; fixed, to re-check |
 | G2 Static quality | PASS | ruff, ruff format, mypy --strict clean |
 | G3 CI parity | FAIL | follows G1 |
 | G4 Offline demo | PASS | 6 s in a network namespace, matches golden |
-| G5 Library validity | FAIL | checker parsed a uv warning as JSON (fixed); E0 part 2 (GLMM cells like E1) to preregister and run |
-| G6 Orchestrator validity | FAIL | recovery simulator and bootstrap intervals built; exploratory method pilot running; prereg next |
-| G7 Factorial study | FAIL | E1 design module built; screening s3 on suite v2 running; E1 prereg after s3; Claude arm needs Raj |
+| G5 Library validity | FAIL | E0 part 2 (E1-shaped GLMM, share, MDE, score, and contrast cells) to preregister and run |
+| G6 Orchestrator validity | FAIL | recovery runner ready; Laplace method pilot 6 running; prereg 0006 next |
+| G7 Factorial study | FAIL | E1 design, runner, and analysis built; s3 screening at 70/100; Claude arm needs Raj |
 | G8 Leaderboards and bounds | FAIL | E2 and both confidence reports done; E3 still needs E1 |
-| G9 Library shipped | FAIL | API reference lacked `__version__` (fixed in the working tree) |
+| G9 Library shipped | FAIL | API reference lacked `__version__` (fixed); to re-check |
 | G10 Claim integrity | FAIL | README and docs/REPORT.md not written yet |
 | G11 Preregistration integrity | PASS | 3 preregistrations frozen |
 | G12 Independent review | FAIL | first review after E1 is preregistered |
-| G13 Documentation | FAIL | README and REPORT at the end |
+| G13 Documentation | FAIL | README and REPORT at the end; 24 references verified (citecheck passes) |
 | G14 Hygiene | PASS | secrets-scan clean; cash_usd = 0 |
 
 ## Now
 
-goal_turn 3: Claude arm built and tested with a fake CLI (D-019); the adversarial suite review
-fixed into nf-tools suite v2 (D-021, harness parity tests); SWE-bench adapter contract tests
-(D-020); parametric-bootstrap intervals in `evalstats.decompose` (profile intervals took 8 minutes
-on an E1-sized table and failed); G6 recovery simulator; E1 design module. Running: screening s3
-(100 runs, suite v2) and an exploratory interval-method pilot for the E1 decomposition.
+goal_turn 3, after a container restart: the nAGQ = 0 bootstrap of the method pilots gave
+slightly narrow intervals for fixed-factor contributions (pilots 4 and 5, banked in
+`artifacts/method_pilots/`), so bootstrap replicates are now fresh fits and an exploratory
+Laplace (nAGQ = 1) pilot 6 is running on seeds 990500 onward. Shares of the total now get an
+interval rule and coverage rows, the E0 paired simulator takes unequal runs per side, and the
+headline map reads E0 amendments. 17 more references verified and banked.
 
 ## Next three actions
 
-1. Finish the method pilot (with and without a batch term), record the analysis choice, then
-   preregister E1 (design, power, analysis), E0 part 2 (GLMM cells), and G6 (seeds) together.
-2. Analyze s3: pick at least 3 local models over at least 2 families with success 0.2 to 0.8 and
-   the difficulty mix; run E0 part 2 and G6 before E1 so E1 runs never share the CPU.
-3. Run the E1 local arm over at least 3 days; write the E1 analysis module and E3 bounds on E1.
+1. Finish pilot 6 (25 seeds now, the rest when s3 frees the CPU); choose the interval rule for
+   each kind of E1 result (D-023), then finish and review preregistrations 0004 (E1), 0005 (E0
+   part 2, with a headline block), and 0006 (G6), and freeze them in one commit.
+2. Finish s3 (granite-4.0-micro and phi-4-mini left); choose the E1 local models (at least 3
+   configurations over at least 2 families, success 0.2 to 0.8).
+3. Run G6 and E0 part 2 (Laplace bootstrap, about 3 core-minutes per dataset), then the E1
+   local arm over at least 3 days.
 
 ## Usage to date
 
 cash_usd = 0. cap_share = 0.2 (D-007). Claude subject runs 0, single calls 0, review runs 0.
-Local model runs: pilot p1 24, screening s2 11 (exploratory, suite v1), s3 in progress.
+Local model runs: pilot p1 24, screening s2 11 (exploratory, suite v1), s3 70 of 100 (suite v2).
 
 ## Needs Raj
 
