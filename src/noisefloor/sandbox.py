@@ -111,13 +111,20 @@ def sandboxed(cmd: Sequence[str], workspace: str | Path, ro_paths: Sequence[str]
     """
     ws = str(Path(workspace).resolve())
     ro_args = [arg for path in ro_paths for arg in ("--ro", str(path))]
+    # The sandbox dies with the process that launched it: unshare gets SIGTERM when its
+    # parent dies (setpriv, where available), and --kill-child then kills the sandboxed
+    # command (which the sandbox execs), so a killed orchestrator leaves no runner behind.
+    setpriv = shutil.which("setpriv")
+    prefix = [setpriv, "--pdeathsig", "TERM", "--"] if setpriv else []
     return [
+        *prefix,
         "unshare",
         "--user",
         "--map-root-user",
         "--net",
         "--mount",
         "--fork",
+        "--kill-child",
         sys.executable,
         "-m",
         "noisefloor.sandbox",

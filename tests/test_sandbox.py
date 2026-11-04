@@ -70,8 +70,19 @@ def test_scrubbed_env_and_command_line() -> None:
         "TMPDIR": "/tmp",
     }
     cmd = sandbox.sandboxed(["echo", "hi"], "/w")
-    assert cmd[:6] == ["unshare", "--user", "--map-root-user", "--net", "--mount", "--fork"]
+    start = cmd.index("unshare")
+    assert cmd[start : start + 7] == [
+        "unshare",
+        "--user",
+        "--map-root-user",
+        "--net",
+        "--mount",
+        "--fork",
+        "--kill-child",  # the sandboxed command dies with unshare
+    ]
     assert cmd[-4:] == ["/w", "--", "echo", "hi"]
+    if start:  # setpriv found: unshare dies with the process that launched it
+        assert cmd[1:4] == ["--pdeathsig", "TERM", "--"]
 
 
 def test_parse_args_and_ro_paths(monkeypatch: pytest.MonkeyPatch) -> None:
