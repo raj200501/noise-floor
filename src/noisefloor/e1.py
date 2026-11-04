@@ -80,6 +80,25 @@ class E1Design:
             f"day{d + 1}-b{b + 1}" for d in range(self.days) for b in range(self.blocks_per_day)
         ]
 
+    @classmethod
+    def from_json(cls, data: Mapping[str, Any]) -> E1Design:
+        """Inverse of :meth:`to_json` (the ``e1-plan`` block of the preregistration)."""
+        return cls(
+            models=tuple(data["models"]),
+            claude_tiers=tuple(data["claude_tiers"]),
+            families=tuple(data["families"]),
+            difficulties=tuple(int(d) for d in data["difficulties"]),
+            tasks_per_family=int(data["tasks_per_family"]),
+            levels={str(k): (v[0], v[1]) for k, v in data["levels"].items()},
+            days=int(data["days"]),
+            blocks_per_day=int(data["blocks_per_day"]),
+            batch_size=int(data["batch_size"]),
+            threads=int(data["threads"]),
+            claude_runs_per_task=int(data["claude_runs_per_task"]),
+            order_seed=int(data["order_seed"]),
+            max_tokens=int(data["max_tokens"]),
+        )
+
     def to_json(self) -> dict[str, Any]:
         """Plain-data form (for the preregistration and the manifest)."""
         return {
