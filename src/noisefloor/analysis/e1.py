@@ -145,6 +145,7 @@ def decomposition(data: pd.DataFrame, settings: Mapping[str, Any]) -> Decomposit
         nagq=int(settings["nagq"]),
         boot_interval=str(settings["boot_interval"]),
         box_interval=str(settings["box_interval"]),
+        share_interval=str(settings.get("share_interval", "percentile")),
         seed=int(settings["seed"]),
     )
 

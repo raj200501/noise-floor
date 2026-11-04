@@ -41,6 +41,7 @@ from evalstats import EvalResults
 from evalstats.glmm import (
     BOOT_INTERVALS,
     COEF_INTERVALS,
+    LOGISTIC_RESIDUAL_VAR,
     Decomposition,
     boot_coef_interval,
     boot_variance_interval,
@@ -276,6 +277,28 @@ def planted_values(design: Design, planted: Planted, data: pd.DataFrame) -> dict
     return values
 
 
+def planted_shares(truth: Mapping[str, float], names: Sequence[str]) -> dict[str, float]:
+    """Planted share of each analyzed component, and of the residual, out of their sum.
+
+    The total is over the components the analysis reports (``names``) plus the logistic
+    residual ``pi**2 / 3``, the total each estimated share is a fraction of.
+    """
+    total = sum(truth[n] for n in names) + LOGISTIC_RESIDUAL_VAR
+    out = {f"share:{n}": truth[n] / total for n in names}
+    out["share:residual"] = LOGISTIC_RESIDUAL_VAR / total
+    return out
+
+
+def replicate_shares(decomp: Decomposition) -> dict[str, np.ndarray]:
+    """Bootstrap replicate share of every component, the residual included."""
+    names = [c.name for c in decomp.components if c.kind != "residual"]
+    reps = np.column_stack([np.asarray(decomp.replicates[n], dtype=np.float64) for n in names])
+    totals = reps.sum(axis=1) + LOGISTIC_RESIDUAL_VAR
+    out = {f"share:{n}": reps[:, i] / totals for i, n in enumerate(names)}
+    out["share:residual"] = LOGISTIC_RESIDUAL_VAR / totals
+    return out
+
+
 @dataclass(frozen=True)
 class AnalysisSettings:
     """The E1 decomposition settings (fixed in the preregistration)."""
@@ -288,6 +311,7 @@ class AnalysisSettings:
     box_interval: str = "percentile"
     mde_designs: tuple[tuple[int, int], ...] = ()
     mde_interval: str = "percentile"
+    share_interval: str = "percentile"
 
 
 def analyze(data: pd.DataFrame, settings: AnalysisSettings, seed: int) -> Decomposition:
@@ -304,6 +328,7 @@ def analyze(data: pd.DataFrame, settings: AnalysisSettings, seed: int) -> Decomp
         nagq=settings.nagq,
         boot_interval=settings.boot_interval,
         box_interval=settings.box_interval,
+        share_interval=settings.share_interval,
         seed=seed,
     )
 
@@ -323,16 +348,24 @@ def recover(
     except Exception as exc:  # recorded as a dataset without intervals (prereg 0006)
         names = [n for n in FIXED_TERMS if data[n].nunique() > 1]
         empty = {"estimate": None, "lo": None, "hi": None}
-        failed: dict[str, dict[str, Any]] = {
-            n: {"planted": truth[n], **empty} for n in [*settings.random, *names]
-        }
+        analyzed = [*settings.random, *names]
+        failed: dict[str, dict[str, Any]] = {n: {"planted": truth[n], **empty} for n in analyzed}
+        for key, value in planted_shares(truth, analyzed).items():
+            failed[key] = {"planted": value, **empty}
         if settings.mde_designs:
             for (t, k), value in planted_mde(design, planted, data, settings.mde_designs).items():
                 failed[f"mde:T{t}:k{k}"] = {"planted": value, **empty}
         error = f"{type(exc).__name__}: {exc}"[:300]
         return {"seed": seed, "components": failed, "converged": False, "error": error}
     components = {}
+    shares = planted_shares(truth, [c.name for c in decomp.components if c.kind != "residual"])
     for comp in decomp.components:
+        components[f"share:{comp.name}"] = {
+            "planted": shares[f"share:{comp.name}"],
+            "estimate": comp.share,
+            "lo": comp.share_lo,
+            "hi": comp.share_hi,
+        }
         if comp.kind == "residual":
             continue
         components[comp.name] = {
@@ -439,6 +472,15 @@ def pilot_row(
                     weights, est, draws, settings.level, kind, se=se, se_draws=se_draws
                 )
         rows[comp.name] = entry
+    share_draws = replicate_shares(decomp)
+    shares = planted_shares(truth, [c.name for c in decomp.components if c.kind != "residual"])
+    for comp in decomp.components:
+        key = f"share:{comp.name}"
+        entry = {"planted": shares[key], "estimate": comp.share}
+        for kind in BOOT_INTERVALS:
+            ci = boot_variance_interval(comp.share, share_draws[key], settings.level, kind)
+            entry[kind] = None if ci is None else (ci[0], min(ci[1], 1.0))
+        rows[key] = entry
     if settings.mde_designs:
         true_mde = planted_mde(design, planted, data, settings.mde_designs)
         found = mde_components(decomp, data, design, settings.mde_designs, settings.level)
@@ -507,6 +549,7 @@ def config_from(block: Mapping[str, Any]) -> tuple[Design, Planted, AnalysisSett
         box_interval=str(st.get("box_interval", "percentile")),
         mde_designs=tuple((int(t), int(k)) for t, k in st.get("mde_designs", [])),
         mde_interval=str(st.get("mde_interval", "percentile")),
+        share_interval=str(st.get("share_interval", "percentile")),
     )
     return Design(**block["design"]), planted, settings
 

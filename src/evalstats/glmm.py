@@ -25,7 +25,8 @@ Bootstrap intervals: a random-effect variance gets the ``percentile``, ``basic``
 A fixed factor's contribution gets the range of the contribution over a box of intervals
 for the factor's coefficients (``box_interval``: percentile, basic, bias-corrected, or
 studentized ``student``), each at level ``1 - (1 - level) / (k - 1)`` for ``k`` levels
-(Bonferroni), so it covers at least as often as the box. Shares get percentile intervals.
+(Bonferroni), so it covers at least as often as the box. A share of the total gets the
+``share_interval`` rule (one of the variance rules) applied to its replicate shares, capped at 1.
 """
 
 from __future__ import annotations
@@ -710,6 +711,7 @@ def decompose(
     nagq: int = 1,
     boot_interval: str = "percentile",
     box_interval: str = "percentile",
+    share_interval: str = "percentile",
 ) -> Decomposition:
     """Fit a logit GLMM and partition the latent variance.
 
@@ -718,13 +720,16 @@ def decompose(
     effects. Outcomes must be binary. ``method`` picks the lme4 intervals:
     ``profile`` (profile likelihood) or ``parametric_bootstrap`` (``n_boot``
     replicates, each a fresh fit with ``nagq`` = 1 for Laplace or 0 for the faster
-    approximation, random variances with ``boot_interval``; see the module docstring).
+    approximation, random variances with ``boot_interval``, fixed contributions with
+    ``box_interval``, and shares with ``share_interval``; see the module docstring).
     """
     if not results.is_binary:
         raise ValueError("decompose needs binary outcomes")
     _check_options(level, method, boot_interval, nagq, n_boot)
     if box_interval not in COEF_INTERVALS:
         raise ValueError(f"unknown bootstrap interval {box_interval!r}")
+    if share_interval not in BOOT_INTERVALS:
+        raise ValueError(f"unknown bootstrap interval {share_interval!r}")
     frame = results.frame
     _check_names([*random, *fixed], frame)
     data = _prepare(frame, random, fixed)
@@ -743,6 +748,7 @@ def decompose(
             level=level,
             boot_interval=boot_interval,
             box_interval=box_interval,
+            share_interval=share_interval,
         )
     if backend == "lme4":
         raw = _fit_lme4(data, random, fixed, level, intervals)
@@ -793,6 +799,7 @@ def _bootstrap_decomposition(
     level: float,
     boot_interval: str,
     box_interval: str,
+    share_interval: str = "percentile",
 ) -> Decomposition:
     parts = _boot_parts(
         data,
@@ -806,18 +813,17 @@ def _bootstrap_decomposition(
     total = sum(p[2] for p in parts) + LOGISTIC_RESIDUAL_VAR
     reps = np.column_stack([p[4] for p in parts]) if parts else np.empty((0, 0))
     totals = reps.sum(axis=1) + LOGISTIC_RESIDUAL_VAR if parts else np.empty(0)
-    a = (1 - level) / 2
 
-    def share_ci(values: np.ndarray) -> tuple[float | None, float | None]:
+    def share_ci(estimate: float, values: np.ndarray) -> tuple[float | None, float | None]:
         ok = np.isfinite(values) & np.isfinite(totals)
         if ok.sum() < 2:
             return None, None
-        lo, hi = np.quantile(values[ok] / totals[ok], [a, 1 - a])
-        return float(lo), float(hi)
+        ci = boot_variance_interval(estimate, values[ok] / totals[ok], level, share_interval)
+        return (None, None) if ci is None else (ci[0], min(ci[1], 1.0))
 
     components = []
     for name, kind, variance, ci, values in parts:
-        s_lo, s_hi = share_ci(values)
+        s_lo, s_hi = share_ci(variance / total, values)
         components.append(
             VarianceComponent(
                 name=name,
@@ -832,7 +838,9 @@ def _bootstrap_decomposition(
                 share_hi=s_hi,
             )
         )
-    s_lo, s_hi = share_ci(np.full(len(totals), LOGISTIC_RESIDUAL_VAR))
+    s_lo, s_hi = share_ci(
+        LOGISTIC_RESIDUAL_VAR / total, np.full(len(totals), LOGISTIC_RESIDUAL_VAR)
+    )
     components.append(
         VarianceComponent(
             name="residual",

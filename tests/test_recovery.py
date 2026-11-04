@@ -62,22 +62,34 @@ def test_design_and_planted_validation() -> None:
 
 
 @needs_r
+def test_planted_shares() -> None:
+    truth = {"task": 2.0, "model:task": 0.5, "harness": 0.0625, "batch": 0.3}
+    shares = rc.planted_shares(truth, ["task", "model:task", "harness"])
+    assert sum(shares.values()) == pytest.approx(1.0)
+    total = 2.5625 + math.pi**2 / 3
+    assert shares["share:task"] == pytest.approx(2.0 / total)
+    assert shares["share:residual"] == pytest.approx(math.pi**2 / 3 / total)
+    assert "share:batch" not in shares  # not analyzed, so not part of the total
+
+
 def test_recover_and_pilot_rows() -> None:
     settings = rc.AnalysisSettings(n_boot=4)
     row = rc.recover(SMALL, SMALL_PLANTED, settings, 7)
-    assert row["seed"] == 7 and set(row["components"]) == {
-        "task",
-        "model:task",
-        "batch",
-        "model",
-        *rc.TWO_LEVEL,
-        "day",
-    }  # one time-of-day block: block is held constant and left out
+    analyzed = {"task", "model:task", "batch", "model", *rc.TWO_LEVEL, "day"}
+    shares = {f"share:{n}" for n in (*analyzed, "residual")}
+    # one time-of-day block: block is held constant and left out
+    assert row["seed"] == 7 and set(row["components"]) == analyzed | shares
     for comp in row["components"].values():
         assert comp["lo"] is None or comp["lo"] <= comp["hi"]
+    assert sum(row["components"][s]["planted"] for s in shares) == pytest.approx(1.0)
+    assert sum(row["components"][s]["estimate"] for s in shares) == pytest.approx(1.0)
     pilot = rc.pilot_row(SMALL, SMALL_PLANTED, settings, 7)
     assert set(pilot["components"]["task"]) >= {"percentile", "basic", "bc"}
     assert {"box_percentile", "box_basic", "box_bc"} <= set(pilot["components"]["model"])
+    share = pilot["components"]["share:task"]
+    assert share["planted"] == row["components"]["share:task"]["planted"]
+    assert set(share) >= {"percentile", "basic", "bc", "basic_log"}
+    assert all(0.0 <= share[k][0] <= share[k][1] <= 1.0 for k in ("percentile", "basic"))
 
 
 def test_summaries() -> None:

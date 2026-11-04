@@ -1,5 +1,6 @@
 import math
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -195,6 +196,30 @@ def test_lme4_parametric_bootstrap(planted: EvalResults) -> None:
         seed=3,
     )
     assert again.replicates == d.replicates  # the seed fixes the replicates
+    basic = decompose(
+        planted,
+        random=("task", "model"),
+        fixed=("harness",),
+        method="parametric_bootstrap",
+        n_boot=12,
+        nagq=0,
+        boot_interval="basic",
+        share_interval="basic",
+        seed=3,
+    )
+    assert basic.replicates == d.replicates
+    for b, p in zip(basic.components, d.components, strict=True):
+        assert b.share == pytest.approx(p.share)
+        assert b.share_lo is not None and b.share_hi is not None
+        assert 0.0 <= b.share_lo <= b.share_hi <= 1.0
+    task = basic.component("task")
+    reps = np.asarray(basic.replicates["task"]) / (
+        np.column_stack([basic.replicates[n] for n in ("task", "model", "harness")]).sum(axis=1)
+        + glmm.LOGISTIC_RESIDUAL_VAR
+    )
+    q_lo, q_hi = np.quantile(reps, [0.025, 0.975])
+    assert task.share_lo == pytest.approx(max(0.0, 2 * task.share - q_hi))
+    assert task.share_hi == pytest.approx(min(1.0, 2 * task.share - q_lo))
 
 
 def test_bootstrap_option_validation(planted: EvalResults) -> None:
@@ -208,6 +233,8 @@ def test_bootstrap_option_validation(planted: EvalResults) -> None:
         decompose(planted, method="parametric_bootstrap", n_boot=1)
     with pytest.raises(ValueError, match="needs the lme4 backend"):
         decompose(planted, method="parametric_bootstrap", backend="statsmodels")
+    with pytest.raises(ValueError, match="unknown bootstrap interval"):
+        decompose(planted, method="parametric_bootstrap", share_interval="student")
 
 
 def test_basic_log_interval() -> None:
