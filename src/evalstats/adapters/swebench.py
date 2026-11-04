@@ -31,8 +31,10 @@ resolved instance and 0 otherwise.
 
 Status mapping (``status_reason`` names the deciding list or field). When an id appears in
 several lists, the most severe status wins (``flagged``, then ``infra_error``, then
-``timeout``, then ``ok``; among equals, a specific list beats the broad ``generated``,
-``with_logs``, and ``applied``), and the outcome is still 1 if a resolved list holds the id.
+``timeout``, then ``ok``). Among equals, a specific list beats the broad ``applied``, which
+beats ``with_logs``, which beats ``generated``; other ties go to the list that comes first in
+:data:`RUN_REPORT_LISTS` or :data:`RESULTS_CATEGORIES` (then ``categories``), whatever the key
+order of the file. The outcome is still 1 if a resolved list holds the id.
 
 - Run report: ``resolved_ids``, ``unresolved_ids``, and ``empty_patch_ids`` give ``ok`` (an
   empty patch counts as unresolved in SWE-bench); ``error_ids`` (no usable report.json),
@@ -69,6 +71,7 @@ classification, when present), and ``source_format`` (``run_report``, ``results`
 
 from __future__ import annotations
 
+import os
 import re
 from collections.abc import Iterable, Mapping
 from pathlib import Path
@@ -117,7 +120,7 @@ RESULTS_CATEGORIES: Mapping[str, str] = {
 TIMEOUT_REASON = "tests_timed_out"
 _TIMEOUT_LINE = re.compile(r"Timeout error: \d+ seconds exceeded")
 _SEVERITY = {OK: 0, TIMEOUT: 1, INFRA_ERROR: 2, FLAGGED: 3}
-_BROAD_LISTS = frozenset({"generated", "with_logs", "applied"})  # supersets of other lists
+_BROAD_LISTS = ("generated", "with_logs", "applied")  # supersets of other lists, broadest first
 _RESOLVED_LISTS = ("resolved_ids", "resolved")
 _INSTANCE_FILES = ("report.json", "test_output.txt", "run_instance.log", "patch.diff")
 _COLUMNS = ("status_reason", "failure_reason", "source_format")
@@ -239,18 +242,27 @@ def _read_file(path: Path, table: Mapping[str, str]) -> tuple[str, dict[str, _Ve
 
 
 def _id_list(data: Mapping[str, Any], key: str, path: Path) -> list[str]:
-    values = data.get(key) or []
+    values = data.get(key)
+    if values is None:  # absent or null; any other value that is not a list is malformed
+        return []
     if not isinstance(values, list) or not all(isinstance(v, str) for v in values):
         raise SchemaError(f"{path}: {key!r} is not a list of instance ids")
     return values
 
 
+def _rank(verdict: _Verdict) -> tuple[int, int]:
+    """Severity, then specificity: a broad list ranks below every other list, broadest lowest."""
+    reason = verdict[2]
+    narrowness = _BROAD_LISTS.index(reason) if reason in _BROAD_LISTS else len(_BROAD_LISTS)
+    return _SEVERITY[verdict[0]], narrowness
+
+
 def _merge(verdicts: dict[str, _Verdict], ids: Iterable[str], new: _Verdict) -> None:
-    """Record ``new`` per id unless a more severe, or equally severe and more specific, is set."""
-    rank = (_SEVERITY[new[0]], new[2] not in _BROAD_LISTS)
+    """Record ``new`` per id unless a verdict of equal or higher rank is already set."""
+    rank = _rank(new)
     for instance_id in ids:
         old = verdicts.get(instance_id)
-        if old is None or rank > (_SEVERITY[old[0]], old[2] not in _BROAD_LISTS):
+        if old is None or rank > _rank(old):
             verdicts[instance_id] = new
 
 
@@ -265,8 +277,10 @@ def _read_run_report(data: Mapping[str, Any], path: Path) -> dict[str, _Verdict]
     for key, status in RUN_REPORT_LISTS.items():
         _merge(verdicts, _id_list(data, key, path), _verdict(status, False, key))
     _resolve(verdicts, _id_list(data, "resolved_ids", path))
-    reasons = data.get("failure_reasons") or {}
-    if not isinstance(reasons, Mapping):
+    reasons = data.get("failure_reasons")
+    if reasons is None:  # absent before swebench 5.0
+        reasons = {}
+    elif not isinstance(reasons, Mapping):
         raise SchemaError(f"{path}: 'failure_reasons' is not an object")
     for instance_id, reason in reasons.items():
         status, outcome, deciding, _ = verdicts.get(
@@ -281,12 +295,12 @@ def _read_run_report(data: Mapping[str, Any], path: Path) -> dict[str, _Verdict]
 def _read_results(
     data: Mapping[str, Any], path: Path, table: Mapping[str, str]
 ) -> tuple[dict[str, _Verdict], _Verdict]:
-    lists = {key: value for key, value in data.items() if isinstance(value, list)}
-    unknown = sorted(set(lists) - set(table))
+    unknown = sorted(k for k, v in data.items() if isinstance(v, list) and k not in table)
     if unknown:
         raise SchemaError(
             f"{path}: unknown results.json categories {unknown}; pass categories= to map them"
         )
+    lists = [key for key in table if isinstance(data.get(key), list)]  # table order breaks ties
     verdicts: dict[str, _Verdict] = {}
     for key in lists:
         _merge(verdicts, _id_list(data, key, path), _verdict(table[key], False, key))
@@ -348,7 +362,8 @@ def _tree_verdict(instance_dir: Path) -> _Verdict:
     return _verdict(INFRA_ERROR, False, "no_report")
 
 
-def _infer_model(path: Path, fmt: str) -> str:
+def _infer_model(given: Path, fmt: str) -> str:
+    path = Path(os.path.abspath(given))  # "." or a bare file name names no directory itself
     if fmt == "instance_reports" and path.is_dir():
         return path.parent.name if path.name == "logs" else path.name
     if fmt == "results":

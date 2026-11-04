@@ -249,7 +249,8 @@ gives the outcome of string score values in place of :data:`INSPECT_VALUE_MAP`, 
 ``include_missing=False`` drops the ``infra_error`` rows added for samples a log lacks.
 The module docstring gives the row layout, the value mapping, and the status mapping.
 Raises :class:`SchemaError` if a file is not a readable Inspect log, a score cannot be
-mapped to [0, 1], or two logs give the same (model, task, run).
+mapped to [0, 1], a log holds one sample and epoch twice, or two logs give the same
+(model, task, run).
 
 ### `read_swebench(path: 'str | Path', instances: 'Iterable[str] | str | Path', *, model: 'str | None' = None, run: 'str | int' = 0, categories: 'Mapping[str, str] | None' = None, on_unknown: "Literal['error', 'drop']" = 'error') -> 'EvalResults'`
 

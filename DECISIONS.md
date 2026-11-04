@@ -220,3 +220,16 @@ configuration per batch), so the E1 analysis will include a batch random effect.
   - Minimal-agent with Claude: each step is one stateless call with the conversation so far as
     one role-tagged prompt, because the CLI cannot replay earlier assistant turns. Temperature
     and seed cannot be set through the CLI; they stay in the run spec and the cache key only.
+
+## D-020 2026-11-04 SWE-bench reader tie-breaks; screening s2 stopped for suite fixes
+- `read_swebench` now breaks ties between lists of equal status by a fixed table order (a
+  specific list, then `applied`, then `with_logs`, then `generated`; other ties by the order of
+  `RUN_REPORT_LISTS` or `RESULTS_CATEGORIES`), not by the file's JSON key order, and treats only
+  an absent or null list as empty. This changes only `status_reason`; no banked artifact uses
+  this reader. Open limitations, kept as they are and listed in the adapter's tests: patch-apply
+  failures and missing predictions in a run report map to `infra_error`, and swebench's own
+  "ambiguous" tier other than timeouts maps to `ok`.
+- An adversarial review of the nf-tools suite and both harnesses (before the E1 preregistration)
+  found defects that would bias E1 statuses and grading (D-021). The s2 screening was stopped
+  after 11 runs (banked in `artifacts/pilot/s2.jsonl`, exploratory) so that screening and E1 use
+  one suite version; a new screening plan runs on the fixed suite.
