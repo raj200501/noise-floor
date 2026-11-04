@@ -1,0 +1,44 @@
+{
+ "about": "Exploratory interval-method pilots for the E1 decomposition (DECISIONS.md D-022). Synthetic data only: every dataset is simulated with planted variance components by noisefloor.recovery.simulate. Seeds come from noisefloor.recovery.PILOT_SEEDS (990000 to 990999), disjoint from the G6 and E0 part 2 seeds; nothing here is pooled with confirmatory data.",
+ "summary_command": "python -m noisefloor.method_pilots",
+ "pilots": [
+  {
+   "label": "pilot1",
+   "file": "pilot1.jsonl",
+   "command": "python -m noisefloor.recovery pilot runs/g6-pilot/method_pilot.jsonl 990000 40 --n-boot 100",
+   "design": "default Design: 4 models, 40 tasks, 8 runs per (model, task) cell, batches of at most 10 runs, 3 days x 2 blocks; planted batch variance; analysis with task, model:task, and batch random effects",
+   "code": "nAGQ = 0; bootstrap replicates by lme4 refit() (code before commit 3050b9d)"
+  },
+  {
+   "label": "pilot2",
+   "file": "pilot2.jsonl",
+   "command": "python -m noisefloor.recovery pilot runs/g6-pilot/method_pilot_nobatch.jsonl 990100 40 --n-boot 200 --no-batch",
+   "design": "as pilot1 without planted batch variance and without the batch term; stopped after 18 of its 40 datasets",
+   "code": "nAGQ = 0; bootstrap replicates by lme4 refit() (code before commit 3050b9d)"
+  },
+  {
+   "label": "pilot3",
+   "file": "pilot3.jsonl",
+   "command": "python -m noisefloor.recovery pilot runs/g6-pilot/method_pilot3.jsonl 990200 60 --n-boot 200 --no-batch",
+   "design": "as pilot2 (8 runs per cell, 40 tasks)",
+   "code": "nAGQ = 0; bootstrap replicates by lme4 refit() (code before commit 3050b9d)"
+  },
+  {
+   "label": "pilot4",
+   "file": "pilot4.jsonl",
+   "command": "python -m noisefloor.recovery pilot runs/g6-pilot/method_pilot4.jsonl 990300 60 --n-boot 200 --no-batch --tasks 30 --runs-per-cell 16 --mde",
+   "design": "the candidate E1 shape: 4 models, 30 tasks, the 16 runs of the half fraction in every cell, no batch variance or batch term; MDE intervals at three designs",
+   "code": "nAGQ = 0; bootstrap replicates by lme4 refit() (code before commit 3050b9d)"
+  },
+  {
+   "label": "pilot5",
+   "file": "pilot5.jsonl",
+   "command": "python -m noisefloor.recovery pilot runs/g6-pilot/method_pilot5.jsonl 990400 60 --n-boot 200 --no-batch --tasks 30 --runs-per-cell 16 --mde",
+   "design": "as pilot4, also scoring studentized (bootstrap-t) boxes",
+   "code": "nAGQ = 0; bootstrap replicates by lme4 refit() (code before commit 3050b9d)"
+  }
+ ],
+ "pools": [
+  {"label": "nagq0-e1-shape", "pilots": ["pilot4", "pilot5"]}
+ ]
+}

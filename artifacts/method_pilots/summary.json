@@ -1,0 +1,1355 @@
+{
+ "exploratory": true,
+ "manifest": "artifacts/method_pilots/manifest.json",
+ "pilots": {
+  "pilot1": {
+   "components": {
+    "batch": {
+     "bias": -0.03539833221679002,
+     "coverage": {
+      "basic": 0.425,
+      "bc": 0.65,
+      "percentile": 0.75
+     },
+     "missing": {
+      "basic": 0,
+      "bc": 0,
+      "percentile": 0
+     },
+     "n": 40,
+     "planted_mean": 0.1
+    },
+    "block": {
+     "bias": 0.008275451269716901,
+     "coverage": {
+      "box": 0.975
+     },
+     "missing": {
+      "box": 0
+     },
+     "n": 40,
+     "planted_mean": 0.0006250000000000001
+    },
+    "concurrency": {
+     "bias": 0.004349555313645229,
+     "coverage": {
+      "box": 0.0
+     },
+     "missing": {
+      "box": 0
+     },
+     "n": 40,
+     "planted_mean": 0.0
+    },
+    "day": {
+     "bias": 0.014372885018529949,
+     "coverage": {
+      "box": 0.95
+     },
+     "missing": {
+      "box": 0
+     },
+     "n": 40,
+     "planted_mean": 0.0065625000000000015
+    },
+    "harness": {
+     "bias": -0.001777539701002262,
+     "coverage": {
+      "box": 0.95
+     },
+     "missing": {
+      "box": 0
+     },
+     "n": 40,
+     "planted_mean": 0.0625
+    },
+    "model": {
+     "bias": -0.0071451247468904844,
+     "coverage": {
+      "box": 1.0
+     },
+     "missing": {
+      "box": 0
+     },
+     "n": 40,
+     "planted_mean": 0.2
+    },
+    "model:task": {
+     "bias": -0.05773353442534847,
+     "coverage": {
+      "basic": 0.925,
+      "bc": 0.925,
+      "percentile": 0.85
+     },
+     "missing": {
+      "basic": 0,
+      "bc": 0,
+      "percentile": 0
+     },
+     "n": 40,
+     "planted_mean": 0.5
+    },
+    "steps": {
+     "bias": -0.0015271649144353537,
+     "coverage": {
+      "box": 0.875
+     },
+     "missing": {
+      "box": 0
+     },
+     "n": 40,
+     "planted_mean": 0.04000000000000001
+    },
+    "task": {
+     "bias": 0.005195851283863201,
+     "coverage": {
+      "basic": 0.925,
+      "bc": 0.975,
+      "percentile": 0.95
+     },
+     "missing": {
+      "basic": 0,
+      "bc": 0,
+      "percentile": 0
+     },
+     "n": 40,
+     "planted_mean": 2.0
+    },
+    "temperature": {
+     "bias": 0.004660697545887945,
+     "coverage": {
+      "box": 1.0
+     },
+     "missing": {
+      "box": 0
+     },
+     "n": 40,
+     "planted_mean": 0.0025000000000000005
+    },
+    "timeout": {
+     "bias": -0.004826226234153706,
+     "coverage": {
+      "box": 0.9
+     },
+     "missing": {
+      "box": 0
+     },
+     "n": 40,
+     "planted_mean": 0.04000000000000001
+    }
+   },
+   "datasets": 40,
+   "sd_ratio": {},
+   "seeds": [
+    990000,
+    990039
+   ],
+   "two_level": {
+    "coverage": {
+     "box": 0.745
+    },
+    "factors": [
+     "harness",
+     "timeout",
+     "steps",
+     "temperature",
+     "concurrency"
+    ],
+    "n": 200
+   }
+  },
+  "pilot2": {
+   "components": {
+    "block": {
+     "bias": 0.005329608160556153,
+     "coverage": {
+      "box": 0.9444444444444444
+     },
+     "missing": {
+      "box": 0
+     },
+     "n": 18,
+     "planted_mean": 0.0006250000000000001
+    },
+    "concurrency": {
+     "bias": 0.004683923119954354,
+     "coverage": {
+      "box": 0.9444444444444444
+     },
+     "missing": {
+      "box": 0
+     },
+     "n": 18,
+     "planted_mean": 0.0
+    },
+    "day": {
+     "bias": 0.007010017170025973,
+     "coverage": {
+      "box": 1.0
+     },
+     "missing": {
+      "box": 0
+     },
+     "n": 18,
+     "planted_mean": 0.0065625000000000015
+    },
+    "harness": {
+     "bias": -0.0021283723912540265,
+     "coverage": {
+      "box": 1.0
+     },
+     "missing": {
+      "box": 0
+     },
+     "n": 18,
+     "planted_mean": 0.0625
+    },
+    "model": {
+     "bias": 6.836111149485482e-07,
+     "coverage": {
+      "box": 1.0
+     },
+     "missing": {
+      "box": 0
+     },
+     "n": 18,
+     "planted_mean": 0.2
+    },
+    "model:task": {
+     "bias": -0.04427248415595616,
+     "coverage": {
+      "basic": 0.9444444444444444,
+      "bc": 0.9444444444444444,
+      "percentile": 0.8888888888888888
+     },
+     "missing": {
+      "basic": 0,
+      "bc": 0,
+      "percentile": 0
+     },
+     "n": 18,
+     "planted_mean": 0.5
+    },
+    "steps": {
+     "bias": -0.0036528594700907264,
+     "coverage": {
+      "box": 0.8888888888888888
+     },
+     "missing": {
+      "box": 0
+     },
+     "n": 18,
+     "planted_mean": 0.04000000000000001
+    },
+    "task": {
+     "bias": 0.01400729046360786,
+     "coverage": {
+      "basic": 0.9444444444444444,
+      "bc": 1.0,
+      "percentile": 0.9444444444444444
+     },
+     "missing": {
+      "basic": 0,
+      "bc": 0,
+      "percentile": 0
+     },
+     "n": 18,
+     "planted_mean": 2.0
+    },
+    "temperature": {
+     "bias": 0.004246760678857846,
+     "coverage": {
+      "box": 1.0
+     },
+     "missing": {
+      "box": 0
+     },
+     "n": 18,
+     "planted_mean": 0.0025000000000000005
+    },
+    "timeout": {
+     "bias": -0.003743341581562118,
+     "coverage": {
+      "box": 0.8333333333333334
+     },
+     "missing": {
+      "box": 0
+     },
+     "n": 18,
+     "planted_mean": 0.04000000000000001
+    }
+   },
+   "datasets": 18,
+   "sd_ratio": {},
+   "seeds": [
+    990100,
+    990117
+   ],
+   "two_level": {
+    "coverage": {
+     "box": 0.9333333333333333
+    },
+    "factors": [
+     "harness",
+     "timeout",
+     "steps",
+     "temperature",
+     "concurrency"
+    ],
+    "n": 90
+   }
+  },
+  "pilot3": {
+   "components": {
+    "block": {
+     "bias": 0.004978464071100481,
+     "coverage": {
+      "box_basic": 0.9333333333333333,
+      "box_bc": 0.9333333333333333,
+      "box_percentile": 0.95
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_bc": 0,
+      "box_percentile": 0
+     },
+     "n": 60,
+     "planted_mean": 0.0006250000000000001
+    },
+    "concurrency": {
+     "bias": 0.00465648981817868,
+     "coverage": {
+      "box_basic": 0.9333333333333333,
+      "box_bc": 0.9166666666666666,
+      "box_percentile": 0.95
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_bc": 0,
+      "box_percentile": 0
+     },
+     "n": 60,
+     "planted_mean": 0.0
+    },
+    "day": {
+     "bias": 0.012311525119072608,
+     "coverage": {
+      "box_basic": 1.0,
+      "box_bc": 1.0,
+      "box_percentile": 1.0
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_bc": 0,
+      "box_percentile": 0
+     },
+     "n": 60,
+     "planted_mean": 0.0065625000000000015
+    },
+    "harness": {
+     "bias": -0.004148804017398909,
+     "coverage": {
+      "box_basic": 0.9166666666666666,
+      "box_bc": 0.9,
+      "box_percentile": 0.9
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_bc": 0,
+      "box_percentile": 0
+     },
+     "n": 60,
+     "planted_mean": 0.0625
+    },
+    "model": {
+     "bias": 0.005182636461577983,
+     "coverage": {
+      "box_basic": 1.0,
+      "box_bc": 1.0,
+      "box_percentile": 1.0
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_bc": 0,
+      "box_percentile": 0
+     },
+     "n": 60,
+     "planted_mean": 0.2
+    },
+    "model:task": {
+     "bias": -0.10018747401205759,
+     "coverage": {
+      "basic": 0.7666666666666667,
+      "bc": 0.85,
+      "percentile": 0.7166666666666667
+     },
+     "missing": {
+      "basic": 0,
+      "bc": 0,
+      "percentile": 0
+     },
+     "n": 60,
+     "planted_mean": 0.5
+    },
+    "steps": {
+     "bias": -0.004084863368587441,
+     "coverage": {
+      "box_basic": 0.95,
+      "box_bc": 0.95,
+      "box_percentile": 0.95
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_bc": 0,
+      "box_percentile": 0
+     },
+     "n": 60,
+     "planted_mean": 0.04000000000000001
+    },
+    "task": {
+     "bias": 0.07549258809700783,
+     "coverage": {
+      "basic": 0.8833333333333333,
+      "bc": 0.9333333333333333,
+      "percentile": 0.95
+     },
+     "missing": {
+      "basic": 0,
+      "bc": 0,
+      "percentile": 0
+     },
+     "n": 60,
+     "planted_mean": 2.0
+    },
+    "temperature": {
+     "bias": 0.004824201932223351,
+     "coverage": {
+      "box_basic": 0.95,
+      "box_bc": 0.9666666666666667,
+      "box_percentile": 1.0
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_bc": 0,
+      "box_percentile": 0
+     },
+     "n": 60,
+     "planted_mean": 0.0025000000000000005
+    },
+    "timeout": {
+     "bias": 0.004329767292536111,
+     "coverage": {
+      "box_basic": 0.9166666666666666,
+      "box_bc": 0.9166666666666666,
+      "box_percentile": 0.9166666666666666
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_bc": 0,
+      "box_percentile": 0
+     },
+     "n": 60,
+     "planted_mean": 0.04000000000000001
+    }
+   },
+   "datasets": 60,
+   "sd_ratio": {
+    "harness": {
+     "empirical_sd": 0.125900232356036,
+     "implied_sd": 0.1299200088347106,
+     "mean_beta": 0.46642675247363385,
+     "n_intervals": 56,
+     "planted_beta": 0.5,
+     "ratio": 0.9690596043309332,
+     "rule": "box_basic"
+    },
+    "steps": {
+     "empirical_sd": 0.11339782318728546,
+     "implied_sd": 0.13287520489882082,
+     "mean_beta": 0.3616648728063529,
+     "n_intervals": 49,
+     "planted_beta": 0.4,
+     "ratio": 0.8534159798559362,
+     "rule": "box_basic"
+    },
+    "timeout": {
+     "empirical_sd": 0.1481120099696379,
+     "implied_sd": 0.1305307462538482,
+     "mean_beta": 0.39418511092239183,
+     "n_intervals": 53,
+     "planted_beta": 0.4,
+     "ratio": 1.1346905937517489,
+     "rule": "box_basic"
+    }
+   },
+   "seeds": [
+    990200,
+    990259
+   ],
+   "two_level": {
+    "coverage": {
+     "box_basic": 0.9333333333333333,
+     "box_bc": 0.93,
+     "box_percentile": 0.9433333333333334
+    },
+    "factors": [
+     "harness",
+     "timeout",
+     "steps",
+     "temperature",
+     "concurrency"
+    ],
+    "n": 300
+   }
+  },
+  "pilot4": {
+   "components": {
+    "block": {
+     "bias": 0.0037791861289050207,
+     "coverage": {
+      "box_basic": 0.95,
+      "box_basic_log": 0.95,
+      "box_bc": 0.9666666666666667,
+      "box_percentile": 0.9833333333333333
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_basic_log": 0,
+      "box_bc": 0,
+      "box_percentile": 0
+     },
+     "n": 60,
+     "planted_mean": 0.0006250000000000001
+    },
+    "concurrency": {
+     "bias": 0.0033478803712420437,
+     "coverage": {
+      "box_basic": 0.9166666666666666,
+      "box_basic_log": 0.9166666666666666,
+      "box_bc": 0.9333333333333333,
+      "box_percentile": 0.9333333333333333
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_basic_log": 0,
+      "box_bc": 0,
+      "box_percentile": 0
+     },
+     "n": 60,
+     "planted_mean": 0.0
+    },
+    "day": {
+     "bias": 0.005565415509091341,
+     "coverage": {
+      "box_basic": 0.9833333333333333,
+      "box_basic_log": 0.9833333333333333,
+      "box_bc": 0.9833333333333333,
+      "box_percentile": 0.9833333333333333
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_basic_log": 0,
+      "box_bc": 0,
+      "box_percentile": 0
+     },
+     "n": 60,
+     "planted_mean": 0.006666666666666668
+    },
+    "harness": {
+     "bias": 0.0010231766713852185,
+     "coverage": {
+      "box_basic": 0.9166666666666666,
+      "box_basic_log": 0.9166666666666666,
+      "box_bc": 0.9166666666666666,
+      "box_percentile": 0.9
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_basic_log": 0,
+      "box_bc": 0,
+      "box_percentile": 0
+     },
+     "n": 60,
+     "planted_mean": 0.0625
+    },
+    "mde:T20:k1": {
+     "bias": -0.00016924728670136095,
+     "coverage": {
+      "basic": 0.9666666666666667,
+      "basic_log": 0.9666666666666667,
+      "bc": 0.9166666666666666,
+      "percentile": 0.9666666666666667
+     },
+     "missing": {
+      "basic": 0,
+      "basic_log": 0,
+      "bc": 0,
+      "percentile": 0
+     },
+     "n": 60,
+     "planted_mean": 0.36960526250549974
+    },
+    "mde:T40:k1": {
+     "bias": -0.00011967590412397626,
+     "coverage": {
+      "basic": 0.9666666666666667,
+      "basic_log": 0.9666666666666667,
+      "bc": 0.9166666666666666,
+      "percentile": 0.9666666666666667
+     },
+     "missing": {
+      "basic": 0,
+      "basic_log": 0,
+      "bc": 0,
+      "percentile": 0
+     },
+     "n": 60,
+     "planted_mean": 0.2613503874798729
+    },
+    "mde:T89:k5": {
+     "bias": -0.0012923802169013824,
+     "coverage": {
+      "basic": 0.9833333333333333,
+      "basic_log": 0.9833333333333333,
+      "bc": 0.9833333333333333,
+      "percentile": 0.9333333333333333
+     },
+     "missing": {
+      "basic": 0,
+      "basic_log": 0,
+      "bc": 0,
+      "percentile": 0
+     },
+     "n": 60,
+     "planted_mean": 0.0914037230197381
+    },
+    "model": {
+     "bias": -0.0003616424618673002,
+     "coverage": {
+      "box_basic": 1.0,
+      "box_basic_log": 1.0,
+      "box_bc": 0.9833333333333333,
+      "box_percentile": 1.0
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_basic_log": 0,
+      "box_bc": 0,
+      "box_percentile": 0
+     },
+     "n": 60,
+     "planted_mean": 0.2
+    },
+    "model:task": {
+     "bias": -0.05281245519910864,
+     "coverage": {
+      "basic": 0.8666666666666667,
+      "basic_log": 0.95,
+      "bc": 0.9166666666666666,
+      "percentile": 0.7833333333333333
+     },
+     "missing": {
+      "basic": 0,
+      "basic_log": 0,
+      "bc": 0,
+      "percentile": 0
+     },
+     "n": 60,
+     "planted_mean": 0.5
+    },
+    "steps": {
+     "bias": 0.0019066966695445585,
+     "coverage": {
+      "box_basic": 0.9166666666666666,
+      "box_basic_log": 0.9166666666666666,
+      "box_bc": 0.8833333333333333,
+      "box_percentile": 0.95
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_basic_log": 0,
+      "box_bc": 0,
+      "box_percentile": 0
+     },
+     "n": 60,
+     "planted_mean": 0.04000000000000001
+    },
+    "task": {
+     "bias": -0.10766180697481839,
+     "coverage": {
+      "basic": 0.8666666666666667,
+      "basic_log": 0.9833333333333333,
+      "bc": 0.9666666666666667,
+      "percentile": 0.9333333333333333
+     },
+     "missing": {
+      "basic": 0,
+      "basic_log": 0,
+      "bc": 0,
+      "percentile": 0
+     },
+     "n": 60,
+     "planted_mean": 2.0
+    },
+    "temperature": {
+     "bias": 0.003077372852602634,
+     "coverage": {
+      "box_basic": 0.9666666666666667,
+      "box_basic_log": 0.9666666666666667,
+      "box_bc": 0.9833333333333333,
+      "box_percentile": 1.0
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_basic_log": 0,
+      "box_bc": 0,
+      "box_percentile": 0
+     },
+     "n": 60,
+     "planted_mean": 0.0025000000000000005
+    },
+    "timeout": {
+     "bias": -0.0027234637759701494,
+     "coverage": {
+      "box_basic": 0.9833333333333333,
+      "box_basic_log": 0.9833333333333333,
+      "box_bc": 0.9666666666666667,
+      "box_percentile": 0.9833333333333333
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_basic_log": 0,
+      "box_bc": 0,
+      "box_percentile": 0
+     },
+     "n": 60,
+     "planted_mean": 0.04000000000000001
+    }
+   },
+   "datasets": 60,
+   "sd_ratio": {
+    "harness": {
+     "empirical_sd": 0.10755850430099506,
+     "implied_sd": 0.10793060121792117,
+     "mean_beta": 0.492467130718461,
+     "n_intervals": 60,
+     "planted_beta": 0.5,
+     "ratio": 0.9965524428407954,
+     "rule": "box_basic"
+    },
+    "steps": {
+     "empirical_sd": 0.12818220633291783,
+     "implied_sd": 0.1104826424947912,
+     "mean_beta": 0.3888394381461371,
+     "n_intervals": 56,
+     "planted_beta": 0.4,
+     "ratio": 1.1602022131119925,
+     "rule": "box_basic"
+    },
+    "timeout": {
+     "empirical_sd": 0.10189400469766638,
+     "implied_sd": 0.10774640288277705,
+     "mean_beta": 0.3724563822822632,
+     "n_intervals": 57,
+     "planted_beta": 0.4,
+     "ratio": 0.9456835863794191,
+     "rule": "box_basic"
+    }
+   },
+   "seeds": [
+    990300,
+    990359
+   ],
+   "two_level": {
+    "coverage": {
+     "box_basic": 0.94,
+     "box_basic_log": 0.94,
+     "box_bc": 0.9366666666666666,
+     "box_percentile": 0.9533333333333334
+    },
+    "factors": [
+     "harness",
+     "timeout",
+     "steps",
+     "temperature",
+     "concurrency"
+    ],
+    "n": 300
+   }
+  },
+  "pilot5": {
+   "components": {
+    "block": {
+     "bias": 0.0024742222660385023,
+     "coverage": {
+      "box_basic": 1.0,
+      "box_basic_log": 1.0,
+      "box_bc": 0.9666666666666667,
+      "box_percentile": 1.0,
+      "box_student": 1.0
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_basic_log": 0,
+      "box_bc": 0,
+      "box_percentile": 0,
+      "box_student": 0
+     },
+     "n": 60,
+     "planted_mean": 0.0006250000000000001
+    },
+    "concurrency": {
+     "bias": 0.0036974974617760207,
+     "coverage": {
+      "box_basic": 0.9333333333333333,
+      "box_basic_log": 0.9333333333333333,
+      "box_bc": 0.9,
+      "box_percentile": 0.9333333333333333,
+      "box_student": 0.9
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_basic_log": 0,
+      "box_bc": 0,
+      "box_percentile": 0,
+      "box_student": 0
+     },
+     "n": 60,
+     "planted_mean": 0.0
+    },
+    "day": {
+     "bias": 0.006111177051178685,
+     "coverage": {
+      "box_basic": 1.0,
+      "box_basic_log": 1.0,
+      "box_bc": 1.0,
+      "box_percentile": 1.0,
+      "box_student": 1.0
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_basic_log": 0,
+      "box_bc": 0,
+      "box_percentile": 0,
+      "box_student": 0
+     },
+     "n": 60,
+     "planted_mean": 0.006666666666666668
+    },
+    "harness": {
+     "bias": -0.00022303677846554636,
+     "coverage": {
+      "box_basic": 0.9166666666666666,
+      "box_basic_log": 0.9166666666666666,
+      "box_bc": 0.9166666666666666,
+      "box_percentile": 0.9333333333333333,
+      "box_student": 0.9333333333333333
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_basic_log": 0,
+      "box_bc": 0,
+      "box_percentile": 0,
+      "box_student": 0
+     },
+     "n": 60,
+     "planted_mean": 0.0625
+    },
+    "mde:T20:k1": {
+     "bias": 0.000843435177808106,
+     "coverage": {
+      "basic": 0.9666666666666667,
+      "basic_log": 0.9666666666666667,
+      "bc": 0.9833333333333333,
+      "percentile": 0.9833333333333333
+     },
+     "missing": {
+      "basic": 0,
+      "basic_log": 0,
+      "bc": 0,
+      "percentile": 0
+     },
+     "n": 60,
+     "planted_mean": 0.36960526250549974
+    },
+    "mde:T40:k1": {
+     "bias": 0.0005963987337193786,
+     "coverage": {
+      "basic": 0.9666666666666667,
+      "basic_log": 0.9666666666666667,
+      "bc": 0.9833333333333333,
+      "percentile": 0.9833333333333333
+     },
+     "missing": {
+      "basic": 0,
+      "basic_log": 0,
+      "bc": 0,
+      "percentile": 0
+     },
+     "n": 60,
+     "planted_mean": 0.2613503874798729
+    },
+    "mde:T89:k5": {
+     "bias": -0.0008166216678362326,
+     "coverage": {
+      "basic": 0.95,
+      "basic_log": 0.95,
+      "bc": 0.95,
+      "percentile": 0.9166666666666666
+     },
+     "missing": {
+      "basic": 0,
+      "basic_log": 0,
+      "bc": 0,
+      "percentile": 0
+     },
+     "n": 60,
+     "planted_mean": 0.0914037230197381
+    },
+    "model": {
+     "bias": 0.011849435329469022,
+     "coverage": {
+      "box_basic": 1.0,
+      "box_basic_log": 1.0,
+      "box_bc": 1.0,
+      "box_percentile": 1.0,
+      "box_student": 1.0
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_basic_log": 0,
+      "box_bc": 0,
+      "box_percentile": 0,
+      "box_student": 0
+     },
+     "n": 60,
+     "planted_mean": 0.2
+    },
+    "model:task": {
+     "bias": -0.0497993254907353,
+     "coverage": {
+      "basic": 0.9,
+      "basic_log": 1.0,
+      "bc": 0.9666666666666667,
+      "percentile": 0.9
+     },
+     "missing": {
+      "basic": 0,
+      "basic_log": 0,
+      "bc": 0,
+      "percentile": 0
+     },
+     "n": 60,
+     "planted_mean": 0.5
+    },
+    "steps": {
+     "bias": -0.0035624457582527024,
+     "coverage": {
+      "box_basic": 0.9333333333333333,
+      "box_basic_log": 0.9333333333333333,
+      "box_bc": 0.9166666666666666,
+      "box_percentile": 0.9333333333333333,
+      "box_student": 0.9333333333333333
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_basic_log": 0,
+      "box_bc": 0,
+      "box_percentile": 0,
+      "box_student": 0
+     },
+     "n": 60,
+     "planted_mean": 0.04000000000000001
+    },
+    "task": {
+     "bias": -0.051204982110067965,
+     "coverage": {
+      "basic": 0.8666666666666667,
+      "basic_log": 0.9666666666666667,
+      "bc": 0.95,
+      "percentile": 0.9166666666666666
+     },
+     "missing": {
+      "basic": 0,
+      "basic_log": 0,
+      "bc": 0,
+      "percentile": 0
+     },
+     "n": 60,
+     "planted_mean": 2.0
+    },
+    "temperature": {
+     "bias": 0.0022607339716718034,
+     "coverage": {
+      "box_basic": 0.95,
+      "box_basic_log": 0.95,
+      "box_bc": 0.95,
+      "box_percentile": 0.9833333333333333,
+      "box_student": 0.95
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_basic_log": 0,
+      "box_bc": 0,
+      "box_percentile": 0,
+      "box_student": 0
+     },
+     "n": 60,
+     "planted_mean": 0.0025000000000000005
+    },
+    "timeout": {
+     "bias": 0.002717378684163541,
+     "coverage": {
+      "box_basic": 0.9333333333333333,
+      "box_basic_log": 0.9333333333333333,
+      "box_bc": 0.9,
+      "box_percentile": 0.95,
+      "box_student": 0.9333333333333333
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_basic_log": 0,
+      "box_bc": 0,
+      "box_percentile": 0,
+      "box_student": 0
+     },
+     "n": 60,
+     "planted_mean": 0.04000000000000001
+    }
+   },
+   "datasets": 60,
+   "sd_ratio": {
+    "harness": {
+     "empirical_sd": 0.11860270686361375,
+     "implied_sd": 0.10860128559058138,
+     "mean_beta": 0.48481053083731745,
+     "n_intervals": 60,
+     "planted_beta": 0.5,
+     "ratio": 1.0920930283526935,
+     "rule": "box_basic"
+    },
+    "steps": {
+     "empirical_sd": 0.1014213342296224,
+     "implied_sd": 0.10829748216601519,
+     "mean_beta": 0.36805424862385766,
+     "n_intervals": 56,
+     "planted_beta": 0.4,
+     "ratio": 0.9365068531708618,
+     "rule": "box_basic"
+    },
+    "timeout": {
+     "empirical_sd": 0.11843147240274163,
+     "implied_sd": 0.11000065519028555,
+     "mean_beta": 0.3960347220650897,
+     "n_intervals": 55,
+     "planted_beta": 0.4,
+     "ratio": 1.076643336331697,
+     "rule": "box_basic"
+    }
+   },
+   "seeds": [
+    990400,
+    990459
+   ],
+   "two_level": {
+    "coverage": {
+     "box_basic": 0.9333333333333333,
+     "box_basic_log": 0.9333333333333333,
+     "box_bc": 0.9166666666666666,
+     "box_percentile": 0.9466666666666667,
+     "box_student": 0.93
+    },
+    "factors": [
+     "harness",
+     "timeout",
+     "steps",
+     "temperature",
+     "concurrency"
+    ],
+    "n": 300
+   }
+  }
+ },
+ "pools": {
+  "nagq0-e1-shape": {
+   "components": {
+    "block": {
+     "bias": 0.0031267041974717613,
+     "coverage": {
+      "box_basic": 0.975,
+      "box_basic_log": 0.975,
+      "box_bc": 0.9666666666666667,
+      "box_percentile": 0.9916666666666667
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_basic_log": 0,
+      "box_bc": 0,
+      "box_percentile": 0
+     },
+     "n": 120,
+     "planted_mean": 0.0006250000000000001
+    },
+    "concurrency": {
+     "bias": 0.0035226889165090322,
+     "coverage": {
+      "box_basic": 0.925,
+      "box_basic_log": 0.925,
+      "box_bc": 0.9166666666666666,
+      "box_percentile": 0.9333333333333333
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_basic_log": 0,
+      "box_bc": 0,
+      "box_percentile": 0
+     },
+     "n": 120,
+     "planted_mean": 0.0
+    },
+    "day": {
+     "bias": 0.005838296280135013,
+     "coverage": {
+      "box_basic": 0.9916666666666667,
+      "box_basic_log": 0.9916666666666667,
+      "box_bc": 0.9916666666666667,
+      "box_percentile": 0.9916666666666667
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_basic_log": 0,
+      "box_bc": 0,
+      "box_percentile": 0
+     },
+     "n": 120,
+     "planted_mean": 0.006666666666666668
+    },
+    "harness": {
+     "bias": 0.00040006994645983604,
+     "coverage": {
+      "box_basic": 0.9166666666666666,
+      "box_basic_log": 0.9166666666666666,
+      "box_bc": 0.9166666666666666,
+      "box_percentile": 0.9166666666666666
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_basic_log": 0,
+      "box_bc": 0,
+      "box_percentile": 0
+     },
+     "n": 120,
+     "planted_mean": 0.0625
+    },
+    "mde:T20:k1": {
+     "bias": 0.00033709394555337253,
+     "coverage": {
+      "basic": 0.9666666666666667,
+      "basic_log": 0.9666666666666667,
+      "bc": 0.95,
+      "percentile": 0.975
+     },
+     "missing": {
+      "basic": 0,
+      "basic_log": 0,
+      "bc": 0,
+      "percentile": 0
+     },
+     "n": 120,
+     "planted_mean": 0.36960526250549974
+    },
+    "mde:T40:k1": {
+     "bias": 0.00023836141479770118,
+     "coverage": {
+      "basic": 0.9666666666666667,
+      "basic_log": 0.9666666666666667,
+      "bc": 0.95,
+      "percentile": 0.975
+     },
+     "missing": {
+      "basic": 0,
+      "basic_log": 0,
+      "bc": 0,
+      "percentile": 0
+     },
+     "n": 120,
+     "planted_mean": 0.2613503874798729
+    },
+    "mde:T89:k5": {
+     "bias": -0.0010545009423688074,
+     "coverage": {
+      "basic": 0.9666666666666667,
+      "basic_log": 0.9666666666666667,
+      "bc": 0.9666666666666667,
+      "percentile": 0.925
+     },
+     "missing": {
+      "basic": 0,
+      "basic_log": 0,
+      "bc": 0,
+      "percentile": 0
+     },
+     "n": 120,
+     "planted_mean": 0.0914037230197381
+    },
+    "model": {
+     "bias": 0.00574389643380086,
+     "coverage": {
+      "box_basic": 1.0,
+      "box_basic_log": 1.0,
+      "box_bc": 0.9916666666666667,
+      "box_percentile": 1.0
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_basic_log": 0,
+      "box_bc": 0,
+      "box_percentile": 0
+     },
+     "n": 120,
+     "planted_mean": 0.2
+    },
+    "model:task": {
+     "bias": -0.05130589034492197,
+     "coverage": {
+      "basic": 0.8833333333333333,
+      "basic_log": 0.975,
+      "bc": 0.9416666666666667,
+      "percentile": 0.8416666666666667
+     },
+     "missing": {
+      "basic": 0,
+      "basic_log": 0,
+      "bc": 0,
+      "percentile": 0
+     },
+     "n": 120,
+     "planted_mean": 0.5
+    },
+    "steps": {
+     "bias": -0.0008278745443540719,
+     "coverage": {
+      "box_basic": 0.925,
+      "box_basic_log": 0.925,
+      "box_bc": 0.9,
+      "box_percentile": 0.9416666666666667
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_basic_log": 0,
+      "box_bc": 0,
+      "box_percentile": 0
+     },
+     "n": 120,
+     "planted_mean": 0.04000000000000001
+    },
+    "task": {
+     "bias": -0.07943339454244319,
+     "coverage": {
+      "basic": 0.8666666666666667,
+      "basic_log": 0.975,
+      "bc": 0.9583333333333334,
+      "percentile": 0.925
+     },
+     "missing": {
+      "basic": 0,
+      "basic_log": 0,
+      "bc": 0,
+      "percentile": 0
+     },
+     "n": 120,
+     "planted_mean": 2.0
+    },
+    "temperature": {
+     "bias": 0.0026690534121372182,
+     "coverage": {
+      "box_basic": 0.9583333333333334,
+      "box_basic_log": 0.9583333333333334,
+      "box_bc": 0.9666666666666667,
+      "box_percentile": 0.9916666666666667
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_basic_log": 0,
+      "box_bc": 0,
+      "box_percentile": 0
+     },
+     "n": 120,
+     "planted_mean": 0.0025000000000000005
+    },
+    "timeout": {
+     "bias": -3.042545903303989e-06,
+     "coverage": {
+      "box_basic": 0.9583333333333334,
+      "box_basic_log": 0.9583333333333334,
+      "box_bc": 0.9333333333333333,
+      "box_percentile": 0.9666666666666667
+     },
+     "missing": {
+      "box_basic": 0,
+      "box_basic_log": 0,
+      "box_bc": 0,
+      "box_percentile": 0
+     },
+     "n": 120,
+     "planted_mean": 0.04000000000000001
+    }
+   },
+   "datasets": 120,
+   "pilots": [
+    "pilot4",
+    "pilot5"
+   ],
+   "sd_ratio": {
+    "harness": {
+     "empirical_sd": 0.11328006374405301,
+     "implied_sd": 0.10826594340425127,
+     "mean_beta": 0.48863883077788917,
+     "n_intervals": 120,
+     "planted_beta": 0.5,
+     "ratio": 1.0463129972560221,
+     "rule": "box_basic"
+    },
+    "steps": {
+     "empirical_sd": 0.1160452004803086,
+     "implied_sd": 0.10939006233040319,
+     "mean_beta": 0.3784468433849974,
+     "n_intervals": 112,
+     "planted_beta": 0.4,
+     "ratio": 1.0608385991206783,
+     "rule": "box_basic"
+    },
+    "timeout": {
+     "empirical_sd": 0.11109988951899685,
+     "implied_sd": 0.10885340178378569,
+     "mean_beta": 0.38424555217367645,
+     "n_intervals": 112,
+     "planted_beta": 0.4,
+     "ratio": 1.020637735692205,
+     "rule": "box_basic"
+    }
+   },
+   "seeds": [
+    990300,
+    990459
+   ],
+   "two_level": {
+    "coverage": {
+     "box_basic": 0.9366666666666666,
+     "box_basic_log": 0.9366666666666666,
+     "box_bc": 0.9266666666666666,
+     "box_percentile": 0.95
+    },
+    "factors": [
+     "harness",
+     "timeout",
+     "steps",
+     "temperature",
+     "concurrency"
+    ],
+    "n": 600
+   }
+  }
+ },
+ "synthetic": true
+}
