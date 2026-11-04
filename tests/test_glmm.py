@@ -116,3 +116,95 @@ def test_formula_and_availability(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(builtins, "__import__", fail)
     assert lme4_available() is False
+
+
+# ---------------------------------------------------------------------------
+# parametric bootstrap
+
+
+def test_boot_variance_interval_rules() -> None:
+    import numpy as np
+
+    draws = np.array([0.1, 0.2, 0.3, 0.4, 0.5, np.nan])
+    lo, hi = glmm.boot_variance_interval(0.3, draws, 0.8, "percentile")
+    assert lo == pytest.approx(np.quantile(draws[:5], 0.1)) and hi == pytest.approx(
+        np.quantile(draws[:5], 0.9)
+    )
+    b_lo, b_hi = glmm.boot_variance_interval(0.3, draws, 0.8, "basic")
+    assert b_lo == pytest.approx(0.6 - hi) and b_hi == pytest.approx(0.6 - lo)
+    assert glmm.boot_variance_interval(0.01, draws, 0.8, "basic")[0] == 0.0  # cut at 0
+    bc = glmm.boot_variance_interval(0.3, draws, 0.8, "bc")
+    assert bc[0] <= 0.3 <= bc[1]
+    shifted = glmm.boot_variance_interval(0.5, draws, 0.8, "bc")  # estimate above every draw
+    assert shifted[1] >= hi
+    assert glmm.boot_variance_interval(0.3, np.array([0.2]), 0.9) is None
+    with pytest.raises(ValueError, match="unknown bootstrap interval"):
+        glmm.boot_variance_interval(0.3, draws, 0.9, "student")
+
+
+def test_box_interval_for_two_and_three_levels() -> None:
+    import numpy as np
+
+    rng = np.random.default_rng(0)
+    weights = np.array([0.5, 0.5])
+    spans_zero = rng.normal(0.0, 0.1, (200, 1))
+    lo, hi = glmm._box_interval(weights, np.array([0.02]), spans_zero, 0.95)
+    assert lo == 0.0  # exactly: the box holds the origin
+    assert hi == pytest.approx(0.25 * np.quantile(np.abs(spans_zero), 0.975) ** 2, rel=0.3)
+    away = rng.normal(1.0, 0.1, (200, 1))
+    lo, hi = glmm._box_interval(weights, np.array([1.0]), away, 0.95)
+    assert 0.0 < lo < 0.25 < hi
+    three = np.full(3, 1 / 3)
+    draws = rng.normal([0.5, -0.5], 0.05, (300, 2))
+    lo, hi = glmm._box_interval(three, np.array([0.5, -0.5]), draws, 0.95)
+    est = glmm._contribution_variance(three, np.array([0.5, -0.5]))
+    assert lo < est < hi
+    assert glmm._box_interval(three, np.zeros(2), np.full((5, 2), np.nan), 0.95) is None
+    assert glmm._box_interval(np.ones(1), np.zeros(0), np.empty((5, 0)), 0.95) is None
+
+
+@needs_r
+def test_lme4_parametric_bootstrap(planted: EvalResults) -> None:
+    d = decompose(
+        planted,
+        random=("task", "model"),
+        fixed=("harness",),
+        method="parametric_bootstrap",
+        n_boot=12,
+        nagq=0,
+        boot_interval="basic",
+        seed=3,
+    )
+    check_structure(d)
+    assert "nAGQ=0" in d.backend and "bootstrap: 12 replicates" in d.messages[-1]
+    assert d.component("task").interval_method == "parametric_bootstrap_basic"
+    assert d.component("harness").interval_method == "parametric_bootstrap_box"
+    for comp in d.components:
+        assert comp.share_lo is not None and comp.share_hi is not None
+        assert 0.0 <= comp.share_lo <= comp.share_hi <= 1.0
+    assert set(d.replicates) == {"task", "model", "harness"}
+    assert all(len(v) == 12 for v in d.replicates.values())
+    again = decompose(
+        planted,
+        random=("task", "model"),
+        fixed=("harness",),
+        method="parametric_bootstrap",
+        n_boot=12,
+        nagq=0,
+        boot_interval="basic",
+        seed=3,
+    )
+    assert again.replicates == d.replicates  # the seed fixes the replicates
+
+
+def test_bootstrap_option_validation(planted: EvalResults) -> None:
+    with pytest.raises(ValueError, match="unknown method"):
+        decompose(planted, method="jackknife")
+    with pytest.raises(ValueError, match="unknown bootstrap interval"):
+        decompose(planted, method="parametric_bootstrap", boot_interval="t")
+    with pytest.raises(ValueError, match="nagq"):
+        decompose(planted, method="parametric_bootstrap", nagq=2)
+    with pytest.raises(ValueError, match="nagq"):
+        decompose(planted, method="parametric_bootstrap", n_boot=1)
+    with pytest.raises(ValueError, match="needs the lme4 backend"):
+        decompose(planted, method="parametric_bootstrap", backend="statsmodels")
