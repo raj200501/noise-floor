@@ -8,7 +8,7 @@ docs/LOG.md.
 
 ## Gates
 
-Last fast ship-check (does not count) at dea4149: 8/14.
+Last fast ship-check (does not count) at c39565e: 7/14 (G2 failed on two test-only `type: ignore` lines, fixed in 22f7de8).
 
 | Gate | Status | Evidence / next step |
 |------|--------|----------------------|
@@ -29,26 +29,26 @@ Last fast ship-check (does not count) at dea4149: 8/14.
 
 ## Now
 
-goal_turn 3: the final review of the 0004 to 0006 drafts (three lenses, adversarially
-verified, 40 confirmed findings) is answered in code and text (D-034), before the freeze and
-before G6 and E0 part 2 run, so the analysis-code pin fixes the corrected code. Main changes:
-the sizing rule now simulates the t tests E1 runs, which moves the local sample to 85 tasks (17
-per family, D-034 item 1); the batch rule uses a bounded upper end (`batch_var_upper`); the
-Claude-local rows are labeled scaffold-confounded with their confounds; the sandbox now gets
-SIGKILL when its launcher dies (the earlier SIGTERM was blocked by `unshare --fork`), and no
-batch starts beside any live runner; the analysis-code pin covers the plan, truth, and
-exclusion modules; amendments must name what they allow; G5 to G8 check their full contracts.
-A verification pass over the fixes runs before the freeze.
+goal_turn 3: the final review of the 0004 to 0006 drafts (40 confirmed findings) is answered in
+code, gates, and text (D-034, pushed). A verification of those fixes was stopped partway: its
+stats and resolution verifiers found 24 of 25 findings fixed and these gaps, not yet applied:
+G5's retirement rule must require an amendment of 0004 with an analysis-code block and treat
+`box_interval` as no new method under the jackknife; G6's equality with E0 part 2 must allow the
+GLMM replacement route; the arms should check the analysis-code pin and the `e0_validity`
+commit before starting; 0004 and PLAN should say the pinned run-time modules stay unchanged
+through the final ship-check; and the `e1_power` docstring. Patches for all of these are in
+`docs/prereg-drafts/fixes2.py` and `fixes3.py`, beside the unfrozen drafts (README there).
+Nothing is frozen; no confirmatory data exist.
 
 ## Next three actions
 
-1. Read the verification of the fixes, fix what it confirms, freeze 0004 to 0006 in one commit
-   (`freeze.sh`: fresh blocks, pin assert, consistency check), `make prepush`, push.
-2. Run G6 and E0 part 2 (1,200 GLMM datasets at the 85-task shape, a little over 40 hours on 4
-   workers), commit and push raw rows at check-ins, bank both, run `e0_validity` and commit
-   it; then launch the E1 local arm at 00:00 UTC (at least 4 UTC days), with check-ins.
-3. Ask Raj to start the Claude slice on his machine once G6 and E0 part 2 are banked
-   (docs/PLAN.md); the slice takes about 30 days at 6 runs a day.
+1. Apply `docs/prereg-drafts/fixes2.py` and `fixes3.py` (after pointing them at the drafts
+   here), rerun the ops and regression verification of the fixes, run the full tests, commit,
+   `make prepush`, push.
+2. Freeze 0004 to 0006 in one commit with `docs/prereg-drafts/freeze.sh`, then run G6 and E0
+   part 2 (`runs/e0g6/driver.sh`, a little over 40 hours on 4 workers), bank both, run
+   `e0_validity` and commit it; then launch the E1 local arm at 00:00 UTC.
+3. Ask Raj to start the Claude slice once G6 and E0 part 2 are banked (docs/PLAN.md).
 
 ## Usage to date
 
