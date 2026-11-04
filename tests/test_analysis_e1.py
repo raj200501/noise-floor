@@ -76,7 +76,7 @@ def fake_records() -> list[dict]:
             {
                 **spec.to_json(),
                 "outcome": float(rng.random() < p),
-                "outcome_strict": 0.0,
+                "outcome_strict": float(rng.random() < p) if i % 3 else 0.0,
                 "status": status,
                 "end_reason": "submitted",
                 "started_at": f"2026-11-0{day}T{hour:02d}:00:00+00:00",
@@ -113,7 +113,7 @@ def test_build_and_verify(tmp_path: Path) -> None:
         "".join(json.dumps(r) + "\n" for r in recs if r["phase"] == "e1-claude")
     )
     manifest = a.build(prereg, tmp_path)
-    assert manifest["prereg"] == str(prereg) and len(manifest["files"]) == 7
+    assert manifest["prereg"] == str(prereg) and len(manifest["files"]) == 8
     vc = json.loads((tmp_path / "variance_components.json").read_text())
     names = [c["name"] for c in vc["components"]]
     assert names[:2] == ["task", "model:task"] and names[-1] == "residual"
@@ -155,6 +155,15 @@ def test_build_and_verify(tmp_path: Path) -> None:
         "models-local",
         "models-claude",
     }
+    sens = json.loads((tmp_path / "sensitivity.json").read_text())
+    assert "(1 | batch)" in sens["batch_random_effect"]["formula"]
+    infra = sum(1 for r in local if r["status"] == "infra_error")
+    assert sens["infra_error_as_failure"]["n_runs"] == sens["outcome_strict"]["n_runs"] + infra
+    strict = {c["name"]: c for c in sens["outcome_strict"]["components"]}
+    assert set(strict) == {c["name"] for c in vc["components"]}
+    bounds = {b["model"]: b for b in sens["e3_bounds"]}
+    assert set(bounds) == set(DESIGN.models)
+    assert all(b["ci_lo"] <= b["lower"] <= b["upper"] <= b["ci_hi"] for b in bounds.values())
     runs = [json.loads(ln) for ln in (tmp_path / "runs.jsonl").read_text().splitlines()]
     assert sum(r["confirmatory"] for r in runs) == len(runs)  # both arms are planned
     monkey_dir = tmp_path
@@ -168,3 +177,18 @@ def test_holm() -> None:
     assert a.holm([0.01, 0.04, 0.03]) == pytest.approx([0.03, 0.06, 0.06])
     assert a.holm([0.5, float("nan")]) == pytest.approx([1.0, 1.0])
     assert a.holm([]) == []
+
+
+def test_sensitivity_failure_is_recorded(monkeypatch: pytest.MonkeyPatch) -> None:
+    planned = {s.run_id: s.phase for s in local_plan(DESIGN)}
+    rows = a.runs_table(
+        fake_records(), prereg="p.md", planned=planned, block_hours=[[0, 12], [12, 24]]
+    )
+
+    def fail(data: object, settings: object) -> None:
+        raise RuntimeError("Response is constant")
+
+    monkeypatch.setattr(a, "decomposition", fail)
+    out = a.sensitivity_tables(rows, SETTINGS)
+    assert set(out) == {"batch_random_effect", "outcome_strict", "infra_error_as_failure"}
+    assert all(v["error"] == "RuntimeError: Response is constant" for v in out.values())

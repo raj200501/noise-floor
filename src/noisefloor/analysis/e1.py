@@ -30,7 +30,7 @@ from typing import Any
 
 import pandas as pd
 
-from evalstats import EvalResults, paired_difference, score_interval, tasks_needed
+from evalstats import EvalResults, paired_difference, policy_bounds, score_interval, tasks_needed
 from evalstats.glmm import LOGISTIC_RESIDUAL_VAR, Decomposition, boot_coef_interval, decompose
 from noisefloor.analysis import mde as mde_lib
 from noisefloor.e1 import E1Design, claude_plan, local_plan
@@ -105,8 +105,18 @@ def runs_table(
     return rows
 
 
-def analysis_frame(rows: Sequence[Mapping[str, Any]], exclude: Sequence[str]) -> pd.DataFrame:
-    """Confirmatory local-arm runs for the decomposition (excluded statuses dropped)."""
+def analysis_frame(
+    rows: Sequence[Mapping[str, Any]],
+    exclude: Sequence[str],
+    *,
+    outcome: str = "outcome",
+    failures: Sequence[str] = (),
+) -> pd.DataFrame:
+    """Confirmatory local-arm runs for the decomposition (excluded statuses dropped).
+
+    ``outcome`` names the graded column (``outcome`` or ``outcome_strict``); runs whose
+    status is in ``failures`` are kept with outcome 0.
+    """
     keep = [
         r
         for r in rows
@@ -115,16 +125,23 @@ def analysis_frame(rows: Sequence[Mapping[str, Any]], exclude: Sequence[str]) ->
     if not keep:
         raise ValueError("no confirmatory local-arm runs to analyze")
     days = {d: f"d{i + 1}" for i, d in enumerate(sorted({r["day"] for r in keep}))}
+
+    def graded(r: Mapping[str, Any]) -> float:
+        if r["status"] in failures:
+            return 0.0
+        return float(float(r[outcome] or 0.0) >= 0.5)
+
     return pd.DataFrame(
         [
             {
                 "model": r["model_id"],
                 "task": r["task"],
                 "run": r["run_id"],
-                "outcome": float(r["outcome"]),
+                "outcome": graded(r),
                 **{name: str(value) for name, value in r["factors"].items()},
                 "day": days[r["day"]],
                 "block": r["block"],
+                "batch": str(r["batch_id"]),
             }
             for r in keep
         ]
@@ -445,13 +462,93 @@ def compute(prereg: Path, directory: Path = E1_DIR) -> dict[str, str]:
     mde = {"prereg": _rel(prereg), **mde_tables(decomp, data, settings)}
     scores = {"prereg": _rel(prereg), "rows": scores_table(rows, settings)}
     contrasts = {"prereg": _rel(prereg), **contrasts_table(rows, settings)}
+    sensitivity = {
+        "prereg": _rel(prereg),
+        "label": "sensitivity analyses, reported beside the primary results",
+        **sensitivity_tables(rows, settings),
+        "e3_bounds": bounds_table(rows, settings),
+    }
     return {
         "runs.jsonl": "".join(json.dumps(r, sort_keys=True) + "\n" for r in rows),
         "variance_components.json": _dump(variance),
         "mde.json": _dump(mde),
         "scores.json": _dump(scores),
         "contrasts.json": _dump(contrasts),
+        "sensitivity.json": _dump(sensitivity),
     }
+
+
+def bounds_table(rows: Sequence[Mapping[str, Any]], settings: Mapping[str, Any]) -> list[Any]:
+    """E3 on E1: each local model's score under every policy for ambiguous runs.
+
+    Ambiguous runs are those with status ``infra_error``, ``timeout``, or ``flagged``
+    (``evalstats.policy_bounds``), with Imbens and Manski intervals for the worst-case
+    bounds, on the confirmatory local-arm runs.
+    """
+    local = [r for r in rows if r["confirmatory"] and r["backend"] == "local"]
+    if not local:
+        return []
+    frame = pd.DataFrame(
+        [
+            {
+                "model": r["model_id"],
+                "task": r["task"],
+                "run": r["run_id"],
+                "outcome": float(r["outcome"]),
+                "status": str(r["status"]),
+            }
+            for r in local
+        ]
+    )
+    report = policy_bounds(EvalResults.from_frame(frame), level=float(settings["level"]))
+    return [
+        {
+            "model": b.model,
+            "scores": dict(b.scores),
+            "lower": b.lower,
+            "upper": b.upper,
+            "ci_lo": b.ci_lo,
+            "ci_hi": b.ci_hi,
+            "ambiguous_runs": b.ambiguous_runs,
+            "ambiguous_share": b.ambiguous_share,
+            "interval_method": "imbens_manski",
+        }
+        for b in report.models
+    ]
+
+
+def sensitivity_tables(
+    rows: Sequence[Mapping[str, Any]], settings: Mapping[str, Any]
+) -> dict[str, Any]:
+    """The sensitivity decompositions of prereg 0004 item 6, beside the primary one.
+
+    With a random intercept for the planned batch, with the strict grade as the outcome,
+    and with ``infra_error`` runs counted as failures; each uses the primary settings.
+    """
+    exclude = list(settings["exclude_status"])
+    batch = {**settings, "random": [*settings["random"], "batch"]}
+    frames = {
+        "batch_random_effect": (analysis_frame(rows, exclude), batch),
+        "outcome_strict": (analysis_frame(rows, exclude, outcome="outcome_strict"), settings),
+        "infra_error_as_failure": (
+            analysis_frame(rows, [s for s in exclude if s != "infra_error"], failures=exclude),
+            settings,
+        ),
+    }
+    out: dict[str, Any] = {}
+    for name, (data, use) in frames.items():
+        try:
+            decomp = decomposition(data, use)
+        except Exception as exc:  # a failed sensitivity fit is reported, not fatal
+            out[name] = {"n_runs": len(data), "error": f"{type(exc).__name__}: {exc}"[:300]}
+            continue
+        out[name] = {
+            "n_runs": len(data),
+            "formula": decomp.formula,
+            "converged": decomp.converged,
+            "components": components_json(decomp),
+        }
+    return out
 
 
 def sha256_text(text: str) -> str:
