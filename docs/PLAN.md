@@ -59,7 +59,9 @@ on the CPU while E1 runs, because its runs have wall-clock limits.
 - A batch of slot day k, block b starts only in block b of the arm's day k or later, so the arm
   takes at least three UTC days; slots that overrun move to the same block of the next day.
 - Banked runs are committed locally after each check-in. Pushes (after `make prepush`, which
-  needs the CPU) happen only while the arm waits between blocks.
+  needs the CPU) happen only while the arm waits between blocks. The same holds for tests,
+  simulations, and anything else CPU-heavy in this session: CPU contention would lengthen runs
+  and could turn some into timeouts, an effect outside the design.
 - Check-ins keep the session awake while the arm runs; each one checks the process, the log,
   and the banked count, and relaunches the runner if it died.
 
