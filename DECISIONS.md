@@ -180,3 +180,43 @@ configuration per batch), so the E1 analysis will include a batch random effect.
 - A screening plan (s2) runs each candidate on a small task set with both harnesses to measure
   success and run time; the E1 models and difficulty mix are chosen from it and the pilot, then
   preregistered. All screening data is exploratory.
+
+## D-019 2026-11-04 E1 Claude arm (runs only where the billing guard is clean)
+- Two harnesses for Claude tiers: Claude Code native (`claude_code`) and minimal-agent with one
+  headless `claude -p --restricted --tools ""` call per step (`minimal`), so model is crossed
+  with scaffold for at least one Claude tier.
+- Claude Code native: the task's mock files are written into a disposable workspace (a mock path
+  `/etc/x` becomes `./etc/x`), Claude Code works on them with its file tools only
+  (`--tools Read,Glob,Grep,Write,Edit`, no Bash, no web tools), `--restricted
+  --strict-mcp-config --permission-mode dontAsk --no-session-persistence`, and writes its answer
+  to `ANSWER.txt`; grading reads that file and the final workspace files with the suite's
+  grader. Turns are counted from the stream-json output and the child is stopped at the cap.
+- Caps: each run is one `agent_run` ledger entry against `claude_agent_runs_per_day`; minimal-
+  agent steps are logged as `agent_step` entries (guarded, not separately capped). With
+  `cap_share = 0.2` the per-run turn cap is 8 (D-007), so the Claude arm's step budget (8)
+  differs from the local arms' (15); contrasts across arms are labeled step-budget-confounded.
+- The arm needs a machine where `make doctor` shows the billing guard clean and the `claude` CLI
+  logged in to the Max plan; in this hosted session it is refused by design (D-004). The
+  instructions for Raj go in docs/PLAN.md with the E1 preregistration.
+- Implementation details (src/noisefloor/claude_arm.py, client.py), settled before any Claude run:
+  - Turn cap: the CLI's `--max-turns` option (present but hidden from `--help` in 2.1.318) is
+    passed, and the stream reader also counts distinct assistant messages and stops the child
+    past the cap, as section 8 asks when no max-turns option can be relied on.
+  - $0 checks while the child runs: the init event's `apiKeySource` must be `none` (the plan
+    login; `/login managed key` or an API key would bill API credits), and a `rate_limit_event`
+    with status `rejected` or with paid extra usage in use (`isUsingOverage`, `overageInUse`)
+    stops the child at once and stops the plan (`UsageLimitError`, reset time kept in
+    `refused.json`). Refused runs are not banked and run again later.
+  - Clean child: `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` and `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` keep
+    Raj's CLAUDE.md files and auto memory out; parent-session markers and other services'
+    credentials are removed; the init event's model, tools, MCP servers, and memory paths are
+    recorded per run (`claude.clean`). `python -m noisefloor.claude_arm smoke` runs one pilot
+    task and prints this check; Raj runs it once before the arm starts.
+  - Where it runs: the Claude Code process needs the network to reach the model, so Claude
+    batches run as a host process, not in the network-less namespace sandbox. The subject has no
+    tool that runs code or reaches the network, and `--restricted` confines its file tools to a
+    temporary workspace outside the repository; minimal-agent tools are in-process mock tools.
+  - Answer: `ANSWER.txt` as it stands when the child ends; writing it counts as submitting.
+  - Minimal-agent with Claude: each step is one stateless call with the conversation so far as
+    one role-tagged prompt, because the CLI cannot replay earlier assistant turns. Temperature
+    and seed cannot be set through the CLI; they stay in the run spec and the cache key only.

@@ -71,6 +71,7 @@ class AgentConfig:
     wall_limit_s: float = 300.0
     seed: int = 0
     max_observation_chars: int = 2000
+    call_kind: str = "local"
 
 
 @dataclass
@@ -86,6 +87,7 @@ class Episode:
     model_wall_s: float
     trace: list[dict[str, Any]] = field(default_factory=list)
     error: str = ""
+    model_ids: list[str] = field(default_factory=list)
 
 
 def system_prompt(specs: Sequence[ToolSpecLike]) -> str:
@@ -155,7 +157,7 @@ def run_episode(env: Environment, client: Client, config: AgentConfig) -> Episod
         )
         try:
             remaining = max(1.0, config.wall_limit_s - (time.monotonic() - start))
-            reply = client.chat(request, timeout=remaining)
+            reply = client.chat(request, kind=config.call_kind, timeout=remaining)
         except BackendError as exc:
             episode.status, episode.error = "infra_error", str(exc)[:300]
             break
@@ -163,6 +165,8 @@ def run_episode(env: Environment, client: Client, config: AgentConfig) -> Episod
         episode.input_tokens += reply.input_tokens
         episode.output_tokens += reply.output_tokens
         episode.model_wall_s += reply.wall_s
+        if reply.model_id and reply.model_id not in episode.model_ids:
+            episode.model_ids.append(reply.model_id)
         messages.append({"role": "assistant", "content": reply.text})
         action = parse_action(reply.text)
         if action is None:

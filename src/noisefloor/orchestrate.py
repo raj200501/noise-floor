@@ -2,11 +2,14 @@
 
 Design shape (split plot): a batch is a whole plot that fixes the model server
 configuration (model, threads, concurrency); harness, timeout, sampling, and task vary
-inside it in randomized order. ``execute`` runs batches in the order given, each in
-:mod:`noisefloor.sandbox` via :mod:`noisefloor.runner`, then appends every run record,
-with provenance, to a JSON Lines artifact, and the batch's ledger lines to the usage
-ledger. Runs whose ``run_id`` is already in the artifact are skipped, so an
-interrupted plan resumes where it stopped and a banked run is never re-run.
+inside it in randomized order. ``execute`` runs batches in the order given, each via
+:mod:`noisefloor.runner` (local models in :mod:`noisefloor.sandbox`; Claude tiers as a
+host process, because Claude Code needs the network, D-019), then appends every run
+record, with provenance, to a JSON Lines artifact, and the batch's ledger lines to the
+usage ledger. Runs whose ``run_id`` is already in the artifact are skipped, so an
+interrupted plan resumes where it stopped and a banked run is never re-run. When a
+batch reports a refused model call (``refused.json``), ``execute`` banks what finished
+and stops; the rest of the plan runs on a later call.
 """
 
 from __future__ import annotations
@@ -24,7 +27,8 @@ from pathlib import Path
 from typing import Any
 
 from noisefloor import sandbox
-from noisefloor.models import MODELS, RUNTIME, server_binary
+from noisefloor.client import claude_child_env
+from noisefloor.models import CLAUDE_TIERS, MODELS, RUNTIME, is_claude, server_binary
 from noisefloor.runner import RunSpec, batch_key
 
 REPO = Path(__file__).resolve().parents[2]
@@ -54,17 +58,42 @@ def config_hash(spec: RunSpec) -> str:
     return hashlib.sha256(json.dumps(spec.to_json(), sort_keys=True).encode()).hexdigest()
 
 
+CLAUDE_RUNTIME = {
+    "name": "Claude Code, headless claude -p",
+    "billing": "Raj's Claude plan; total_cost_usd is logged as plan_equivalent_usd, never cash",
+}
+CLAUDE_SANDBOX = (
+    "host process; Claude Code --restricted with file tools only, confined to a disposable "
+    "workspace outside the repository; no shell, code execution, or web tools (D-019)"
+)
+
+
 def provenance(spec: RunSpec, batch: Batch, base: Mapping[str, Any]) -> dict[str, Any]:
-    """Provenance fields attached to every banked run record."""
-    model = MODELS[spec.model]
+    """Provenance fields attached to every banked run record.
+
+    A Claude run records its model alias here; the model ID that served it, the CLI
+    version, and the exact command line are in the run record's ``claude`` field.
+    """
+    if is_claude(spec.model):
+        model_fields: dict[str, Any] = {
+            "model_alias": CLAUDE_TIERS[spec.model],
+            "model_family": "claude",
+            "runtime": dict(CLAUDE_RUNTIME),
+            "sandbox": CLAUDE_SANDBOX,
+        }
+    else:
+        model = MODELS[spec.model]
+        model_fields = {
+            "model_repo": model.repo,
+            "model_revision": model.revision,
+            "model_file": model.filename,
+            "model_sha256": model.sha256,
+            "model_family": model.family,
+        }
     return {
         **base,
+        **model_fields,
         "config_sha256": config_hash(spec),
-        "model_repo": model.repo,
-        "model_revision": model.revision,
-        "model_file": model.filename,
-        "model_sha256": model.sha256,
-        "model_family": model.family,
         "batch_size": len(batch.runs),
     }
 
@@ -112,18 +141,104 @@ def banked_ids(artifact: Path) -> set[str]:
 Executor = Callable[[Batch, Path], list[dict[str, Any]]]
 
 
+def _prepare(batch: Batch, workspace: Path, **extra: str) -> Path:
+    """Write ``batch.json`` into a fresh workspace and return its path.
+
+    A workspace already banked by an earlier call (possible when a refusal left a
+    batch's runs unrecorded) keeps its old output under ``out.<n>``.
+    """
+    workspace.mkdir(parents=True, exist_ok=True)
+    banked = workspace / ".banked"
+    if banked.exists():
+        out = workspace / "out"
+        if out.exists():
+            n = sum(1 for _ in workspace.glob("out.*"))
+            out.rename(workspace / f"out.{n}")
+        banked.unlink()
+    batch_file = workspace / "batch.json"
+    payload = {"batch_id": batch.batch_id, "runs": [r.to_json() for r in batch.runs], **extra}
+    batch_file.write_text(json.dumps(payload, sort_keys=True))
+    return batch_file
+
+
+def _rows(batch: Batch, out: Path, returncode: int | None) -> list[dict[str, Any]]:
+    """The batch's run records, with a harness error for each run that has none.
+
+    After a refusal (``refused.json``), runs without a record are left out instead, so
+    they stay unbanked and run again later.
+    """
+    results = out / "results.jsonl"
+    rows = (
+        [json.loads(ln) for ln in results.read_text().splitlines() if ln.strip()]
+        if results.exists()
+        else []
+    )
+    if (out / "refused.json").exists():
+        return rows
+    done = {r["run_id"] for r in rows}
+    for spec in batch.runs:
+        if spec.run_id not in done:
+            rows.append(
+                {
+                    **spec.to_json(),
+                    "end_reason": "harness_error",
+                    "status": "infra_error",
+                    "outcome": 0.0,
+                    "error": f"runner exited {returncode} before this run",
+                }
+            )
+    return rows
+
+
+def host_executor(ledger: Path, timeout_per_run: float = 900.0) -> Executor:
+    """Run a Claude batch with :mod:`noisefloor.runner` as a host process (D-019).
+
+    The runner logs Claude usage straight to ``ledger`` and reads caps from the
+    repository's budget.toml; its environment is the Claude child environment
+    (:func:`noisefloor.client.claude_child_env`).
+    """
+
+    def execute_batch(batch: Batch, workspace: Path) -> list[dict[str, Any]]:
+        batch_file = _prepare(
+            batch, workspace, ledger=str(ledger), budget=str(REPO / "budget.toml")
+        )
+        out = workspace / "out"
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-m", "noisefloor.runner", str(batch_file), str(out)],
+                cwd=workspace,
+                env=claude_child_env(),
+                capture_output=True,
+                text=True,
+                timeout=timeout_per_run * len(batch.runs) + 300,
+                check=False,
+            )
+            stdout, stderr, code = proc.stdout, proc.stderr, proc.returncode
+        except subprocess.TimeoutExpired as exc:
+            stdout, stderr, code = str(exc.stdout or ""), str(exc.stderr or ""), None
+        (workspace / "runner.stdout").write_text(stdout)
+        (workspace / "runner.stderr").write_text(stderr[-50000:])
+        return _rows(batch, out, code)
+
+    return execute_batch
+
+
+def default_executor(ledger: Path) -> Executor:
+    """Claude batches on the host, local-model batches in the sandbox."""
+    host, boxed = host_executor(ledger), sandboxed_executor()
+
+    def execute_batch(batch: Batch, workspace: Path) -> list[dict[str, Any]]:
+        claude = is_claude(batch.runs[0].model)
+        return (host if claude else boxed)(batch, workspace)
+
+    return execute_batch
+
+
 def sandboxed_executor(timeout_per_run: float = 900.0) -> Executor:
     """Run a batch with :mod:`noisefloor.runner` inside the sandbox; return its records."""
 
     def execute_batch(batch: Batch, workspace: Path) -> list[dict[str, Any]]:
-        workspace.mkdir(parents=True, exist_ok=True)
-        batch_file = workspace / "batch.json"
-        batch_file.write_text(
-            json.dumps(
-                {"batch_id": batch.batch_id, "runs": [r.to_json() for r in batch.runs]},
-                sort_keys=True,
-            )
-        )
+        batch_file = _prepare(batch, workspace)
         out = workspace / "out"
         env = {
             "PATH": "/usr/bin:/bin",
@@ -141,25 +256,7 @@ def sandboxed_executor(timeout_per_run: float = 900.0) -> Executor:
         )
         (workspace / "runner.stdout").write_text(proc.stdout)
         (workspace / "runner.stderr").write_text(proc.stderr[-50000:])
-        results = out / "results.jsonl"
-        rows = (
-            [json.loads(ln) for ln in results.read_text().splitlines() if ln.strip()]
-            if results.exists()
-            else []
-        )
-        done = {r["run_id"] for r in rows}
-        for spec in batch.runs:
-            if spec.run_id not in done:
-                rows.append(
-                    {
-                        **spec.to_json(),
-                        "end_reason": "harness_error",
-                        "status": "infra_error",
-                        "outcome": 0.0,
-                        "error": f"runner exited {proc.returncode} before this run",
-                    }
-                )
-        return rows
+        return _rows(batch, out, proc.returncode)
 
     return execute_batch
 
@@ -230,7 +327,7 @@ def execute(
     spec_list = list(specs)
     by_id = {s.run_id: s for s in spec_list}
     done = banked_ids(artifact)
-    run_batch = executor or sandboxed_executor()
+    run_batch = executor or default_executor(ledger)
     root = work_root or Path(os.environ.get("NOISEFLOOR_WORK", DEFAULT_WORK))
     base = base_provenance()
     artifact.parent.mkdir(parents=True, exist_ok=True)
@@ -269,4 +366,9 @@ def execute(
         banked += len(rows)
         ok = sum(r.get("status") == "ok" for r in rows)
         log(f"{batch.batch_id}: {len(rows)} runs banked ({ok} ok)")
+        refused = workspace / "out" / "refused.json"
+        if refused.exists():
+            note = json.loads(refused.read_text())
+            log(f"{batch.batch_id}: model calls refused ({note.get('reason')}); stopping")
+            break
     return banked

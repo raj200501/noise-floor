@@ -175,6 +175,21 @@ MODELS: dict[str, LocalModel] = {
 }
 
 
+# Claude tiers as E1 subjects (D-019): subject key -> Claude Code model alias. They run
+# through Raj's Claude Code plan, not on this machine; the alias resolves to a model ID
+# that each run records from the child's init event.
+CLAUDE_TIERS: dict[str, str] = {
+    "claude-haiku": "haiku",
+    "claude-sonnet": "sonnet",
+    "claude-opus": "opus",
+}
+
+
+def is_claude(model: str) -> bool:
+    """True if ``model`` is a Claude tier rather than a pinned local model."""
+    return model in CLAUDE_TIERS
+
+
 def server_binary() -> Path:
     """Path of the llama-server binary."""
     return Path(os.environ.get("NOISEFLOOR_LLAMA_SERVER", DEFAULT_SERVER))

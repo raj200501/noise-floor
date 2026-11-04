@@ -15,6 +15,7 @@ import math
 import re
 import shutil
 import struct
+import sys
 import zipfile
 import zlib
 from pathlib import Path
@@ -29,7 +30,9 @@ from evalstats.adapters import inspect as adapter
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "adapters" / "inspect"
 FORMATS = ("eval-deflate", "eval-zstd", "json", "legacy")
-NATIVE_ZSTD = hasattr(zipfile, "ZIP_ZSTANDARD")  # Python 3.14 reads zstd members itself
+# Python 3.14 reads zstd members itself. (zipfile.ZIP_ZSTANDARD is no test: importing
+# inspect_ai imports zipfile_zstd, which patches zstd support into zipfile for the process.)
+NATIVE_ZSTD = sys.version_info >= (3, 14)
 
 # The tiny_qa task of make_logs.py (README): four samples, three epochs, four scorers.
 SAMPLE_IDS = ("sum", "product", "diff", "loop")
@@ -467,7 +470,25 @@ def test_sample_summaries_give_the_same_error_and_limit_statuses(tmp_path: Path)
         assert row["outcome"] == designed_outcome(raw_value("eval-deflate", "match", *key))
 
 
+@pytest.fixture
+def stdlib_zipfile(monkeypatch: pytest.MonkeyPatch) -> None:
+    """zipfile as Python 3.11 to 3.13 ship it: zstd members raise NotImplementedError.
+
+    Undoes zipfile_zstd's process-wide patch (imported with inspect_ai, for example by
+    tests/test_inspect_harness.py), so these tests reach the adapter's own zstd path.
+    """
+    current = zipfile._get_decompressor  # type: ignore[attr-defined]  # private stdlib helper
+
+    def without_zstd(compress_type: int) -> Any:
+        if compress_type == adapter._ZIP_ZSTANDARD:
+            raise NotImplementedError("That compression method is not supported")
+        return current(compress_type)
+
+    monkeypatch.setattr(zipfile, "_get_decompressor", without_zstd)
+
+
 @pytest.mark.skipif(NATIVE_ZSTD, reason="Python 3.14 reads zstd members without zstandard")
+@pytest.mark.usefixtures("stdlib_zipfile")
 def test_zstd_logs_need_the_zstandard_package(monkeypatch: pytest.MonkeyPatch) -> None:
     real_import = importlib.import_module
 
@@ -1072,6 +1093,7 @@ def test_unknown_compression_methods_are_named(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(NATIVE_ZSTD, reason="Python 3.14 reads zstd members without zstandard")
+@pytest.mark.usefixtures("stdlib_zipfile")
 def test_zstd_members_are_decompressed_and_checked(tmp_path: Path) -> None:
     good = [zstd_member("header.json", HEADER), zstd_member("samples/a_epoch_1.json", SAMPLE)]
     path = tmp_path / "log.eval"
