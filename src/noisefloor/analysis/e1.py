@@ -30,7 +30,7 @@ from typing import Any
 
 import pandas as pd
 
-from evalstats import EvalResults, tasks_needed
+from evalstats import EvalResults, paired_difference, score_interval, tasks_needed
 from evalstats.glmm import LOGISTIC_RESIDUAL_VAR, Decomposition, boot_coef_interval, decompose
 from noisefloor.analysis import mde as mde_lib
 from noisefloor.e1 import E1Design, claude_plan, local_plan
@@ -40,7 +40,7 @@ from noisefloor.preregs import prereg_block
 REPO = Path(__file__).resolve().parents[3]
 E1_DIR = REPO / "artifacts" / "e1"
 INPUTS = ("local.jsonl", "claude.jsonl")
-OUTPUTS = ("runs.jsonl", "variance_components.json", "mde.json")
+OUTPUTS = ("runs.jsonl", "variance_components.json", "mde.json", "scores.json", "contrasts.json")
 GAPS = (0.02, 0.05, 0.10)
 
 
@@ -220,6 +220,128 @@ def mde_tables(
     }
 
 
+def holm(p_values: Sequence[float]) -> list[float]:
+    """Holm-adjusted p-values (step-down, monotone), in the input order."""
+    order = sorted(range(len(p_values)), key=lambda i: p_values[i])
+    adjusted = [0.0] * len(p_values)
+    running = 0.0
+    for rank, i in enumerate(order):
+        value = p_values[i]
+        candidate = min(1.0, (len(p_values) - rank) * value) if math.isfinite(value) else 1.0
+        running = max(running, candidate)
+        adjusted[i] = running
+    return adjusted
+
+
+def _usable(rows: Sequence[Mapping[str, Any]], exclude: Sequence[str]) -> list[Mapping[str, Any]]:
+    return [r for r in rows if r["confirmatory"] and r["status"] not in exclude]
+
+
+def _results(rows: Sequence[Mapping[str, Any]], key: str) -> EvalResults:
+    """Runs as an EvalResults table with ``model`` from ``key``.
+
+    ``key`` names a row field, or ``factor:<name>`` for that factor's level.
+    """
+    factor = key.removeprefix("factor:") if key.startswith("factor:") else None
+    frame = pd.DataFrame(
+        [
+            {
+                "model": str(r["factors"][factor] if factor else r[key]),
+                "task": r["task"],
+                "run": r["run_id"],
+                "outcome": float(r["outcome"]),
+            }
+            for r in rows
+        ]
+    )
+    return EvalResults(frame)
+
+
+def scores_table(
+    rows: Sequence[Mapping[str, Any]], settings: Mapping[str, Any]
+) -> list[dict[str, Any]]:
+    """Each model's success rate with a task-clustered t interval (confirmatory runs)."""
+    usable = _usable(rows, settings["exclude_status"])
+    if not usable:
+        return []
+    results = _results(usable, "model_id")
+    out = []
+    for model in sorted({r["model_id"] for r in usable}):
+        si = score_interval(results, model, level=float(settings["level"]))
+        backend = next(r["backend"] for r in usable if r["model_id"] == model)
+        out.append(
+            {
+                "model": model,
+                "backend": backend,
+                "score": si.interval.estimate,
+                "lo": si.interval.lo,
+                "hi": si.interval.hi,
+                "n_tasks": si.n_tasks,
+                "runs_per_task": si.runs_per_task,
+                "interval_method": "cluster_t",
+            }
+        )
+    return out
+
+
+def _paired_row(results: EvalResults, a: str, b: str, level: float, label: str) -> dict[str, Any]:
+    pc = paired_difference(results, a, b, level=level)
+    return {
+        "contrast": label,
+        "a": a,
+        "b": b,
+        "difference": pc.difference.estimate,
+        "lo": pc.difference.lo,
+        "hi": pc.difference.hi,
+        "p_value": pc.p_value,
+        "n_tasks": pc.n_tasks,
+        "interval_method": "cluster_t",
+    }
+
+
+def contrasts_table(
+    rows: Sequence[Mapping[str, Any]], settings: Mapping[str, Any]
+) -> dict[str, list[dict[str, Any]]]:
+    """Paired harness contrasts per model and model comparisons, Holm-adjusted per family.
+
+    Harness: native minus minimal for every model, on its own confirmatory runs. Models:
+    every pair of local models on minimal-agent runs, and every Claude tier against every
+    local model on minimal-agent runs with the Claude step budget (temperature-confounded).
+    """
+    level = float(settings["level"])
+    usable = _usable(rows, settings["exclude_status"])
+    harness: list[dict[str, Any]] = []
+    for model in sorted({r["model_id"] for r in usable}):
+        mine = [r for r in usable if r["model_id"] == model]
+        if {r["factors"].get("harness") for r in mine} >= {"native", "minimal"}:
+            results = _results(mine, "factor:harness")
+            harness.append(_paired_row(results, "native", "minimal", level, f"harness:{model}"))
+    minimal = [r for r in usable if r["factors"].get("harness") == "minimal"]
+    local_models = sorted({r["model_id"] for r in minimal if r["backend"] == "local"})
+    claude_models = sorted({r["model_id"] for r in minimal if r["backend"] == "claude"})
+    models: list[dict[str, Any]] = []
+    local_runs = _results([r for r in minimal if r["backend"] == "local"], "model_id")
+    for i, a in enumerate(local_models):
+        for b in local_models[i + 1 :]:
+            models.append(_paired_row(local_runs, a, b, level, f"model:{a}-{b}"))
+    claude_steps = {r["factors"].get("steps") for r in minimal if r["backend"] == "claude"}
+    matched = [
+        r for r in minimal if r["backend"] == "claude" or r["factors"].get("steps") in claude_steps
+    ]
+    if claude_models:
+        matched_runs = _results(matched, "model_id")
+        for a in claude_models:
+            for b in local_models:
+                row = _paired_row(matched_runs, a, b, level, f"model:{a}-{b}")
+                row["label"] = "temperature-confounded"
+                models.append(row)
+    for family in (harness, models):
+        for row, adj in zip(family, holm([r["p_value"] for r in family]), strict=True):
+            row["p_holm"] = adj
+            row["supported"] = bool(row["lo"] > 0 or row["hi"] < 0)
+    return {"harness": harness, "models": models}
+
+
 def _dump(obj: Any) -> str:
     def clean(value: Any) -> Any:
         if isinstance(value, float) and not math.isfinite(value):
@@ -265,10 +387,14 @@ def compute(prereg: Path, directory: Path = E1_DIR) -> dict[str, str]:
         "components": components_json(decomp),
     }
     mde = {"prereg": _rel(prereg), **mde_tables(decomp, data, settings)}
+    scores = {"prereg": _rel(prereg), "rows": scores_table(rows, settings)}
+    contrasts = {"prereg": _rel(prereg), **contrasts_table(rows, settings)}
     return {
         "runs.jsonl": "".join(json.dumps(r, sort_keys=True) + "\n" for r in rows),
         "variance_components.json": _dump(variance),
         "mde.json": _dump(mde),
+        "scores.json": _dump(scores),
+        "contrasts.json": _dump(contrasts),
     }
 
 

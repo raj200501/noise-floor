@@ -105,7 +105,7 @@ def test_build_and_verify(tmp_path: Path) -> None:
         "".join(json.dumps(r) + "\n" for r in recs if r["phase"] == "e1-claude")
     )
     manifest = a.build(prereg, tmp_path)
-    assert manifest["prereg"] == str(prereg) and len(manifest["files"]) == 5
+    assert manifest["prereg"] == str(prereg) and len(manifest["files"]) == 7
     vc = json.loads((tmp_path / "variance_components.json").read_text())
     names = [c["name"] for c in vc["components"]]
     assert names[:2] == ["task", "model:task"] and names[-1] == "residual"
@@ -118,6 +118,19 @@ def test_build_and_verify(tmp_path: Path) -> None:
     assert [(r["tasks"], r["runs"]) for r in mde["rows"]] == [(40, 1), (89, 5)]
     assert mde["rows"][1]["mde"] < mde["rows"][0]["mde"]
     assert {n["gap"] for n in mde["tasks_needed"]} == set(a.GAPS)
+    scores = json.loads((tmp_path / "scores.json").read_text())["rows"]
+    assert {r["model"] for r in scores} == {*DESIGN.models, *DESIGN.claude_tiers}
+    assert all(r["lo"] <= r["score"] <= r["hi"] for r in scores)
+    contrasts = json.loads((tmp_path / "contrasts.json").read_text())
+    assert {r["contrast"] for r in contrasts["harness"]} == {
+        f"harness:{m}" for m in (*DESIGN.models, *DESIGN.claude_tiers)
+    }
+    labels = {r["contrast"] for r in contrasts["models"]}
+    assert "model:granite-4.0-micro-phi-4-mini" in labels
+    assert "model:claude-haiku-qwen3-4b" in labels
+    claude_rows = [r for r in contrasts["models"] if r["a"] == "claude-haiku"]
+    assert all(r["label"] == "temperature-confounded" for r in claude_rows)
+    assert all(r["p_holm"] >= r["p_value"] for r in contrasts["models"])
     runs = [json.loads(ln) for ln in (tmp_path / "runs.jsonl").read_text().splitlines()]
     assert sum(r["confirmatory"] for r in runs) == len(runs)  # both arms are planned
     monkey_dir = tmp_path
@@ -125,3 +138,9 @@ def test_build_and_verify(tmp_path: Path) -> None:
     (tmp_path / "mde.json").write_text("{}")
     problems = a.verify(monkey_dir)
     assert any("mde.json" in p for p in problems)
+
+
+def test_holm() -> None:
+    assert a.holm([0.01, 0.04, 0.03]) == pytest.approx([0.03, 0.06, 0.06])
+    assert a.holm([0.5, float("nan")]) == pytest.approx([1.0, 1.0])
+    assert a.holm([]) == []
