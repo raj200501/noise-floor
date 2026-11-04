@@ -28,6 +28,7 @@ SETTINGS = {
     "box_interval": "basic",
     "share_interval": "basic_log",
     "score_interval": "cluster_wilson",
+    "contrast_interval": "mover_wilson",
     "seed": 7,
     "exclude_status": ["infra_error"],
     "block_hours": [[0, 12], [12, 24]],
@@ -134,6 +135,14 @@ def test_build_and_verify(tmp_path: Path) -> None:
     claude_rows = [r for r in contrasts["models"] if r["a"] == "claude-haiku"]
     assert all(r["label"] == "temperature-confounded" for r in claude_rows)
     assert all(r["p_holm"] >= r["p_value"] for r in contrasts["models"])
+    every = [*contrasts["harness"], *contrasts["models"]]
+    assert {r["interval_method"] for r in every} == {"mover_wilson"}
+    assert {r["family"] for r in every} == {
+        "harness-local",
+        "harness-claude",
+        "models-local",
+        "models-claude",
+    }
     runs = [json.loads(ln) for ln in (tmp_path / "runs.jsonl").read_text().splitlines()]
     assert sum(r["confirmatory"] for r in runs) == len(runs)  # both arms are planned
     monkey_dir = tmp_path

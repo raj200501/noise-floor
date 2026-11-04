@@ -123,3 +123,39 @@ def test_cluster_wilson_interval() -> None:
         cluster_wilson_interval(np.array([0.5, 1.5]), np.array([2.0, 2.0]))
     with pytest.raises(ValueError, match="run count"):
         cluster_wilson_interval(np.array([0.5, 1.0]), np.array([2.0]))
+
+
+def test_mover_wilson_interval_and_p_value() -> None:
+    from evalstats.intervals import (
+        cluster_wilson_interval,
+        mover_wilson_interval,
+        mover_wilson_p_value,
+    )
+
+    a = np.array([1.0, 1.0, 0.0, 1.0, 1.0, 1.0, 0.0, 1.0, 1.0, 1.0])
+    b = np.array([1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0])
+    ra, rb = np.ones(10), np.ones(10)
+    iv = mover_wilson_interval(a, ra, b, rb)
+    wa, wb = cluster_wilson_interval(a, ra), cluster_wilson_interval(b, rb)
+    r = float(np.corrcoef(a, b)[0, 1])
+    d = a.mean() - b.mean()
+    lo = d - math.sqrt(
+        (wa.estimate - wa.lo) ** 2
+        + (wb.hi - wb.estimate) ** 2
+        - 2 * r * (wa.estimate - wa.lo) * (wb.hi - wb.estimate)
+    )
+    hi = d + math.sqrt(
+        (wa.hi - wa.estimate) ** 2
+        + (wb.estimate - wb.lo) ** 2
+        - 2 * r * (wa.hi - wa.estimate) * (wb.estimate - wb.lo)
+    )
+    assert iv.estimate == pytest.approx(d) and (iv.lo, iv.hi) == pytest.approx((lo, hi))
+    assert iv.method == "mover_wilson" and -1.0 <= iv.lo < d < iv.hi <= 1.0
+    p = mover_wilson_p_value(a, ra, b, rb)
+    assert 0.0 < p < 1.0
+    edge = mover_wilson_interval(a, ra, b, rb, level=1 - p)
+    assert min(abs(edge.lo), abs(edge.hi)) == pytest.approx(0.0, abs=1e-6)
+    assert mover_wilson_p_value(a, ra, a, ra) == 1.0
+    assert mover_wilson_p_value(np.ones(30), np.ones(30), np.zeros(30), np.ones(30)) < 1e-6
+    with pytest.raises(ValueError, match="shared task"):
+        mover_wilson_interval(a, ra, b[:5], rb[:5])

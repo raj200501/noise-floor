@@ -16,6 +16,7 @@ from evalstats.intervals import (
     cluster_robust_mean,
     cluster_wilson_interval,
     interval_for_mean,
+    mover_wilson_interval,
     percentile_interval,
     t_interval,
 )
@@ -58,6 +59,7 @@ __all__ = [
     "design_from_results",
     "interval_for_mean",
     "mde",
+    "mover_wilson_interval",
     "paired_difference",
     "percentile_interval",
     "policy_bounds",

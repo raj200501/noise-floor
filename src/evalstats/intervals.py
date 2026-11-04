@@ -114,6 +114,70 @@ def cluster_wilson_interval(
     return Interval(est, max(0.0, center - half), min(1.0, center + half), level, "cluster_wilson")
 
 
+def mover_wilson_interval(
+    a_means: npt.ArrayLike,
+    a_runs: npt.ArrayLike,
+    b_means: npt.ArrayLike,
+    b_runs: npt.ArrayLike,
+    level: float = 0.95,
+) -> Interval:
+    """Interval for the paired difference of two success rates, ``a - b``, on shared tasks.
+
+    MOVER (method of variance estimates recovery): each rate gets its
+    :func:`cluster_wilson_interval`, and the two are combined with ``r``, the correlation of
+    the per-task rates (0 when either is constant), as
+    ``d - sqrt((p_a - l_a)**2 + (u_b - p_b)**2 - 2 r (p_a - l_a)(u_b - p_b))`` for the lower
+    end and symmetrically for the upper end. It keeps nominal coverage at success rates near
+    0 or 1, where the paired t interval on per-task differences under-covers.
+    """
+    am, bm = _as_vector(a_means, "a_means"), _as_vector(b_means, "b_means")
+    if am.shape != bm.shape:
+        raise ValueError("a and b need one rate per shared task")
+    ia = cluster_wilson_interval(am, a_runs, level)
+    ib = cluster_wilson_interval(bm, b_runs, level)
+    r = 0.0
+    if am.size > 1 and float(am.std()) > 0 and float(bm.std()) > 0:
+        r = float(np.corrcoef(am, bm)[0, 1])
+    pa, pb = ia.estimate, ib.estimate
+    d = pa - pb
+    down_a, up_b = pa - ia.lo, ib.hi - pb
+    up_a, down_b = ia.hi - pa, pb - ib.lo
+    lo = d - math.sqrt(max(0.0, down_a**2 + up_b**2 - 2 * r * down_a * up_b))
+    hi = d + math.sqrt(max(0.0, up_a**2 + down_b**2 - 2 * r * up_a * down_b))
+    return Interval(d, max(-1.0, lo), min(1.0, hi), level, "mover_wilson")
+
+
+def mover_wilson_p_value(
+    a_means: npt.ArrayLike,
+    a_runs: npt.ArrayLike,
+    b_means: npt.ArrayLike,
+    b_runs: npt.ArrayLike,
+) -> float:
+    """Two-sided p-value of "no difference" that matches :func:`mover_wilson_interval`.
+
+    It is ``1 - L``, where ``L`` is the largest level whose interval excludes 0 (found by
+    bisection), so the interval at level ``1 - alpha`` excludes 0 exactly when the p-value
+    is below ``alpha``.
+    """
+
+    def excludes_zero(level: float) -> bool:
+        iv = mover_wilson_interval(a_means, a_runs, b_means, b_runs, level)
+        return iv.lo > 0 or iv.hi < 0
+
+    lo, hi = 1e-9, 1 - 1e-9
+    if not excludes_zero(lo):
+        return 1.0
+    if excludes_zero(hi):
+        return 0.0
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        if excludes_zero(mid):
+            lo = mid
+        else:
+            hi = mid
+    return float(1 - lo)
+
+
 def cluster_robust_mean(
     values: npt.ArrayLike, clusters: npt.ArrayLike, level: float = 0.95
 ) -> tuple[Interval, float]:

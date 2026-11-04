@@ -193,12 +193,26 @@ success rate, :func:`cluster_wilson_interval` (``score_interval(method=
 
 Smallest true score difference detected with the given power and level.
 
+### `mover_wilson_interval(a_means: 'npt.ArrayLike', a_runs: 'npt.ArrayLike', b_means: 'npt.ArrayLike', b_runs: 'npt.ArrayLike', level: 'float' = 0.95) -> 'Interval'`
+
+Interval for the paired difference of two success rates, ``a - b``, on shared tasks.
+
+MOVER (method of variance estimates recovery): each rate gets its
+:func:`cluster_wilson_interval`, and the two are combined with ``r``, the correlation of
+the per-task rates (0 when either is constant), as
+``d - sqrt((p_a - l_a)**2 + (u_b - p_b)**2 - 2 r (p_a - l_a)(u_b - p_b))`` for the lower
+end and symmetrically for the upper end. It keeps nominal coverage at success rates near
+0 or 1, where the paired t interval on per-task differences under-covers.
+
 ### `paired_difference(results: 'EvalResults', model_a: 'str', model_b: 'str', *, method: 'str' = 'cluster_t', level: 'float' = 0.95, n_boot: 'int' = 10000, seed: 'int | None' = None) -> 'PairedComparison'`
 
 Paired comparison on the tasks both models attempted.
 
-The p-value is the two-sided paired t-test on per-task differences, whatever
-interval method is chosen.
+``method`` is ``cluster_t`` (default), ``bootstrap``, ``bca``, or ``mover_wilson`` (for
+success rates; see :func:`evalstats.intervals.mover_wilson_interval`). The p-value is the
+two-sided paired t-test on per-task differences, except with ``mover_wilson``, whose
+p-value inverts its interval (:func:`evalstats.intervals.mover_wilson_p_value`); ``se``
+and ``t_stat`` are always the paired t quantities.
 
 ### `percentile_interval(values: 'npt.ArrayLike', level: 'float' = 0.95, n_boot: 'int' = 10000, seed: 'int | None' = None) -> 'Interval'`
 

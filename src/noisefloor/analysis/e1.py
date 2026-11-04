@@ -289,10 +289,13 @@ def scores_table(
     return out
 
 
-def _paired_row(results: EvalResults, a: str, b: str, level: float, label: str) -> dict[str, Any]:
-    pc = paired_difference(results, a, b, level=level)
+def _paired_row(
+    results: EvalResults, a: str, b: str, level: float, *, label: str, method: str, family: str
+) -> dict[str, Any]:
+    pc = paired_difference(results, a, b, level=level, method=method)
     return {
         "contrast": label,
+        "family": family,
         "a": a,
         "b": b,
         "difference": pc.difference.estimate,
@@ -300,7 +303,7 @@ def _paired_row(results: EvalResults, a: str, b: str, level: float, label: str) 
         "hi": pc.difference.hi,
         "p_value": pc.p_value,
         "n_tasks": pc.n_tasks,
-        "interval_method": "cluster_t",
+        "interval_method": pc.difference.method,
     }
 
 
@@ -312,15 +315,30 @@ def contrasts_table(
     Harness: native minus minimal for every model, on its own confirmatory runs. Models:
     every pair of local models on minimal-agent runs, and every Claude tier against every
     local model on minimal-agent runs with the Claude step budget (temperature-confounded).
+    Holm families: local harness contrasts, Claude harness contrasts, local model pairs,
+    and Claude-local pairs. The interval method is ``settings["contrast_interval"]``
+    (default ``cluster_t``).
     """
     level = float(settings["level"])
+    method = str(settings.get("contrast_interval", "cluster_t"))
     usable = _usable(rows, settings["exclude_status"])
     harness: list[dict[str, Any]] = []
     for model in sorted({r["model_id"] for r in usable}):
         mine = [r for r in usable if r["model_id"] == model]
         if {r["factors"].get("harness") for r in mine} >= {"native", "minimal"}:
             results = _results(mine, "factor:harness")
-            harness.append(_paired_row(results, "native", "minimal", level, f"harness:{model}"))
+            family = f"harness-{mine[0]['backend']}"
+            harness.append(
+                _paired_row(
+                    results,
+                    "native",
+                    "minimal",
+                    level,
+                    label=f"harness:{model}",
+                    method=method,
+                    family=family,
+                )
+            )
     minimal = [r for r in usable if r["factors"].get("harness") == "minimal"]
     local_models = sorted({r["model_id"] for r in minimal if r["backend"] == "local"})
     claude_models = sorted({r["model_id"] for r in minimal if r["backend"] == "claude"})
@@ -328,7 +346,17 @@ def contrasts_table(
     local_runs = _results([r for r in minimal if r["backend"] == "local"], "model_id")
     for i, a in enumerate(local_models):
         for b in local_models[i + 1 :]:
-            models.append(_paired_row(local_runs, a, b, level, f"model:{a}-{b}"))
+            models.append(
+                _paired_row(
+                    local_runs,
+                    a,
+                    b,
+                    level,
+                    label=f"model:{a}-{b}",
+                    method=method,
+                    family="models-local",
+                )
+            )
     claude_steps = {r["factors"].get("steps") for r in minimal if r["backend"] == "claude"}
     matched = [
         r for r in minimal if r["backend"] == "claude" or r["factors"].get("steps") in claude_steps
@@ -337,11 +365,20 @@ def contrasts_table(
         matched_runs = _results(matched, "model_id")
         for a in claude_models:
             for b in local_models:
-                row = _paired_row(matched_runs, a, b, level, f"model:{a}-{b}")
+                row = _paired_row(
+                    matched_runs,
+                    a,
+                    b,
+                    level,
+                    label=f"model:{a}-{b}",
+                    method=method,
+                    family="models-claude",
+                )
                 row["label"] = "temperature-confounded"
                 models.append(row)
-    for family in (harness, models):
-        for row, adj in zip(family, holm([r["p_value"] for r in family]), strict=True):
+    for name in sorted({r["family"] for r in (*harness, *models)}):
+        members = [r for r in (*harness, *models) if r["family"] == name]
+        for row, adj in zip(members, holm([r["p_value"] for r in members]), strict=True):
             row["p_holm"] = adj
             row["supported"] = bool(row["lo"] > 0 or row["hi"] < 0)
     return {"harness": harness, "models": models}

@@ -14,7 +14,14 @@ import numpy as np
 from scipy import stats
 
 from evalstats import validity
-from evalstats.intervals import Interval, cluster_wilson_interval, interval_for_mean, mean_se
+from evalstats.intervals import (
+    Interval,
+    cluster_wilson_interval,
+    interval_for_mean,
+    mean_se,
+    mover_wilson_interval,
+    mover_wilson_p_value,
+)
 from evalstats.schema import EvalResults
 
 
@@ -101,15 +108,23 @@ def paired_difference(
 ) -> PairedComparison:
     """Paired comparison on the tasks both models attempted.
 
-    The p-value is the two-sided paired t-test on per-task differences, whatever
-    interval method is chosen.
+    ``method`` is ``cluster_t`` (default), ``bootstrap``, ``bca``, or ``mover_wilson`` (for
+    success rates; see :func:`evalstats.intervals.mover_wilson_interval`). The p-value is the
+    two-sided paired t-test on per-task differences, except with ``mover_wilson``, whose
+    p-value inverts its interval (:func:`evalstats.intervals.mover_wilson_p_value`); ``se``
+    and ``t_stat`` are always the paired t quantities.
     """
     if model_a == model_b:
         raise ValueError("compare two different models")
     pair = results.paired(model_a, model_b)
     diffs = pair.differences
     validity.check("paired_difference", method, int(diffs.size))
-    interval = interval_for_mean(diffs, method=method, level=level, n_boot=n_boot, seed=seed)
+    mover = method == "mover_wilson"
+    if mover:
+        args = (pair.a, pair.runs_a.astype(np.float64), pair.b, pair.runs_b.astype(np.float64))
+        interval = mover_wilson_interval(*args, level=level)
+    else:
+        interval = interval_for_mean(diffs, method=method, level=level, n_boot=n_boot, seed=seed)
     se = mean_se(diffs)
     if diffs.size < 2:
         t_stat, p_value = math.nan, math.nan
@@ -119,6 +134,8 @@ def paired_difference(
     else:
         t_stat = float(diffs.mean() / se)
         p_value = float(2 * stats.t.sf(abs(t_stat), df=diffs.size - 1))
+    if mover and diffs.size >= 2:
+        p_value = mover_wilson_p_value(*args)
     n_a = len(results.task_scores(model_a))
     n_b = len(results.task_scores(model_b))
     return PairedComparison(

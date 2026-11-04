@@ -74,3 +74,15 @@ def test_score_interval_cluster_wilson(results: EvalResults) -> None:
     )
     assert got.interval == direct and got.interval.method == "cluster_wilson"
     assert got.interval.lo <= got.interval.estimate <= got.interval.hi
+
+
+def test_paired_difference_mover_wilson(results: EvalResults) -> None:
+    from evalstats.intervals import mover_wilson_interval, mover_wilson_p_value
+
+    got = paired_difference(results, "a", "b", method="mover_wilson")
+    pair = results.paired("a", "b")
+    args = (pair.a, pair.runs_a.astype(float), pair.b, pair.runs_b.astype(float))
+    assert got.difference == mover_wilson_interval(*args)
+    assert got.p_value == pytest.approx(mover_wilson_p_value(*args))
+    t_only = paired_difference(results, "a", "b")
+    assert got.t_stat == t_only.t_stat and got.se == t_only.se
