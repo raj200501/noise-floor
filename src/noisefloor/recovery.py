@@ -40,6 +40,7 @@ import pandas as pd
 from evalstats import EvalResults
 from evalstats.glmm import (
     BOOT_INTERVALS,
+    COEF_INTERVALS,
     Decomposition,
     boot_coef_interval,
     boot_variance_interval,
@@ -412,8 +413,14 @@ def pilot_row(
             draws = np.column_stack(
                 [np.asarray(decomp.coefficient_replicates[n], dtype=np.float64) for n in names]
             )
-            for kind in BOOT_INTERVALS:
-                entry[f"box_{kind}"] = contribution_box(weights, est, draws, settings.level, kind)
+            se = np.array([decomp.coefficient_se.get(n, np.nan) for n in names])
+            se_draws = np.column_stack(
+                [np.asarray(decomp.coefficient_se_replicates[n], dtype=np.float64) for n in names]
+            )
+            for kind in COEF_INTERVALS:
+                entry[f"box_{kind}"] = contribution_box(
+                    weights, est, draws, settings.level, kind, se=se, se_draws=se_draws
+                )
         rows[comp.name] = entry
     if settings.mde_designs:
         true_mde = planted_mde(design, planted, data, settings.mde_designs)
@@ -441,7 +448,8 @@ def pilot_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]
             "bias": float(np.mean([c["estimate"] - c["planted"] for c in comps])),
             "sd": float(np.std([c["estimate"] for c in comps])),
         }
-        for kind in ("percentile", "basic", "bc", "box_percentile", "box_basic", "box_bc"):
+        kinds = ("percentile", "basic", "bc", "basic_log", *(f"box_{k}" for k in COEF_INTERVALS))
+        for kind in kinds:
             ok = [c for c in comps if c.get(kind) and None not in c[kind]]
             if ok:
                 hit = sum(1 for c in ok if c[kind][0] <= c["planted"] <= c[kind][1])

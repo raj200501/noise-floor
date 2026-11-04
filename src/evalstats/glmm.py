@@ -22,9 +22,9 @@ Bootstrap intervals: a random-effect variance gets the ``percentile``, ``basic``
 (``2 * estimate - quantiles``, cut at 0), ``bc`` (bias-corrected percentile), or
 ``basic_log`` (basic on the log scale) interval of its replicates (``boot_interval``).
 A fixed factor's contribution gets the range of the contribution over a box of intervals
-for the factor's coefficients (``box_interval``: percentile, basic, or bias-corrected),
-each at level ``1 - (1 - level) / (k - 1)`` for ``k`` levels (Bonferroni), so it covers
-at least as often as the box. Shares get percentile intervals.
+for the factor's coefficients (``box_interval``: percentile, basic, bias-corrected, or
+studentized ``student``), each at level ``1 - (1 - level) / (k - 1)`` for ``k`` levels
+(Bonferroni), so it covers at least as often as the box. Shares get percentile intervals.
 """
 
 from __future__ import annotations
@@ -81,6 +81,10 @@ class Decomposition:
     """Bootstrap replicate values of each non-residual component (bootstrap only)."""
     coefficient_replicates: dict[str, tuple[float, ...]] = field(default_factory=dict)
     """Bootstrap replicates of every fixed-effect coefficient (bootstrap only)."""
+    coefficient_se: dict[str, float] = field(default_factory=dict)
+    """Model-based standard error of every fixed-effect coefficient (bootstrap only)."""
+    coefficient_se_replicates: dict[str, tuple[float, ...]] = field(default_factory=dict)
+    """Bootstrap replicates of those standard errors (bootstrap only)."""
 
     def component(self, name: str) -> VarianceComponent:
         """The component with this name."""
@@ -107,6 +111,8 @@ class _RawFit:
     messages: list[str]
     boot_random: dict[str, np.ndarray] = field(default_factory=dict)  # replicate variances
     boot_fixed: dict[str, np.ndarray] = field(default_factory=dict)  # replicate coefficients
+    fixed_se: dict[str, float] = field(default_factory=dict)  # model-based standard errors
+    boot_fixed_se: dict[str, np.ndarray] = field(default_factory=dict)  # their replicates
 
 
 def _check_names(names: Sequence[str], frame: pd.DataFrame) -> None:
@@ -249,6 +255,8 @@ function(df, formula, factors, nagq, n_boot, seed) {
   sims <- stats::simulate(fit, nsim = n_boot)  # use.u = FALSE: new random effects each time
   boot_vc <- matrix(NA_real_, n_boot, length(grp))
   boot_fe <- matrix(NA_real_, n_boot, length(fe_names))
+  boot_se <- matrix(NA_real_, n_boot, length(fe_names))
+  se_of <- function(f) sqrt(diag(as.matrix(stats::vcov(f))))[fe_names]
   failed <- 0L
   warned <- 0L
   for (b in seq_len(n_boot)) {
@@ -265,11 +273,13 @@ function(df, formula, factors, nagq, n_boot, seed) {
     v <- as.data.frame(lme4::VarCorr(f))
     boot_vc[b, ] <- as.numeric(v$vcov[match(grp, as.character(v$grp))])
     boot_fe[b, ] <- as.numeric(lme4::fixef(f)[fe_names])
+    boot_se[b, ] <- as.numeric(se_of(f))
   }
   conv <- fit@optinfo$conv$lme4$messages
   list(
     grp = grp, vcov = as.numeric(vc$vcov), fe_names = fe_names,
     fe = as.numeric(lme4::fixef(fit)), boot_vc = boot_vc, boot_fe = boot_fe,
+    se = as.numeric(se_of(fit)), boot_se = boot_se,
     failed = failed, warned = warned,
     msgs = unique(c(as.character(msgs), as.character(conv))),
     version = as.character(utils::packageVersion("lme4"))
@@ -311,6 +321,7 @@ def _fit_lme4_bootstrap(
     fe_names = [str(n) for n in get["fe_names"]]
     boot_vc = np.asarray(get["boot_vc"], dtype=np.float64).reshape(n_boot, len(grp), order="F")
     boot_fe = np.asarray(get["boot_fe"], dtype=np.float64).reshape(n_boot, len(fe_names), order="F")
+    boot_se = np.asarray(get["boot_se"], dtype=np.float64).reshape(n_boot, len(fe_names), order="F")
     random_var = {
         g.replace("__", ":"): v for g, v in zip(grp, vcov, strict=True) if g != "Residual"
     }
@@ -331,6 +342,8 @@ def _fit_lme4_bootstrap(
         messages=msgs,
         boot_random=boot_random,
         boot_fixed={n: boot_fe[:, i] for i, n in enumerate(fe_names)},
+        fixed_se=dict(zip(fe_names, [float(v) for v in get["se"]], strict=True)),
+        boot_fixed_se={n: boot_se[:, i] for i, n in enumerate(fe_names)},
     )
 
 
@@ -454,6 +467,7 @@ def _fixed_components(
 
 
 BOOT_INTERVALS = ("percentile", "basic", "bc", "basic_log")
+COEF_INTERVALS = (*BOOT_INTERVALS, "student")  # rules for coefficients (and boxes)
 METHODS = ("profile", "parametric_bootstrap")
 _MAX_BOX_COEFS = 12  # a factor with more levels gets no box interval (2**12 vertices)
 
@@ -511,11 +525,32 @@ def _contribution_variance(weights: np.ndarray, coefs: np.ndarray) -> float:
 
 
 def boot_coef_interval(
-    estimate: float, draws: np.ndarray, level: float, kind: str = "percentile"
+    estimate: float,
+    draws: np.ndarray,
+    level: float,
+    kind: str = "percentile",
+    *,
+    se: float | None = None,
+    se_draws: np.ndarray | None = None,
 ) -> tuple[float, float] | None:
-    """Bootstrap interval for a coefficient (no cut at 0); rules as for variances."""
+    """Bootstrap interval for a coefficient (no cut at 0).
+
+    Rules as for variances, plus ``student`` (bootstrap-t): the quantiles of the replicate
+    statistics ``(draw - estimate) / se_draw`` scaled by the fit's standard error ``se``,
+    which needs ``se`` and the replicates' standard errors ``se_draws``.
+    """
     from scipy import stats
 
+    if kind == "student":
+        if se is None or se_draws is None:
+            raise ValueError("the student rule needs se and se_draws")
+        ok = np.isfinite(draws) & np.isfinite(se_draws) & (se_draws > 0)
+        if ok.sum() < 2 or not (math.isfinite(se) and se > 0):
+            return None
+        t = (draws[ok] - estimate) / se_draws[ok]
+        a = (1 - level) / 2
+        q_lo, q_hi = np.quantile(t, [a, 1 - a])
+        return float(estimate - q_hi * se), float(estimate - q_lo * se)
     d = draws[np.isfinite(draws)]
     if d.size < 2:
         return None
@@ -541,12 +576,16 @@ def contribution_box(
     draws: np.ndarray,
     level: float,
     kind: str = "percentile",
+    *,
+    se: np.ndarray | None = None,
+    se_draws: np.ndarray | None = None,
 ) -> tuple[float, float] | None:
     """Range of a factor's contribution variance over a Bonferroni box of coefficient intervals.
 
     ``estimate`` and the columns of ``draws`` are the factor's coefficients without the
-    reference level; ``weights`` are all levels' row shares. None if a coefficient has
-    fewer than two finite replicates or the factor has more than 13 levels.
+    reference level; ``weights`` are all levels' row shares; ``se`` and the columns of
+    ``se_draws`` are the coefficients' standard errors (for the ``student`` rule). None if a
+    coefficient has fewer than two usable replicates or the factor has more than 13 levels.
     """
     from scipy import optimize
 
@@ -556,7 +595,14 @@ def contribution_box(
     each = 1 - (1 - level) / k1
     bounds = []
     for j in range(k1):
-        ci = boot_coef_interval(float(estimate[j]), draws[:, j], each, kind)
+        ci = boot_coef_interval(
+            float(estimate[j]),
+            draws[:, j],
+            each,
+            kind,
+            se=None if se is None else float(se[j]),
+            se_draws=None if se_draws is None else se_draws[:, j],
+        )
         if ci is None:
             return None
         bounds.append(ci)
@@ -572,6 +618,20 @@ def contribution_box(
 
     res = optimize.minimize(objective, start, method="L-BFGS-B", bounds=bounds)
     return max(0.0, float(res.fun)), hi_v
+
+
+def coefficient_errors(
+    raw: _RawFit, names: Sequence[str], n_boot: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """Standard errors of the named coefficients and their replicates (NaN where absent)."""
+    se = np.array([raw.fixed_se.get(n, math.nan) for n in names], dtype=np.float64)
+    cols = [raw.boot_fixed_se.get(n) for n in names]
+    draws = (
+        np.column_stack([c if c is not None else np.full(n_boot, np.nan) for c in cols])
+        if names
+        else np.empty((n_boot, 0))
+    )
+    return se, draws
 
 
 def _boot_parts(
@@ -603,7 +663,10 @@ def _boot_parts(
             else np.empty((n_boot, 0))
         )
         variance = _contribution_variance(weights, estimate)
-        ci = contribution_box(weights, estimate, draws, level, box_interval)
+        se, se_draws = coefficient_errors(raw, names, n_boot)
+        ci = contribution_box(
+            weights, estimate, draws, level, box_interval, se=se, se_draws=se_draws
+        )
         reps = np.array(
             [
                 _contribution_variance(weights, row) if np.all(np.isfinite(row)) else np.nan
@@ -652,7 +715,7 @@ def decompose(
     if not results.is_binary:
         raise ValueError("decompose needs binary outcomes")
     _check_options(level, method, boot_interval, nagq, n_boot)
-    if box_interval not in BOOT_INTERVALS:
+    if box_interval not in COEF_INTERVALS:
         raise ValueError(f"unknown bootstrap interval {box_interval!r}")
     frame = results.frame
     _check_names([*random, *fixed], frame)
@@ -787,6 +850,10 @@ def _bootstrap_decomposition(
         replicates={name: tuple(float(v) for v in values) for name, _, _, _, values in parts},
         coefficient_replicates={
             name: tuple(float(v) for v in values) for name, values in raw.boot_fixed.items()
+        },
+        coefficient_se=dict(raw.fixed_se),
+        coefficient_se_replicates={
+            name: tuple(float(v) for v in values) for name, values in raw.boot_fixed_se.items()
         },
     )
 

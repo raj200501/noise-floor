@@ -223,3 +223,30 @@ def test_basic_log_interval() -> None:
     )
     coef = glmm.boot_coef_interval(0.4, draws, 0.8, "basic_log")
     assert coef == pytest.approx(glmm.boot_coef_interval(0.4, draws, 0.8, "basic"))
+
+
+def test_student_coefficient_interval() -> None:
+    import numpy as np
+
+    rng = np.random.default_rng(4)
+    draws = rng.normal(1.0, 0.2, 400)
+    se_draws = np.full(400, 0.2)
+    lo, hi = glmm.boot_coef_interval(1.0, draws, 0.95, "student", se=0.3, se_draws=se_draws)
+    t = (draws - 1.0) / 0.2
+    q_lo, q_hi = np.quantile(t, [0.025, 0.975])
+    assert lo == pytest.approx(1.0 - q_hi * 0.3) and hi == pytest.approx(1.0 - q_lo * 0.3)
+    assert (
+        glmm.boot_coef_interval(1.0, draws, 0.95, "student", se=0.3, se_draws=np.zeros(400)) is None
+    )
+    with pytest.raises(ValueError, match="needs se"):
+        glmm.boot_coef_interval(1.0, draws, 0.95, "student")
+    box = glmm.contribution_box(
+        np.array([0.5, 0.5]),
+        np.array([1.0]),
+        draws[:, None],
+        0.95,
+        "student",
+        se=np.array([0.3]),
+        se_draws=se_draws[:, None],
+    )
+    assert box is not None and box[0] < 0.25 < box[1]
