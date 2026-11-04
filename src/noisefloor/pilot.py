@@ -50,6 +50,14 @@ PLANS: dict[str, PilotPlan] = {
         difficulties=(1, 3),
         seed_offset=1,
     ),
+    # s2 stopped after 11 runs on suite v1 (D-020); the same screening on suite v2 (D-021),
+    # seed 900003, with 3 server threads so one CPU stays free for analysis work.
+    "s3": PilotPlan(
+        models=("qwen3-1.7b", "qwen3-4b", "granite-4.0-micro", "smollm3-3b", "phi-4-mini"),
+        difficulties=(1, 3),
+        seed_offset=3,
+        threads=3,
+    ),
 }
 
 
