@@ -298,3 +298,34 @@ never pooled with the confirmatory G6 or E0 seeds).
   depend on the contrast coding.
 - The interval rule for each kind of component, and the MDE interval, are chosen from pilot 4
   (the candidate E1 shape) before the E1, E0 part 2, and G6 preregistrations freeze them.
+
+## D-023 2026-11-04 Laplace bootstrap for E1, and how its interval rules are chosen
+Supersedes the nAGQ = 0 choice and the "chosen from pilot 4" step of D-022. Evidence is
+exploratory and banked in `artifacts/method_pilots/` (synthetic data, seeds from
+`PILOT_SEEDS`, never pooled with G6 or E0); `python -m noisefloor.method_pilots` recomputes
+`summary.json` from the raw rows.
+- Why: in pilots 4 and 5 (nAGQ = 0, the candidate E1 shape) the contribution boxes of the
+  two-level factors covered below nominal under every box rule, with harness lowest, and the
+  empirical spread of each coefficient exceeded the spread its intervals implied
+  (`pools.nagq0-e1-shape`: `components.<factor>.coverage` and `sd_ratio`). nAGQ = 0 fixed
+  effects were attenuated against Laplace on the same simulated tables, which narrows a
+  bootstrap built from them. The studentized box (pilot 5) did not help.
+- Change: the original fit and every bootstrap replicate use the Laplace approximation
+  (`nAGQ = 1`). Replicates are fresh `glmer` fits that skip the final derivative pass (lme4's
+  `refit` was slower for Laplace); convergence diagnostics come from the original fit.
+- Shares of the total get their own interval rule (`share_interval`), and G6 and E0 part 2
+  score every component's share, the residual's included, like the components.
+- Pilot 6 (exploratory, nAGQ = 1, seeds 990500 to 990599, the pilot 4 design) scores every
+  rule. The rule for each kind of result is fixed here before its results are read: random
+  variances (task, model:task), fixed-factor contributions (every fixed factor), shares (every
+  share), and MDE rows (the three pilot designs) each get the rule with the highest minimum
+  coverage over that kind's components in pilot 6; rules within 0.01 of that minimum are
+  broken by the smaller median interval width over the same components and datasets. If the
+  best minimum for a kind is below 0.90, that kind's intervals do not become headline
+  intervals (the E1 preregistration then reports them as estimates with unvalidated intervals),
+  and the failure is recorded here.
+- Score intervals use `cluster_wilson` (Wilson at the design-effect sample size): in an
+  exploratory check the task-clustered t interval under-covered at high success rates with 2
+  runs per task, the Claude slice's shape. E0 part 2 adds score cells across success levels
+  for both arms, and a paired cell with 1 run against 4 for the Claude-versus-local
+  comparisons.
