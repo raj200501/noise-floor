@@ -39,7 +39,14 @@ import numpy as np
 import pandas as pd
 
 from evalstats import EvalResults
-from evalstats.glmm import BOOT_INTERVALS, Decomposition, boot_variance_interval, decompose
+from evalstats.glmm import (
+    BOOT_INTERVALS,
+    Decomposition,
+    boot_variance_interval,
+    contribution_box,
+    decompose,
+    level_weights,
+)
 
 # Run-level two-level factors of the half fraction 2^(5-1) (defining relation I = ABCDE),
 # split into two blocks of 8 runs by the ABC interaction so that every main effect is
@@ -205,6 +212,7 @@ class AnalysisSettings:
     boot_interval: str = "basic"
     level: float = 0.95
     random: tuple[str, ...] = RANDOM_TERMS
+    box_interval: str = "percentile"
 
 
 def analyze(data: pd.DataFrame, settings: AnalysisSettings, seed: int) -> Decomposition:
@@ -220,6 +228,7 @@ def analyze(data: pd.DataFrame, settings: AnalysisSettings, seed: int) -> Decomp
         n_boot=settings.n_boot,
         nagq=settings.nagq,
         boot_interval=settings.boot_interval,
+        box_interval=settings.box_interval,
         seed=seed,
     )
 
@@ -306,7 +315,14 @@ def pilot_row(
             for kind in BOOT_INTERVALS:
                 entry[kind] = boot_variance_interval(comp.variance, reps, settings.level, kind)
         else:
-            entry["box"] = (comp.lo, comp.hi)
+            levels, weights = level_weights(data, comp.name)
+            names = [f"{comp.name}{lvl}" for lvl in levels[1:]]
+            est = np.array([decomp.fixed_effects.get(n, 0.0) for n in names])
+            draws = np.column_stack(
+                [np.asarray(decomp.coefficient_replicates[n], dtype=np.float64) for n in names]
+            )
+            for kind in BOOT_INTERVALS:
+                entry[f"box_{kind}"] = contribution_box(weights, est, draws, settings.level, kind)
         rows[comp.name] = entry
     return {"seed": seed, "components": rows, "notes": list(decomp.messages)[-1:]}
 
@@ -322,7 +338,7 @@ def pilot_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]
             "bias": float(np.mean([c["estimate"] - c["planted"] for c in comps])),
             "sd": float(np.std([c["estimate"] for c in comps])),
         }
-        for kind in ("percentile", "basic", "bc", "box"):
+        for kind in ("percentile", "basic", "bc", "box_percentile", "box_basic", "box_bc"):
             ok = [c for c in comps if c.get(kind) and None not in c[kind]]
             if ok:
                 hit = sum(1 for c in ok if c[kind][0] <= c["planted"] <= c[kind][1])
@@ -368,6 +384,7 @@ def config_from(block: Mapping[str, Any]) -> tuple[Design, Planted, AnalysisSett
         boot_interval=str(st["boot_interval"]),
         level=float(st["level"]),
         random=tuple(str(r) for r in st["random"]),
+        box_interval=str(st.get("box_interval", "percentile")),
     )
     return Design(**block["design"]), planted, settings
 

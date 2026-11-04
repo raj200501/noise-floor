@@ -21,9 +21,10 @@ one random intercept per observed combination of ``a`` and ``b``.
 Bootstrap intervals: a random-effect variance gets the ``percentile``, ``basic``
 (``2 * estimate - quantiles``, cut at 0), or ``bc`` (bias-corrected percentile)
 interval of its replicates (``boot_interval``). A fixed factor's contribution gets the
-range of the contribution over a box of percentile intervals for the factor's
-coefficients, each at level ``1 - (1 - level) / (k - 1)`` for ``k`` levels (Bonferroni),
-so it covers at least as often as the box. Shares get percentile intervals.
+range of the contribution over a box of intervals for the factor's coefficients
+(``box_interval``: percentile, basic, or bias-corrected), each at level
+``1 - (1 - level) / (k - 1)`` for ``k`` levels (Bonferroni), so it covers at least as
+often as the box. Shares get percentile intervals.
 """
 
 from __future__ import annotations
@@ -78,6 +79,8 @@ class Decomposition:
     messages: tuple[str, ...] = field(default=())
     replicates: dict[str, tuple[float, ...]] = field(default_factory=dict)
     """Bootstrap replicate values of each non-residual component (bootstrap only)."""
+    coefficient_replicates: dict[str, tuple[float, ...]] = field(default_factory=dict)
+    """Bootstrap replicates of every fixed-effect coefficient (bootstrap only)."""
 
     def component(self, name: str) -> VarianceComponent:
         """The component with this name."""
@@ -485,7 +488,8 @@ def boot_variance_interval(
     return float(lo), float(hi)
 
 
-def _level_weights(data: pd.DataFrame, factor: str) -> tuple[list[str], np.ndarray]:
+def level_weights(data: pd.DataFrame, factor: str) -> tuple[list[str], np.ndarray]:
+    """Sorted levels of a factor and each level's share of the rows."""
     levels = sorted(data[factor].unique())
     weights = np.array([float(np.mean(data[factor] == lvl)) for lvl in levels])
     return levels, weights
@@ -497,23 +501,56 @@ def _contribution_variance(weights: np.ndarray, coefs: np.ndarray) -> float:
     return float(weights @ (c - weights @ c) ** 2)
 
 
-def _box_interval(
-    weights: np.ndarray, estimate: np.ndarray, draws: np.ndarray, level: float
+def boot_coef_interval(
+    estimate: float, draws: np.ndarray, level: float, kind: str = "percentile"
 ) -> tuple[float, float] | None:
-    """Range of the contribution variance over a Bonferroni box of percentile intervals."""
+    """Bootstrap interval for a coefficient (no cut at 0); rules as for variances."""
+    from scipy import stats
+
+    d = draws[np.isfinite(draws)]
+    if d.size < 2:
+        return None
+    a = (1 - level) / 2
+    if kind == "percentile":
+        lo, hi = np.quantile(d, [a, 1 - a])
+    elif kind == "basic":
+        q_lo, q_hi = np.quantile(d, [a, 1 - a])
+        lo, hi = 2 * estimate - q_hi, 2 * estimate - q_lo
+    elif kind == "bc":
+        below = float(np.mean(d < estimate) + 0.5 * np.mean(d == estimate))
+        below = min(max(below, 1 / (d.size + 1)), d.size / (d.size + 1))
+        z0, z = float(stats.norm.ppf(below)), float(stats.norm.ppf(1 - a))
+        lo, hi = np.quantile(d, [stats.norm.cdf(2 * z0 - z), stats.norm.cdf(2 * z0 + z)])
+    else:
+        raise ValueError(f"unknown bootstrap interval {kind!r}; expected one of {BOOT_INTERVALS}")
+    return float(lo), float(hi)
+
+
+def contribution_box(
+    weights: np.ndarray,
+    estimate: np.ndarray,
+    draws: np.ndarray,
+    level: float,
+    kind: str = "percentile",
+) -> tuple[float, float] | None:
+    """Range of a factor's contribution variance over a Bonferroni box of coefficient intervals.
+
+    ``estimate`` and the columns of ``draws`` are the factor's coefficients without the
+    reference level; ``weights`` are all levels' row shares. None if a coefficient has
+    fewer than two finite replicates or the factor has more than 13 levels.
+    """
     from scipy import optimize
 
     k1 = draws.shape[1]
     if k1 == 0 or k1 > _MAX_BOX_COEFS:
         return None
-    a = (1 - level) / k1
+    each = 1 - (1 - level) / k1
     bounds = []
     for j in range(k1):
-        d = draws[:, j][np.isfinite(draws[:, j])]
-        if d.size < 2:
+        ci = boot_coef_interval(float(estimate[j]), draws[:, j], each, kind)
+        if ci is None:
             return None
-        lo, hi = np.quantile(d, [a / 2, 1 - a / 2])
-        bounds.append((float(lo), float(hi)))
+        bounds.append(ci)
     # A convex quadratic: its maximum over the box is at a vertex, its minimum is found by
     # bounded minimization from the clipped estimate.
     hi_v = max(_contribution_variance(weights, np.array(v)) for v in itertools.product(*bounds))
@@ -536,6 +573,7 @@ def _boot_parts(
     raw: _RawFit,
     level: float,
     boot_interval: str,
+    box_interval: str = "percentile",
 ) -> list[tuple[str, str, float, tuple[float, float] | None, np.ndarray]]:
     """(name, kind, estimate, interval, replicate values) for every non-residual component."""
     parts = []
@@ -545,7 +583,7 @@ def _boot_parts(
         ci = boot_variance_interval(est, draws, level, boot_interval)
         parts.append((name, "random", est, ci, draws))
     for factor in fixed:
-        levels, weights = _level_weights(data, factor)
+        levels, weights = level_weights(data, factor)
         names = [f"{factor}{lvl}" for lvl in levels[1:]]
         estimate = np.array([raw.fixed.get(n, 0.0) for n in names])
         cols = [raw.boot_fixed.get(n) for n in names]
@@ -556,7 +594,7 @@ def _boot_parts(
             else np.empty((n_boot, 0))
         )
         variance = _contribution_variance(weights, estimate)
-        ci = _box_interval(weights, estimate, draws, level)
+        ci = contribution_box(weights, estimate, draws, level, box_interval)
         reps = np.array(
             [
                 _contribution_variance(weights, row) if np.all(np.isfinite(row)) else np.nan
@@ -591,6 +629,7 @@ def decompose(
     n_boot: int = 200,
     nagq: int = 1,
     boot_interval: str = "percentile",
+    box_interval: str = "percentile",
 ) -> Decomposition:
     """Fit a logit GLMM and partition the latent variance.
 
@@ -604,6 +643,8 @@ def decompose(
     if not results.is_binary:
         raise ValueError("decompose needs binary outcomes")
     _check_options(level, method, boot_interval, nagq, n_boot)
+    if box_interval not in BOOT_INTERVALS:
+        raise ValueError(f"unknown bootstrap interval {box_interval!r}")
     frame = results.frame
     _check_names([*random, *fixed], frame)
     data = _prepare(frame, random, fixed)
@@ -614,7 +655,14 @@ def decompose(
             raise ValueError("the parametric bootstrap needs the lme4 backend")
         raw = _fit_lme4_bootstrap(data, random, fixed, nagq=nagq, n_boot=n_boot, seed=seed)
         return _bootstrap_decomposition(
-            frame, data, random, fixed, raw=raw, level=level, boot_interval=boot_interval
+            frame,
+            data,
+            random,
+            fixed,
+            raw=raw,
+            level=level,
+            boot_interval=boot_interval,
+            box_interval=box_interval,
         )
     if backend == "lme4":
         raw = _fit_lme4(data, random, fixed, level, intervals)
@@ -664,8 +712,17 @@ def _bootstrap_decomposition(
     raw: _RawFit,
     level: float,
     boot_interval: str,
+    box_interval: str,
 ) -> Decomposition:
-    parts = _boot_parts(data, random, fixed, raw=raw, level=level, boot_interval=boot_interval)
+    parts = _boot_parts(
+        data,
+        random,
+        fixed,
+        raw=raw,
+        level=level,
+        boot_interval=boot_interval,
+        box_interval=box_interval,
+    )
     total = sum(p[2] for p in parts) + LOGISTIC_RESIDUAL_VAR
     reps = np.column_stack([p[4] for p in parts]) if parts else np.empty((0, 0))
     totals = reps.sum(axis=1) + LOGISTIC_RESIDUAL_VAR if parts else np.empty(0)
@@ -690,7 +747,7 @@ def _bootstrap_decomposition(
                 lo=None if ci is None else ci[0],
                 hi=None if ci is None else ci[1],
                 interval_method="parametric_bootstrap_"
-                + (boot_interval if kind == "random" else "box"),
+                + (boot_interval if kind == "random" else f"box_{box_interval}"),
                 share_lo=s_lo,
                 share_hi=s_hi,
             )
@@ -719,6 +776,9 @@ def _bootstrap_decomposition(
         converged=raw.converged,
         messages=tuple(raw.messages),
         replicates={name: tuple(float(v) for v in values) for name, _, _, _, values in parts},
+        coefficient_replicates={
+            name: tuple(float(v) for v in values) for name, values in raw.boot_fixed.items()
+        },
     )
 
 

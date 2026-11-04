@@ -148,19 +148,19 @@ def test_box_interval_for_two_and_three_levels() -> None:
     rng = np.random.default_rng(0)
     weights = np.array([0.5, 0.5])
     spans_zero = rng.normal(0.0, 0.1, (200, 1))
-    lo, hi = glmm._box_interval(weights, np.array([0.02]), spans_zero, 0.95)
+    lo, hi = glmm.contribution_box(weights, np.array([0.02]), spans_zero, 0.95)
     assert lo == 0.0  # exactly: the box holds the origin
     assert hi == pytest.approx(0.25 * np.quantile(np.abs(spans_zero), 0.975) ** 2, rel=0.3)
     away = rng.normal(1.0, 0.1, (200, 1))
-    lo, hi = glmm._box_interval(weights, np.array([1.0]), away, 0.95)
+    lo, hi = glmm.contribution_box(weights, np.array([1.0]), away, 0.95)
     assert 0.0 < lo < 0.25 < hi
     three = np.full(3, 1 / 3)
     draws = rng.normal([0.5, -0.5], 0.05, (300, 2))
-    lo, hi = glmm._box_interval(three, np.array([0.5, -0.5]), draws, 0.95)
+    lo, hi = glmm.contribution_box(three, np.array([0.5, -0.5]), draws, 0.95)
     est = glmm._contribution_variance(three, np.array([0.5, -0.5]))
     assert lo < est < hi
-    assert glmm._box_interval(three, np.zeros(2), np.full((5, 2), np.nan), 0.95) is None
-    assert glmm._box_interval(np.ones(1), np.zeros(0), np.empty((5, 0)), 0.95) is None
+    assert glmm.contribution_box(three, np.zeros(2), np.full((5, 2), np.nan), 0.95) is None
+    assert glmm.contribution_box(np.ones(1), np.zeros(0), np.empty((5, 0)), 0.95) is None
 
 
 @needs_r
@@ -178,7 +178,7 @@ def test_lme4_parametric_bootstrap(planted: EvalResults) -> None:
     check_structure(d)
     assert "nAGQ=0" in d.backend and "bootstrap: 12 replicates" in d.messages[-1]
     assert d.component("task").interval_method == "parametric_bootstrap_basic"
-    assert d.component("harness").interval_method == "parametric_bootstrap_box"
+    assert d.component("harness").interval_method == "parametric_bootstrap_box_percentile"
     for comp in d.components:
         assert comp.share_lo is not None and comp.share_hi is not None
         assert 0.0 <= comp.share_lo <= comp.share_hi <= 1.0

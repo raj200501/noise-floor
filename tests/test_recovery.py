@@ -73,7 +73,7 @@ def test_recover_and_pilot_rows() -> None:
         assert comp["lo"] is None or comp["lo"] <= comp["hi"]
     pilot = rc.pilot_row(SMALL, SMALL_PLANTED, settings, 7)
     assert set(pilot["components"]["task"]) >= {"percentile", "basic", "bc"}
-    assert "box" in pilot["components"]["model"]
+    assert {"box_percentile", "box_basic", "box_bc"} <= set(pilot["components"]["model"])
 
 
 def test_summaries() -> None:
@@ -90,11 +90,15 @@ def test_summaries() -> None:
     )
     assert math.isnan(empty["b"]["coverage"])
     pilot = [
-        {"components": {"a": {"planted": 1.0, "estimate": 1.0, "basic": [0.5, 1.5], "box": None}}},
+        {
+            "components": {
+                "a": {"planted": 1.0, "estimate": 1.0, "basic": [0.5, 1.5], "box_basic": None}
+            }
+        },
         {"components": {"a": {"planted": 1.0, "estimate": 2.0, "basic": [1.5, 2.5]}}},
     ]
     out = rc.pilot_summary(pilot)["a"]
-    assert out["basic"] == 0.5 and "box" not in out and out["bias"] == pytest.approx(0.5)
+    assert out["basic"] == 0.5 and "box_basic" not in out and out["bias"] == pytest.approx(0.5)
     assert json.loads(rc.dumps({"x": math.nan, "y": [math.inf, 1.0]})) == {
         "x": None,
         "y": [None, 1.0],
