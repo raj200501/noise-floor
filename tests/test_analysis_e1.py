@@ -127,6 +127,8 @@ def test_build_and_verify(tmp_path: Path) -> None:
     assert [(r["tasks"], r["runs"]) for r in mde["rows"]] == [(40, 1), (89, 5)]
     assert mde["rows"][1]["mde"] < mde["rows"][0]["mde"]
     assert {n["gap"] for n in mde["tasks_needed"]} == set(a.GAPS)
+    for n in mde["tasks_needed"]:
+        assert n["lo"] is not None and n["lo"] <= n["tasks"] <= n["hi"]
     scores = json.loads((tmp_path / "scores.json").read_text())["rows"]
     assert {r["model"] for r in scores} == {*DESIGN.models, *DESIGN.claude_tiers}
     assert all(r["lo"] <= r["score"] <= r["hi"] for r in scores)
@@ -142,6 +144,9 @@ def test_build_and_verify(tmp_path: Path) -> None:
     claude_rows = [r for r in contrasts["models"] if r["a"] == "claude-haiku"]
     assert all(r["label"] == "temperature-confounded" for r in claude_rows)
     assert all(r["p_holm"] >= r["p_value"] for r in contrasts["models"])
+    for r in [*contrasts["harness"], *contrasts["models"]]:
+        assert r["supported"] == (r["p_holm"] < 0.05)
+        assert r["interval_excludes_zero"] == (r["lo"] > 0 or r["hi"] < 0)
     every = [*contrasts["harness"], *contrasts["models"]]
     by_family = {r["family"]: r["interval_method"] for r in every}
     assert by_family == {

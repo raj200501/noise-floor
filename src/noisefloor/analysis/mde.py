@@ -80,6 +80,8 @@ def replicate_mdes(
     reference: Mapping[str, str],
     averaged: Sequence[str],
     designs: Sequence[tuple[int, int]] = DESIGNS,
+    alpha: float = 0.05,
+    power: float = 0.8,
 ) -> dict[tuple[int, int], np.ndarray]:
     """MDE of every bootstrap replicate (NaN where a replicate lacks a parameter)."""
     n = len(next(iter(variance_replicates.values())))
@@ -91,6 +93,7 @@ def replicate_mdes(
         if not all(np.isfinite([task_var, mt_var, *coefs.values()])):
             continue
         etas = reference_eta(coefs, data, models, reference, averaged)
-        for key, value in mde_values(pooled_design(etas, task_var, mt_var), designs).items():
+        pooled = pooled_design(etas, task_var, mt_var)
+        for key, value in mde_values(pooled, designs, alpha=alpha, power=power).items():
             out[key][b] = value
     return out

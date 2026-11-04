@@ -225,7 +225,8 @@ def mde_tables(
         decomp.fixed_effects, data, models, cfg["reference"], cfg["averaged"]
     )
     pooled = mde_lib.pooled_design(etas, variances["task"], variances["model:task"])
-    point = mde_lib.mde_values(pooled, designs)
+    alpha, power = float(cfg.get("alpha", 0.05)), float(cfg.get("power", 0.8))
+    point = mde_lib.mde_values(pooled, designs, alpha=alpha, power=power)
     reps = mde_lib.replicate_mdes(
         decomp.coefficient_replicates,
         {k: decomp.replicates[k] for k in ("task", "model:task")},
@@ -234,25 +235,42 @@ def mde_tables(
         reference=cfg["reference"],
         averaged=cfg["averaged"],
         designs=designs,
+        alpha=alpha,
+        power=power,
     )
     level = float(settings["level"])
     rows = []
+    first: dict[int, tuple[int, float | None, float | None]] = {}
     for t, k in designs:
         ci = boot_coef_interval(point[(t, k)], reps[(t, k)], level, str(cfg["interval"]))
+        lo = None if ci is None else max(0.0, ci[0])
+        hi = None if ci is None else ci[1]
+        first.setdefault(k, (t, lo, hi))
         rows.append(
             {
                 "tasks": t,
                 "runs": k,
                 "mde": point[(t, k)],
-                "lo": None if ci is None else max(0.0, ci[0]),
-                "hi": None if ci is None else ci[1],
+                "lo": lo,
+                "hi": hi,
                 "interval_method": f"parametric_bootstrap_{cfg['interval']}",
             }
         )
+    # Tasks needed for a gap is ceil(T * MDE(T, k)^2 / gap^2) for any design row with k
+    # runs, a monotone map of that row, so the row's interval maps to the count's interval.
     needed = []
-    for gap in GAPS:
-        for k in sorted({k for _, k in designs}):
-            needed.append({"gap": gap, "runs": k, "tasks": tasks_needed(gap, pooled, k)})
+    for gap in [float(g) for g in cfg.get("gaps", GAPS)]:
+        for k, (t, lo, hi) in sorted(first.items()):
+            needed.append(
+                {
+                    "gap": gap,
+                    "runs": k,
+                    "tasks": tasks_needed(gap, pooled, k, alpha=alpha, power=power),
+                    "lo": _tasks_for(t, lo, gap),
+                    "hi": _tasks_for(t, hi, gap),
+                    "interval_method": "mapped from the MDE interval",
+                }
+            )
     return {
         "reference": dict(cfg["reference"]),
         "averaged": list(cfg["averaged"]),
@@ -261,6 +279,13 @@ def mde_tables(
         "rows": rows,
         "tasks_needed": needed,
     }
+
+
+def _tasks_for(tasks: int, mde_value: float | None, gap: float) -> int | None:
+    """Tasks whose MDE equals ``gap``, from the MDE of a design with ``tasks`` tasks."""
+    if mde_value is None:
+        return None
+    return max(1, math.ceil(tasks * mde_value * mde_value / (gap * gap) - 1e-9))
 
 
 def holm(p_values: Sequence[float]) -> list[float]:
@@ -436,7 +461,10 @@ def contrasts_table(
         members = [r for r in (*harness, *models) if r["family"] == name]
         for row, adj in zip(members, holm([r["p_value"] for r in members]), strict=True):
             row["p_holm"] = adj
-            row["supported"] = bool(row["lo"] > 0 or row["hi"] < 0)
+            # The confirmatory reading: Holm-adjusted p below 0.05 within the family. The
+            # 95% interval is per comparison (unadjusted) and reported beside it.
+            row["supported"] = bool(adj < 0.05)
+            row["interval_excludes_zero"] = bool(row["lo"] > 0 or row["hi"] < 0)
     return {"harness": harness, "models": models}
 
 
