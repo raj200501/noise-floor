@@ -8,26 +8,24 @@ docs/LOG.md.
 
 ## Gates
 
-Last fast ship-check (does not count) at 90b4028: 4/14. Fixes since then (G1 temp roots, G5
-stdout parsing, G9 `__version__`) wait for the next fast check, which runs when no screening run
-shares the CPU.
+Last fast ship-check (does not count) at dea4149: 8/14.
 
 | Gate | Status | Evidence / next step |
 |------|--------|----------------------|
-| G1 Build and tests | FAIL | fresh-clone `make test` failure traced to concurrent pytest temp roots; fixed, to re-check |
-| G2 Static quality | PASS | ruff, ruff format, mypy --strict clean |
-| G3 CI parity | FAIL | follows G1 |
-| G4 Offline demo | PASS | 6 s in a network namespace, matches golden |
-| G5 Library validity | FAIL | E0 part 2 (E1-shaped GLMM, share, MDE, score, and contrast cells) to preregister and run |
-| G6 Orchestrator validity | FAIL | recovery runner ready; Laplace method pilot 6 running; prereg 0006 next |
-| G7 Factorial study | FAIL | E1 models chosen from s3 (D-025: qwen3-1.7b, qwen3-4b, granite-4.0-micro); prereg in review; Claude arm needs Raj |
-| G8 Leaderboards and bounds | FAIL | E2 and both confidence reports done; E3 still needs E1 |
-| G9 Library shipped | FAIL | API reference lacked `__version__` (fixed); to re-check |
+| G1 Build and tests | PASS | fresh clone: setup ok, tests pass, line coverage above 85% |
+| G2 Static quality | PASS | ruff, ruff format, mypy --strict clean; every `type: ignore` has a reason |
+| G3 CI parity | PASS | ci.yml runs `make ci` on 3.11 and 3.12; `make prepush` passes before every push |
+| G4 Offline demo | PASS | runs in a network namespace in seconds, matches golden |
+| G5 Library validity | PASS (part 1) | E0 part 2 (0005) cells must run and pass once 0005 is frozen |
+| G6 Orchestrator validity | FAIL | 0006 to freeze, then 200 datasets (`runs/e0g6/driver.sh`) |
+| G7 Factorial study | FAIL | 0004 in final review; local arm after G6 and E0 part 2; Claude slice needs Raj |
+| G8 Leaderboards and bounds | FAIL | E2 and both reports done; E3 on E1 comes with the E1 analysis |
+| G9 Library shipped | PASS | wheel installs in a clean venv; 5 examples run; API reference generated |
 | G10 Claim integrity | FAIL | README and docs/REPORT.md not written yet |
-| G11 Preregistration integrity | PASS | 3 preregistrations frozen |
-| G12 Independent review | FAIL | first review after E1 is preregistered |
+| G11 Preregistration integrity | PASS | 3 preregistrations frozen, artifacts predated by them |
+| G12 Independent review | FAIL | `make review` after E1 |
 | G13 Documentation | FAIL | README and REPORT at the end; 24 references verified (citecheck passes) |
-| G14 Hygiene | PASS | secrets-scan clean; cash_usd = 0 |
+| G14 Hygiene | PASS | secrets-scan clean; cash_usd = 0, caps respected; tree clean |
 
 ## Now
 
