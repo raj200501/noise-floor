@@ -59,7 +59,11 @@ class BackendError(RuntimeError):
 
 @dataclass(frozen=True)
 class ChatRequest:
-    """A chat completion request. Everything here is part of the cache key."""
+    """A chat completion request. Everything here is part of the cache key.
+
+    ``extra`` holds other OpenAI request fields (such as ``tool_choice``) as
+    ``(name, JSON-encoded value)`` pairs, forwarded verbatim to the backend.
+    """
 
     backend: str
     model: str
@@ -69,6 +73,7 @@ class ChatRequest:
     seed: int | None = None
     stop: tuple[str, ...] = ()
     tools: tuple[Mapping[str, Any], ...] = ()
+    extra: tuple[tuple[str, str], ...] = ()
     salt: str = ""
 
     def key(self) -> str:
@@ -249,6 +254,8 @@ class Client:
             body["stop"] = list(request.stop)
         if request.tools:
             body["tools"] = list(request.tools)
+        for name, value in request.extra:
+            body[name] = json.loads(value)
         req = urllib.request.Request(
             f"{base.rstrip('/')}/v1/chat/completions",
             data=json.dumps(body).encode(),

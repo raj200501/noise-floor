@@ -8,7 +8,7 @@ TODO   := $(TOOL) tools/todo.py
 PKGS   := src/evalstats src/noisefloor
 
 .PHONY: setup doctor test lint typecheck ci demo prereg-verify claimcheck freshness \
-        citecheck secrets-scan budget review report reproduce ship-check
+        citecheck secrets-scan budget review report reproduce ship-check prepush
 
 # The R extra (rpy2 for lme4) is installed only where R is present.
 R_EXTRA := $(if $(shell command -v Rscript 2>/dev/null),--extra r,)
@@ -63,3 +63,7 @@ reproduce:
 
 ship-check:
 	$(TOOL) tools/ship_check.py
+
+# Fresh-clone make setup + make ci before every push (D-015).
+prepush:
+	$(TOOL) tools/prepush.py

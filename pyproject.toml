@@ -85,7 +85,7 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q -p no:doctest"  # fixtures include files named test_*.txt (recorded SWE-bench logs)
 markers = ["property: property-based tests (hypothesis)"]
 
 [tool.coverage.run]
