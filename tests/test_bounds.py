@@ -141,3 +141,19 @@ def test_every_policy_lies_within_bounds(cells: list[tuple[str, bool]]) -> None:
     for pair in rep.adjacent:
         assert pair.bound_lo <= pair.bound_hi
         assert pair.ci_lo <= pair.bound_lo + 1e-12
+
+
+def test_reference_order_drives_pairs_and_changes() -> None:
+    res = board(
+        {"a": ["ok"] * 4, "b": ["ok", "ok", "infra_error", "ok"]},
+        {"a": [1, 1, 0, 0], "b": [1, 1, 0, 1]},
+    )
+    default = policy_bounds(res)
+    assert default.reference_order == default.rankings["as_scored"]
+    custom = policy_bounds(res, reference_order=["a", "b"])
+    assert custom.reference_order == ("a", "b")
+    assert [m.model for m in custom.models] == ["a", "b"]
+    assert (custom.adjacent[0].higher, custom.adjacent[0].lower) == ("a", "b")
+    assert custom.ranking_changes == sum(o != ("a", "b") for o in custom.rankings.values())
+    with pytest.raises(ValueError, match="every model"):
+        policy_bounds(res, reference_order=["a"])

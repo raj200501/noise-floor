@@ -1,0 +1,35 @@
+{
+ "amendment": "prereg/0002-e2-amend-epoch-reference-rule.md",
+ "archive_etag": "\"5b7d6447522c82413d6c70afbdcb31d6\"",
+ "archive_sha256": "142ad76492d93fef70d369dadac5c4269e0aedb064ded929adf8215b1ce53015",
+ "board": "epoch-swebench",
+ "command": "python -m noisefloor.reanalysis.epoch fetch <raw>; python -m noisefloor.reanalysis build epoch-swebench <raw>",
+ "confirmatory": true,
+ "credit": "Epoch AI, Benchmarking Hub (https://epoch.ai), CC BY 4.0",
+ "fetch_failures": [
+  {
+   "error": "https://epoch-benchmarks-production-public.s3.us-east-2.amazonaws.com/inspect_ai_logs/FkDMVLdEnJDR5PyUCT6BNQ.eval: HTTP 403",
+   "id": "FkDMVLdEnJDR5PyUCT6BNQ",
+   "url": "https://epoch-benchmarks-production-public.s3.us-east-2.amazonaws.com/inspect_ai_logs/FkDMVLdEnJDR5PyUCT6BNQ.eval"
+  },
+  {
+   "error": "no log link",
+   "id": "glm-5.1-swe-bench-frankenstein"
+  },
+  {
+   "error": "https://epoch-benchmarks-production-public.s3.us-east-2.amazonaws.com/inspect_ai_logs/LbhPRqUkXrs5KJ7vyT4CR7.eval: HTTP 403",
+   "id": "LbhPRqUkXrs5KJ7vyT4CR7",
+   "url": "https://epoch-benchmarks-production-public.s3.us-east-2.amazonaws.com/inspect_ai_logs/LbhPRqUkXrs5KJ7vyT4CR7.eval"
+  }
+ ],
+ "files": {
+  "data/snapshots/epoch-swebench/logs.csv.gz": "ab4d91976d6cde45225c616a35d4b7decf4215c28e602cbf4ad6490c7c9e0fae",
+  "data/snapshots/epoch-swebench/samples.csv.gz": "b21575dbde81ec9b48a2c7126fd9e9dc40401c9a5690af54a9c04ae0268d0564"
+ },
+ "license": "CC-BY-4.0",
+ "prereg": "prereg/0001-e2-leaderboard-reanalysis.md",
+ "retrieved": "2026-11-04",
+ "sha256": "b21575dbde81ec9b48a2c7126fd9e9dc40401c9a5690af54a9c04ae0268d0564",
+ "snapshot": "data/snapshots/epoch-swebench/samples.csv.gz",
+ "source_url": "https://epoch.ai/data/benchmark_data.zip"
+}

@@ -85,11 +85,17 @@ class PolicyReport:
     models: tuple[BoundedScore, ...]
     rankings: dict[str, tuple[str, ...]]
     adjacent: tuple[BoundedPair, ...]
+    reference: tuple[str, ...] = ()
+
+    @property
+    def reference_order(self) -> tuple[str, ...]:
+        """The order adjacent pairs follow (the given order, else the policy's ranking)."""
+        return self.reference or self.rankings[self.policy]
 
     @property
     def ranking_changes(self) -> int:
-        """Number of policies whose ranking differs from the reference policy's."""
-        ref = self.rankings[self.policy]
+        """Number of policies whose ranking differs from the reference order."""
+        ref = self.reference_order
         return sum(order != ref for order in self.rankings.values())
 
 
@@ -168,11 +174,14 @@ def policy_bounds(
     ambiguous: Sequence[str] = AMBIGUOUS,
     policy: str = "as_scored",
     level: float = 0.95,
+    reference_order: Sequence[str] | None = None,
 ) -> PolicyReport:
     """Scores under each policy, worst-case bounds, and robustness of adjacent orderings.
 
-    Adjacent pairs follow the ranking under ``policy`` and use the tasks both
-    models attempted.
+    Adjacent pairs follow ``reference_order`` when it is given (for a board whose own
+    scoring rule is none of the named policies), else the ranking under ``policy``,
+    and use the tasks both models attempted. Each pair's ``difference`` is the
+    difference under ``policy``.
     """
     if policy not in POLICIES:
         raise ValueError(f"unknown policy {policy!r}; choose from {', '.join(POLICIES)}")
@@ -203,8 +212,11 @@ def policy_bounds(
             excluded_tasks=int((t["n_ok"] == 0).sum()),
         )
     rankings = {p: _ranking(models, {m: bounded[m].scores[p] for m in models}) for p in POLICIES}
+    if reference_order is not None and sorted(reference_order) != sorted(models):
+        raise ValueError("reference_order must list every model exactly once")
+    order = tuple(reference_order) if reference_order is not None else rankings[policy]
     pairs = []
-    for a, b in itertools.pairwise(rankings[policy]):
+    for a, b in itertools.pairwise(order):
         ta, tb = table.loc[a], table.loc[b]
         shared = ta.index.intersection(tb.index)
         d_lo = (ta.loc[shared, "fail"] - tb.loc[shared, "success"]).to_numpy(dtype=np.float64)
@@ -226,7 +238,8 @@ def policy_bounds(
         level=level,
         ambiguous=tuple(ambiguous),
         policy=policy,
-        models=tuple(bounded[m] for m in rankings[policy]),
+        models=tuple(bounded[m] for m in order),
         rankings=rankings,
         adjacent=tuple(pairs),
+        reference=tuple(reference_order) if reference_order is not None else (),
     )

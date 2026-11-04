@@ -180,6 +180,15 @@ def _tree(path: str, revision: str, pause: float) -> list[dict[str, Any]]:
     return list(data) if isinstance(data, list) else []
 
 
+def list_submissions(revision: str = REVISION, pause: float = 0.0) -> list[str]:
+    """Every submission folder name at ``revision`` (one API call)."""
+    return sorted(
+        str(x["path"]).rsplit("/", 1)[-1]
+        for x in _tree(ROOT, revision, pause)
+        if x.get("type") == "directory"
+    )
+
+
 def fetch(
     out_dir: Path,
     revision: str = REVISION,
