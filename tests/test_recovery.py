@@ -128,8 +128,8 @@ def test_summaries() -> None:
 def test_pilot_command(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(rc, "Design", lambda: SMALL)
-    monkeypatch.setattr(rc, "Planted", lambda: SMALL_PLANTED)
+    monkeypatch.setattr(rc, "Design", lambda **kw: SMALL)
+    monkeypatch.setattr(rc, "Planted", lambda **kw: SMALL_PLANTED)
     out = tmp_path / "pilot.jsonl"
     assert rc.main(["pilot", str(out), "990000", "1", "--n-boot", "3"]) == 0
     summary = json.loads(capsys.readouterr().out)
@@ -307,3 +307,23 @@ def test_simulated_batches_spread_like_the_plan() -> None:
     for _, group in per_batch.groupby(["model", "conc"]):
         slots = collections.Counter(zip(group["day"], group["block"], strict=True))
         assert len(slots) == 6 and max(slots.values()) - min(slots.values()) <= 1
+
+
+def test_planted_interactions_and_jackknife_pilot_row() -> None:
+    het = rc.Planted(model=(0.3, -0.3), day=(0.0, 0.1), block=(0.0,), interactions={"harness": 1.0})
+    plain = rc.simulate(SMALL, SMALL_PLANTED, 4)
+    varied = rc.simulate(SMALL, het, 4)
+    assert len(plain) == len(varied) and not plain["outcome"].equals(varied["outcome"])
+    sd = rc.planted_success(varied, het)
+    assert np.all((sd > 0) & (sd < 1))
+    assert het.to_json()["interactions"] == {"harness": 1.0}
+    block = small_config()
+    block["planted"] = het.to_json()
+    block["settings"]["fixed_interval"] = "jackknife"
+    _, planted, settings = rc.config_from(block)
+    assert planted.interactions == {"harness": 1.0} and settings.fixed_interval == "jackknife"
+    row = rc.pilot_row(
+        SMALL, SMALL_PLANTED, rc.AnalysisSettings(n_boot=3, fixed_interval="jackknife"), 4
+    )
+    jk = row["components"]["harness"]["jackknife"]
+    assert jk is not None and jk[0] <= row["components"]["harness"]["estimate"] <= jk[1]

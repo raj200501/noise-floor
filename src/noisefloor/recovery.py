@@ -46,6 +46,7 @@ from evalstats.glmm import (
     boot_variance_interval,
     contribution_box,
     decompose,
+    jackknife_box,
     level_weights,
 )
 from noisefloor.analysis import mde as mde_lib
@@ -100,10 +101,17 @@ class Planted:
     task_var: float = 2.0
     model_task_var: float = 0.5
     batch_var: float = 0.1
+    # Task-by-factor variances: each task gets its own N(0, v) effect at each level of the
+    # factor, so the factor's effect varies across tasks (not in the analysis model).
+    interactions: Mapping[str, float] = field(default_factory=dict)
 
     def to_json(self) -> dict[str, Any]:
         """Plain-data form."""
-        return {**asdict(self), "factors": dict(self.factors)}
+        return {
+            **asdict(self),
+            "factors": dict(self.factors),
+            "interactions": dict(self.interactions),
+        }
 
 
 def half_fraction_blocks() -> tuple[list[tuple[int, ...]], list[tuple[int, ...]]]:
@@ -164,6 +172,10 @@ def simulate(design: Design, planted: Planted, seed: int) -> pd.DataFrame:
             batches.append(members[start : start + design.batch_size])
             batch_slot.append((offset + j) % slots)
     batch_eff = rng.normal(0.0, math.sqrt(planted.batch_var), len(batches))
+    inter = {
+        name: rng.normal(0.0, math.sqrt(var), (design.n_tasks, 2))
+        for name, var in sorted(planted.interactions.items())
+    }
     rows = []
     for b, members in enumerate(batches):
         day, tod = divmod(int(batch_slot[b]), design.blocks_per_day)
@@ -178,6 +190,7 @@ def simulate(design: Design, planted: Planted, seed: int) -> pd.DataFrame:
                 + task_eff[t]
                 + cell_eff[m, t]
                 + batch_eff[b]
+                + sum(effects[t, levels[name]] for name, effects in inter.items())
             )
             rows.append(
                 {
@@ -319,6 +332,7 @@ class AnalysisSettings:
     share_interval: str = "percentile"
     score_interval: str = "cluster_t"  # local-arm scores
     contrast_interval: str = "cluster_t"  # local harness contrasts and model pairs
+    fixed_interval: str = "box"  # or "jackknife": task-jackknife boxes (D-028)
 
 
 def run_fixed_eta(data: pd.DataFrame, planted: Planted) -> np.ndarray:
@@ -339,7 +353,8 @@ def planted_success(data: pd.DataFrame, planted: Planted) -> np.ndarray:
     mean of these over runs is the super-population quantity a task-clustered interval for
     a score or a paired difference estimates.
     """
-    sd = math.sqrt(planted.task_var + planted.model_task_var + planted.batch_var)
+    extra = sum(planted.interactions.values())
+    sd = math.sqrt(planted.task_var + planted.model_task_var + planted.batch_var + extra)
     cache: dict[float, float] = {}
     out = np.empty(len(data), dtype=np.float64)
     for i, eta in enumerate(run_fixed_eta(data, planted)):
@@ -421,6 +436,8 @@ def analyze(data: pd.DataFrame, settings: AnalysisSettings, seed: int) -> Decomp
         boot_interval=settings.boot_interval,
         box_interval=settings.box_interval,
         share_interval=settings.share_interval,
+        fixed_interval=settings.fixed_interval,
+        jackknife_group="task",
         seed=seed,
     )
 
@@ -565,6 +582,11 @@ def pilot_row(
                 entry[f"box_{kind}"] = contribution_box(
                     weights, est, draws, settings.level, kind, se=se, se_draws=se_draws
                 )
+            if decomp.coefficient_jackknife:
+                jk = np.column_stack(
+                    [np.asarray(decomp.coefficient_jackknife[n], dtype=np.float64) for n in names]
+                )
+                entry["jackknife"] = jackknife_box(weights, est, jk, settings.level)
         rows[comp.name] = entry
     share_draws = replicate_shares(decomp)
     shares = planted_shares(truth, [c.name for c in decomp.components if c.kind != "residual"])
@@ -632,6 +654,7 @@ def config_from(block: Mapping[str, Any]) -> tuple[Design, Planted, AnalysisSett
         task_var=float(p["task_var"]),
         model_task_var=float(p["model_task_var"]),
         batch_var=float(p["batch_var"]),
+        interactions={str(k): float(v) for k, v in p.get("interactions", {}).items()},
     )
     st = block["settings"]
     settings = AnalysisSettings(
@@ -646,6 +669,7 @@ def config_from(block: Mapping[str, Any]) -> tuple[Design, Planted, AnalysisSett
         share_interval=str(st.get("share_interval", "percentile")),
         score_interval=str(st.get("score_interval", "cluster_t")),
         contrast_interval=str(st.get("contrast_interval", "cluster_t")),
+        fixed_interval=str(st.get("fixed_interval", "box")),
     )
     return Design(**block["design"]), planted, settings
 
@@ -836,6 +860,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--nagq", type=int, choices=(0, 1), default=1, help="1 for Laplace fits, 0 for nAGQ = 0"
     )
     parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument("--n-models", type=int, default=4, help="models, effects 0.6 to -0.6")
+    parser.add_argument("--task-var", type=float, default=2.0)
+    parser.add_argument(
+        "--interactions", default="", help="task-by-factor variances, as harness=0.25,steps=0.25"
+    )
+    parser.add_argument("--fixed-interval", choices=("box", "jackknife"), default="box")
     args = parser.parse_args(args_list)
     seeds = [s for s in range(args.first, args.first + args.count)]
     if any(s not in PILOT_SEEDS for s in seeds):
@@ -843,16 +873,28 @@ def main(argv: Sequence[str] | None = None) -> int:
     done = set()
     if args.out.exists():
         done = {json.loads(ln)["seed"] for ln in args.out.read_text().splitlines() if ln.strip()}
-    settings = AnalysisSettings(n_boot=args.n_boot, nagq=args.nagq)
-    planted = Planted()
+    settings = AnalysisSettings(
+        n_boot=args.n_boot, nagq=args.nagq, fixed_interval=args.fixed_interval
+    )
+    spread = tuple(
+        round(0.6 - 1.2 * i / (args.n_models - 1), 4) if args.n_models > 1 else 0.0
+        for i in range(args.n_models)
+    )
+    inter = {
+        name: float(value)
+        for name, value in (part.split("=") for part in args.interactions.split(",") if part)
+    }
+    planted = Planted(model=spread, task_var=args.task_var, interactions=inter)
     if args.no_batch:
         settings = dataclasses.replace(settings, random=("task", "model:task"))
         planted = dataclasses.replace(planted, batch_var=0.0)
     if args.mde:
         settings = dataclasses.replace(settings, mde_designs=((20, 1), (40, 1), (89, 5)))
-    design = Design()
+    design = Design(n_models=args.n_models)
     if (args.tasks, args.runs_per_cell) != (40, 8):
-        design = Design(n_tasks=args.tasks, runs_per_cell=args.runs_per_cell)
+        design = Design(
+            n_models=args.n_models, n_tasks=args.tasks, runs_per_cell=args.runs_per_cell
+        )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     jobs = [(design, planted, settings, s) for s in seeds if s not in done]
     with args.out.open("a") as fh:
