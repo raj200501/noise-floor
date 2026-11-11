@@ -140,9 +140,12 @@ E1 analysis waits until both arms have ended, so the analysis (which also writes
 post-E1 check, the report's E1 sections, and the final review all wait for this slice's end
 point (D-036 item 2). Steps for Raj:
 
-1. Clone the branch `claude/gifted-darwin-k7q99b` (one clone only) at or after the commit that
-   runs `e0_validity` (STATUS.md names it when the local arm starts), and check that
-   `artifacts/g6/recovery.json` and `artifacts/e0/coverage-0005.json` exist. The slice needs
+1. Start only once STATUS.md says G5 PASS and G6 PASS at the banking commit and the local arm
+   has started: a confirmatory Claude run before a failing validation is resolved closes the
+   preregistered route for replacing the failing method (D-036 item 1). Clone the branch
+   `claude/gifted-darwin-k7q99b` (one clone only) at or after that commit, which runs
+   `e0_validity` (STATUS.md names it), and check that `artifacts/g6/recovery.json` and
+   `artifacts/e0/coverage-0005.json` exist. The slice needs
    macOS or Linux (on Windows, WSL). Then `make setup` and `make doctor`. Its `billing guard`
    row must read `clean`: no `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`,
    `CLAUDE_CODE_USE_*`, or `apiKeyHelper` in any user, project, or managed settings file. The

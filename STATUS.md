@@ -80,8 +80,10 @@ Local model runs: pilot p1 24, screening s2 11 (exploratory, suite v1), s3 84 (s
    docs/PLAN.md ("Claude arm on Raj's machine"), starting with `python -m noisefloor.claude_arm
    smoke`. As preregistered, the E1 analysis waits until both arms have ended, so E3 on E1 (G8),
    the post-E1 check (G7), and the final review (G12) all wait for the slice's end point. Start
-   on the first day the banked G6 and E0 part 2 artifacts are pushed (expected around 2026-11-13
-   or 14), from the branch `claude/gifted-darwin-k7q99b` at or after the `e0_validity` commit.
+   on the first day this file says G5 PASS and G6 PASS at the banking commit and the local arm
+   has started (expected around 2026-11-14), from the branch `claude/gifted-darwin-k7q99b` at or
+   after that commit; a start before a failing validation is resolved would close the
+   preregistered route for replacing the failing method (D-036 item 1).
    The daily cap is budget.toml's cap times the smaller of `cap_share` (0.2) and `CAP_SHARE`: 6
    runs a UTC day, and the smoke run takes one of its day's runs. All 180 planned runs then need
    31 UTC days and the 150 that G7 needs 26, so start by 2026-11-25 for all 180 and by

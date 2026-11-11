@@ -923,3 +923,10 @@ procedure gaps and no defect that changes a result. These rules hold from now on
    `tools/ship_check.py` itself, so the REPORT can count passing cells and components from an
    artifact (claims count lists, not maps). Its outputs are labeled synthetic, it skips a source
    that is not banked yet, and `make reproduce` checks them.
+8. The Claude slice starts only once STATUS.md records G5 PASS and G6 PASS at the banking
+   commit, for the reason in D-036 item 1 (the slice's own start check does not read coverage
+   either); the runbook and Needs Raj item 1 say so.
+9. Before the final sequence a milestone review runs and its non-blocking issues are copied into
+   docs/REVIEW_LOG.md, so the final review is likely to raise none. With D-036 item 9 a review
+   that raises a new non-blocking issue reads `REVIEW: STALE`; at final-sequence step 2 that
+   ends the turn as a BLOCK does, and the sequence starts again in a later turn.
