@@ -489,3 +489,19 @@ def test_ship_check_and_generator_map_cells_to_the_same_functions() -> None:
 
     assert ship_check.FUNCTION_OF == e0_validity.FUNCTIONS
     assert {"glmm_task_jackknife", "glmm_plugin_share"} <= ship_check.RESAMPLING_TYPES
+
+
+def test_noise_floor_artifact_is_current_and_follows_its_formula() -> None:
+    import math
+
+    from scipy import stats
+
+    noise_floor = load("noise_floor")
+    assert noise_floor.main(["--check"]) == 0  # the banked artifact equals a fresh build
+    pair = {"higher": "a", "lower": "b", "n_tasks": 51, "difference": 0.02}
+    t = float(stats.t.ppf(0.975, 50))
+    pair.update(lo=0.02 - 0.1 * t, hi=0.02 + 0.1 * t)  # standard error 0.1
+    floor = noise_floor.board_floor({"sets": {"primary": {"level": 0.95, "q1": {"pairs": [pair]}}}})
+    z = float(stats.norm.ppf(0.975) + stats.norm.ppf(0.8))
+    assert math.isclose(floor["median_mde"], z * 0.1, rel_tol=1e-9)
+    assert floor["n_gap_at_least_mde"] == 0 and floor["median_abs_gap"] == 0.02

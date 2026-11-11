@@ -57,3 +57,28 @@ text = "(Apache-2.0 and CC-BY-4.0;"
 docs = ["README.md"]
 category = "version"
 reason = "license identifiers of the leaderboard data"
+
+[[exempt]]
+text = """models on 85 mock tasks, each
+  task run 18 times per model (4,590 local runs"""
+docs = ["README.md"]
+category = "design-parameter"
+reason = "the frozen E1 design (prereg/0004 e1-design block), not a measurement"
+
+[[exempt]]
+text = """plus a Claude slice of three tiers on 30 tasks"""
+docs = ["README.md"]
+category = "design-parameter"
+reason = "the frozen E1 design (prereg/0004), not a measurement"
+
+[[exempt]]
+text = "with 80% power (median over adjacent pairs)"
+docs = ["README.md"]
+category = "threshold"
+reason = "the power and level of the minimum-detectable-effect definition, not a measurement"
+
+[[exempt]]
+text = "80% power at two-sided alpha 0.05"
+docs = ["README.md"]
+category = "threshold"
+reason = "the power and level of the minimum-detectable-effect definition, not a measurement"

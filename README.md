@@ -6,17 +6,24 @@ On Terminal-Bench 2.0, the top two submissions differ by <!-- claim:e2.tb2.top.d
 success (95% paired CI <!-- claim:e2.tb2.top.lo -->-0.041 to <!-- claim:e2.tb2.top.hi -->+0.077), only
 <!-- claim:e2.tb2.adjacent.supported -->2 of <!-- claim:e2.tb2.adjacent.pairs -->65 adjacent pairs on
 the board are statistically separated, and <!-- claim:e2.tb2.first -->15 of its
-<!-- claim:e2.tb2.entries -->66 entries could plausibly rank first.
+<!-- claim:e2.tb2.entries -->66 entries could plausibly rank first. The board's own design detects
+a gap of <!-- claim:nf.tb2.mde -->0.097 with 80% power (median over adjacent pairs), while the median
+adjacent gap is <!-- claim:nf.tb2.gap -->0.007: most of the ordering sits below the noise floor.
 
 ![Terminal-Bench entries: success rate of each submission with its task-clustered interval](docs/figures/e2-tb2-scores.svg)
 
-| Leaderboard (confidence report) | Entries | Tasks | Adjacent pairs separated | Median rank-interval width | Could rank first |
-|---|---:|---:|---:|---:|---:|
-| [Terminal-Bench 2.0](docs/leaderboards/tb2.md) | <!-- claim:e2.tb2.entries -->66 | <!-- claim:e2.tb2.tasks -->89 | <!-- claim:e2.tb2.adjacent.supported -->2 of <!-- claim:e2.tb2.adjacent.pairs -->65 | <!-- claim:e2.tb2.rankwidth -->35 ranks | <!-- claim:e2.tb2.first -->15 |
-| [SWE-bench Verified (Epoch AI)](docs/leaderboards/epoch-swebench.md) | <!-- claim:e2.epoch.entries -->32 | <!-- claim:e2.epoch.tasks -->454 | <!-- claim:e2.epoch.adjacent.supported -->3 of <!-- claim:e2.epoch.adjacent.pairs -->31 | <!-- claim:e2.epoch.rankwidth -->21 ranks | <!-- claim:e2.epoch.first -->4 |
+| Leaderboard (confidence report) | Entries | Tasks | Adjacent pairs separated | Median rank-interval width | Could rank first | Detectable gap* | Median adjacent gap* |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| [Terminal-Bench 2.0](docs/leaderboards/tb2.md) | <!-- claim:e2.tb2.entries -->66 | <!-- claim:e2.tb2.tasks -->89 | <!-- claim:e2.tb2.adjacent.supported -->2 of <!-- claim:e2.tb2.adjacent.pairs -->65 | <!-- claim:e2.tb2.rankwidth -->35 ranks | <!-- claim:e2.tb2.first -->15 | <!-- claim:nf.tb2.mde -->0.097 | <!-- claim:nf.tb2.gap -->0.007 |
+| [SWE-bench Verified (Epoch AI)](docs/leaderboards/epoch-swebench.md) | <!-- claim:e2.epoch.entries -->32 | <!-- claim:e2.epoch.tasks -->454 | <!-- claim:e2.epoch.adjacent.supported -->3 of <!-- claim:e2.epoch.adjacent.pairs -->31 | <!-- claim:e2.epoch.rankwidth -->21 ranks | <!-- claim:e2.epoch.first -->4 | <!-- claim:nf.epoch.mde -->0.048 | <!-- claim:nf.epoch.gap -->0.004 |
 
 Pairs are separated when their paired, task-clustered 95% interval excludes zero; rank intervals
-are simultaneous 95% intervals from a task bootstrap. Both analyses follow plans frozen before any
+are simultaneous 95% intervals from a task bootstrap. *Exploratory, not preregistered
+([`tools/noise_floor.py`](tools/noise_floor.py), [artifact](artifacts/e2/noise_floor.json)): the
+detectable gap is the difference in success rate that the board's own tasks and runs detect with
+80% power at two-sided alpha 0.05, from each adjacent pair's banked interval; both columns are
+medians over adjacent pairs, and only <!-- claim:nf.tb2.atleast -->1 and <!-- claim:nf.epoch.atleast -->2
+pairs, respectively, have a gap at least that large. Both analyses follow plans frozen before any
 result existed: [`prereg/0001`](prereg/0001-e2-leaderboard-reanalysis.md), amended by
 [`prereg/0002`](prereg/0002-e2-amend-epoch-reference-rule.md); `make prereg-verify` checks that
 each plan predates the artifacts that cite it.
@@ -110,6 +117,9 @@ everything else a leaderboard holds fixed or ignores. Its plan (frozen in
 [`prereg/0005`](prereg/0005-e0-glmm-cells.md) and [`prereg/0006`](prereg/0006-g6-recovery.md)) fixes, before any
 data exist:
 
+- the sample, set by its power analysis: three local open-weight models on 85 mock tasks, each
+  task run 18 times per model (4,590 local runs over four UTC days and two time-of-day blocks),
+  plus a Claude slice of three tiers on 30 tasks;
 - a half-fraction factorial over harness, timeout, step budget, temperature, and concurrency,
   crossed with model, day, and time-of-day block, with replicate runs to measure run-to-run
   sampling directly;
