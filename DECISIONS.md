@@ -805,3 +805,6 @@ analysis-code pin fixes the corrected code; none rests on E1 data, which do not 
    markers, which do not render, before matching; the property it checks is unchanged.
 5. `make reproduce` is implemented: it recomputes E2 and E3 from the pinned snapshots,
    regenerates the figures and the noise-floor file, and fails if any committed one changes.
+6. The policy-bounds interval of a success rate is cut to [0, 1] (a reviewer saw an upper end of
+   1.001 in the Terminal-Bench report); E2 and E3 are re-banked with that one change, recorded in
+   CORRECTIONS.md.

@@ -160,7 +160,7 @@ Scores when ambiguous runs (infrastructure errors, timeouts, flagged runs) are k
 
 | Entry | As recorded | Fail | Success | Exclude | Bounds | Interval |
 |---|---:|---:|---:|---:|---|---|
-| vix__claude-opus-4-7 | 0.899 | 0.870 | 0.998 | 0.997 | [0.870, 0.998] | [0.824, 1.001] |
+| vix__claude-opus-4-7 | 0.899 | 0.870 | 0.998 | 0.997 | [0.870, 0.998] | [0.824, 1.000] |
 | Wecode__GPT-5.5 | 0.881 | 0.685 | 0.912 | 0.879 | [0.685, 0.912] | [0.619, 0.955] |
 | JJAgent__Multiple | 0.871 | 0.865 | 0.887 | 0.876 | [0.865, 0.887] | [0.813, 0.933] |
 | LemonHarness_GPT-5.3-CodeX | 0.845 | 0.831 | 0.919 | 0.898 | [0.831, 0.919] | [0.784, 0.952] |

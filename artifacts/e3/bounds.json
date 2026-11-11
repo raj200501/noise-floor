@@ -12,7 +12,7 @@
     {
      "ambiguous_runs": 57,
      "ambiguous_share": 0.12808988764044943,
-     "ci_hi": 1.001449109278844,
+     "ci_hi": 1.0,
      "ci_lo": 0.8238031963692856,
      "entry": "vix__claude-opus-4-7",
      "lower": 0.8696629213483147,

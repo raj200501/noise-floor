@@ -207,8 +207,10 @@ def policy_bounds(
             scores=scores,
             lower=lo,
             upper=hi,
-            ci_lo=ci_lo,
-            ci_hi=ci_hi,
+            # A success rate lies in [0, 1], so its interval is cut there; cutting to the
+            # parameter space never lowers coverage.
+            ci_lo=max(0.0, ci_lo),
+            ci_hi=min(1.0, ci_hi),
             ambiguous_runs=n_amb,
             ambiguous_share=n_amb / int(t["k"].sum()),
             excluded_tasks=int((t["n_ok"] == 0).sum()),
