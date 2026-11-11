@@ -85,6 +85,9 @@ resolve.
 
 ## Key results
 
+The technical report, [docs/REPORT.md](docs/REPORT.md), gives the methods, every result with
+its interval, the E1 design, and the limitations in full.
+
 | Result | Finding | Artifact | Plan |
 |---|---|---|---|
 | Terminal-Bench 2.0 reanalysis ([scores](docs/figures/e2-tb2-scores.svg)) | <!-- claim:e2.tb2.adjacent.supported -->2 of <!-- claim:e2.tb2.adjacent.pairs -->65 adjacent pairs separated; median rank interval <!-- claim:e2.tb2.rankwidth -->35 ranks wide | [results.json](artifacts/e2/tb2/results.json) | [`prereg/0001`](prereg/0001-e2-leaderboard-reanalysis.md) |
@@ -145,8 +148,8 @@ make reproduce     # recomputes E2 and E3 from the pinned snapshots; fails if a 
 make ship-check    # all fourteen gates on a fresh clone; gates that wait on E1 fail until it runs
 ```
 
-`make claimcheck` and `make freshness` check that every result number in this README equals what
-its artifact says now; `make prereg-verify` checks
+`make claimcheck` and `make freshness` check that every result number in this README and in
+[docs/REPORT.md](docs/REPORT.md) equals what its artifact says now; `make prereg-verify` checks
 that every preregistration is frozen, unedited, and older than the data that cite it. The
 leaderboard snapshots are pinned by URL, retrieval date, and hash in [docs/DATA.md](docs/DATA.md).
 
