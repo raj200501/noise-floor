@@ -8,7 +8,7 @@ docs/LOG.md.
 
 ## Gates
 
-Last fast ship-check (does not count) at 0c851c3: 7/14 (G1 to G4, G9, G11, G14 pass).
+Last fast ship-check (does not count) at 3ad6ea2: 9/14 (G1 to G4, G9 to G11, G13, G14 pass; G5 to G8 wait on E0 part 2, G6, and E1; G12 on `make review`).
 
 | Gate | Status | Evidence / next step |
 |------|--------|----------------------|
@@ -21,10 +21,10 @@ Last fast ship-check (does not count) at 0c851c3: 7/14 (G1 to G4, G9, G11, G14 p
 | G7 Factorial study | FAIL | 0004 frozen (85 local tasks, 4 days); local arm after G6 and E0 part 2; Claude slice needs Raj |
 | G8 Leaderboards and bounds | FAIL | E2 and both reports done; E3 on E1 comes with the E1 analysis |
 | G9 Library shipped | PASS | wheel installs in a clean venv; 5 examples run; API reference generated |
-| G10 Claim integrity | see fast check | README and REPORT pass claimcheck and freshness |
+| G10 Claim integrity | PASS | README and REPORT pass claimcheck and freshness (260 claim markers) |
 | G11 Preregistration integrity | PASS | 6 preregistrations frozen, artifacts predated by them |
 | G12 Independent review | FAIL | `make review` after E1 |
-| G13 Documentation | see fast check | README (section 11) and REPORT written; 24 references verified |
+| G13 Documentation | PASS | README per section 11; REPORT within the word range with all sections; 24 references verified |
 | G14 Hygiene | PASS | secrets-scan clean; cash_usd = 0, caps respected; tree clean |
 
 ## Now
