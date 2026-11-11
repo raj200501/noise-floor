@@ -786,3 +786,22 @@ analysis-code pin fixes the corrected code; none rests on E1 data, which do not 
    library's list of failing cells is what `e0_validity` builds from the banked coverage.
    Pinning `e1.py` and `models.py` keeps them unchanged through G7's recompute; 0004 and PLAN
    now say that a repair to them during an arm needs an analysis-code amendment.
+
+## D-035 2026-11-11 Public release: README, an exploratory noise floor, and a G13 fix
+1. README.md replaces the build brief (kept as docs/BUILD_BRIEF.md), as section 11 asks once
+   real results exist. Its results are the preregistered E2 and E3 reanalyses and E0 part 1;
+   E1 is described as preregistered and not yet run. Every number in it is a registered claim
+   or an exact-text exemption, and a fresh-eyes review (a lab reader and a statistician) was
+   applied before release.
+2. The noise floor of each board's own design is exploratory, not preregistered:
+   `tools/noise_floor.py` derives, from the banked E2 paired intervals only, the true gap each
+   adjacent pair's design detects with power 0.8 at two-sided alpha 0.05 (normal approximation)
+   and banks per-board medians in `artifacts/e2/noise_floor.json`, which `make reproduce`
+   checks. It is labeled exploratory wherever it appears.
+3. `make report` adds a figure per board of every adjacent gap with its paired interval (the
+   quantity of prereg 0001's first question); the Terminal-Bench one heads the README.
+4. G13 checked the first-screen interval on raw Markdown, where the claim markers G10 requires
+   sit inside the brackets, so no claim-marked README could pass both gates. It now removes the
+   markers, which do not render, before matching; the property it checks is unchanged.
+5. `make reproduce` is implemented: it recomputes E2 and E3 from the pinned snapshots,
+   regenerates the figures and the noise-floor file, and fails if any committed one changes.
