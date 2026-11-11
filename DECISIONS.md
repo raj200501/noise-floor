@@ -918,3 +918,8 @@ procedure gaps and no defect that changes a result. These rules hold from now on
    `artifacts/e1/post_check/` and `artifacts/e1/post_check.json` are removed.
 6. G13 caps the REPORT at 8,000 words, and about 1,400 are left. The E0 part 2, G6, and E1
    results replace the report's "not run" passages instead of being added beside them.
+7. `tools/validity_summary.py` turns the banked E0 part 2 and G6 artifacts into per-cell and
+   per-component lists of verdicts, using the coverage rule and hit test of
+   `tools/ship_check.py` itself, so the REPORT can count passing cells and components from an
+   artifact (claims count lists, not maps). Its outputs are labeled synthetic, it skips a source
+   that is not banked yet, and `make reproduce` checks them.

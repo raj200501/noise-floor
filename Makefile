@@ -62,6 +62,7 @@ reproduce:
 	$(RUN) python -m noisefloor.reanalysis --verify
 	$(RUN) python -m noisefloor.report
 	$(RUN) python tools/noise_floor.py --check
+	$(RUN) python tools/validity_summary.py --check
 	git diff --exit-code --stat -- docs/figures docs/leaderboards
 	@echo "REPRODUCE: PASS (E2 and E3 recomputed from the pinned snapshots; figures unchanged)"
 
