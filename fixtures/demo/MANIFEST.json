@@ -1,0 +1,22 @@
+{
+  "description": "Synthetic eval results with planted effects; not model results.",
+  "files": {
+    "synthetic_results.csv": "b9d8b295be1d212d8cd6bab7821dbe0c30edfe23b9ed5f15f2864155f0d33b32"
+  },
+  "generator": "python -m noisefloor.demo --write-fixture",
+  "seed": 20261023,
+  "spec": {
+    "intercept": 0.1,
+    "model_task_sd": 0.5,
+    "models": {
+      "synth-alpha": 0.55,
+      "synth-beta": 0.4,
+      "synth-delta": -0.35,
+      "synth-gamma": 0.3
+    },
+    "n_tasks": 120,
+    "runs": 3,
+    "task_sd": 1.2
+  },
+  "synthetic": true
+}

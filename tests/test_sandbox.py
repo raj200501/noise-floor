@@ -1,0 +1,166 @@
+import json
+import os
+import sys
+from pathlib import Path
+
+import pytest
+
+from noisefloor import sandbox
+
+needs_ns = pytest.mark.skipif(not sandbox.available(), reason="namespaces unavailable")
+
+PROBE = """
+import json, os, socket, urllib.request
+out = {"writable": {}, "network": "open", "loopback": False}
+for t in ["/", "/etc", "/usr", "/tmp", os.getcwd(), REPO]:
+    out["writable"][t] = os.access(t, os.W_OK)
+try:
+    urllib.request.urlopen("http://example.com", timeout=3)
+except Exception:
+    out["network"] = "blocked"
+s = socket.socket(); s.bind(("127.0.0.1", 0)); s.listen(1)
+socket.create_connection(s.getsockname(), 2); out["loopback"] = True
+out["secrets"] = [k for k in os.environ if "TOKEN" in k or k.startswith(("ANTHROPIC", "AWS"))]
+out["git"] = (os.environ.get("GIT_CONFIG_NOSYSTEM"), os.environ.get("GIT_CONFIG_GLOBAL"))
+open("result.json", "w").write(json.dumps(out))
+"""
+
+
+@needs_ns
+def test_sandbox_confines_writes_network_and_env(tmp_path: Path) -> None:
+    repo = str(Path(__file__).resolve().parents[1])
+    ws = Path("/root/.cache/noisefloor/work") if Path("/root").exists() else tmp_path
+    ws = ws / f"pytest-{tmp_path.name}"
+    env = {"PATH": "/usr/bin:/bin", "GH_TOKEN": "x" * 20, "AWS_SECRET_ACCESS_KEY": "y" * 20}
+    code = PROBE.replace("REPO", repr(repo))
+    res = sandbox.run([sys.executable, "-c", code], ws, timeout=60, env=env)
+    assert res.returncode == 0, res.stderr
+    out = json.loads((ws / "result.json").read_text())
+    assert out["writable"] == {
+        "/": False,
+        "/etc": False,
+        "/usr": False,
+        "/tmp": True,
+        str(ws.resolve()): True,
+        repo: False,
+    }
+    assert out["network"] == "blocked" and out["loopback"] is True
+    assert out["secrets"] == [] and out["git"] == ["1", "/dev/null"]
+
+
+def test_scrubbed_env_and_command_line() -> None:
+    env = sandbox.scrubbed_env(
+        {
+            "PATH": "/bin",
+            "GH_TOKEN": "t",
+            "MY_API_KEY": "k",
+            "HTTPS_PROXY": "p",
+            "LANG": "C",
+            "CLAUDE_CODE_USE_BEDROCK": "1",
+            "DB_PASSWORD": "p",
+        },
+        "/w",
+    )
+    assert env == {
+        "PATH": "/bin",
+        "LANG": "C",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+        "NOISEFLOOR_SANDBOXED": "1",
+        "HOME": "/w",
+        "TMPDIR": "/tmp",
+    }
+    cmd = sandbox.sandboxed(["echo", "hi"], "/w")
+    start = cmd.index("unshare")
+    assert cmd[start : start + 7] == [
+        "unshare",
+        "--user",
+        "--map-root-user",
+        "--net",
+        "--mount",
+        "--fork",
+        "--kill-child",  # the sandboxed command dies with unshare
+    ]
+    assert cmd[-4:] == ["/w", "--", "echo", "hi"]
+    if start:  # setpriv found: unshare dies with the process that launched it
+        assert cmd[1:4] == ["--pdeathsig", "KILL", "--"]  # unshare --fork blocks TERM
+
+
+def test_parse_args_and_ro_paths(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert sandbox.parse_args(["/w", "--", "echo"]) == ("/w", [], ["echo"])
+    assert sandbox.parse_args(["/w", "--ro", "/tmp/a", "--", "x", "y"]) == (
+        "/w",
+        ["/tmp/a"],
+        ["x", "y"],
+    )
+    for bad in (
+        ["/w", "echo"],
+        ["--", "x"],
+        ["/w", "--"],
+        ["/w", "--rw", "/a", "--", "x"],
+        ["/w", "--ro", "--", "x"],
+    ):
+        assert sandbox.parse_args(bad) is None
+    cmd = sandbox.sandboxed(["echo"], "/w", ["/tmp/repo"])
+    assert cmd[-5:] == ["/w", "--ro", "/tmp/repo", "--", "echo"]
+    monkeypatch.setattr(sandbox.sys, "prefix", "/tmp/venv-x")
+    assert "/tmp/venv-x" in sandbox.default_ro_paths()
+
+
+def test_main_usage_and_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert sandbox.main(["only-one-arg"]) == 2
+    monkeypatch.setattr(sandbox, "available", lambda: False)
+    with pytest.raises(sandbox.SandboxUnavailableError):
+        sandbox.run(["true"], "/tmp/x")
+
+
+def test_available_false_off_linux(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sandbox.sys, "platform", "darwin")
+    assert sandbox.available() is False
+
+
+@pytest.mark.skipif(not sandbox.available(), reason="needs user, network, and mount namespaces")
+def test_a_killed_launcher_leaves_no_sandboxed_process(tmp_path: Path) -> None:
+    import signal
+    import subprocess
+    import sys
+    import time
+
+    tag = f"{4000 + os.getpid() % 1000}.{time.time_ns() % 10**6:06d}"  # a unique sleep length
+
+    def alive() -> list[int]:
+        found = []
+        for entry in Path("/proc").iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                args = (entry / "cmdline").read_bytes().split(b"\0")
+            except OSError:
+                continue
+            if tag.encode() in args and int(entry.name) != os.getpid():
+                found.append(int(entry.name))
+        return found
+
+    script = tmp_path / "launch.py"
+    script.write_text(
+        "from noisefloor import sandbox\n"
+        f"sandbox.run(['sleep', '{tag}'], {str(tmp_path / 'ws')!r})\n"
+    )
+    launcher = subprocess.Popen([sys.executable, str(script)])
+    try:
+        deadline = time.monotonic() + 30
+        while not alive() and time.monotonic() < deadline:
+            time.sleep(0.1)
+        assert alive(), "the sandboxed command never started"
+        launcher.send_signal(signal.SIGKILL)
+        launcher.wait(10)
+        deadline = time.monotonic() + 10
+        while alive() and time.monotonic() < deadline:
+            time.sleep(0.1)
+        left = alive()
+    finally:
+        for pid in alive():
+            os.kill(pid, signal.SIGKILL)
+        if launcher.poll() is None:
+            launcher.kill()
+    assert left == []

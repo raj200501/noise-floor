@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use noise-floor or evalstats, please cite it as below."
+title: "noise-floor: variance decomposition, rank confidence, and minimum detectable effects for agentic evals"
+type: software
+authors:
+  - family-names: Kashikar
+    given-names: Raj
+repository-code: "https://github.com/raj200501/noise-floor"
+license: MIT
+version: 0.0.1

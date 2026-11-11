@@ -1,0 +1,890 @@
+{
+ "alpha": 0.05,
+ "boards": {
+  "epoch-swebench": {
+   "median_abs_gap": 0.004132231404958678,
+   "median_mde": 0.04813108303388895,
+   "n_gap_at_least_mde": 2,
+   "n_pairs": 31,
+   "pairs": [
+    {
+     "gap": 0.04132231404958678,
+     "gap_at_least_mde": false,
+     "higher": "claude-opus-4-7_max [nCmGWWMBip2s9AVEZNYXDX]",
+     "lower": "gemini-3.5-flash_high [dwRzFGTghYEy4HNZajJXoc]",
+     "mde": 0.044572953989042076,
+     "n_tasks": 484,
+     "se": 0.015909904757087694
+    },
+    {
+     "gap": 0.006198347107438017,
+     "gap_at_least_mde": false,
+     "higher": "gemini-3.5-flash_high [dwRzFGTghYEy4HNZajJXoc]",
+     "lower": "claude-opus-4-6 [2hH2GAPUFaJR7pfVKhhicg]",
+     "mde": 0.04137266445536276,
+     "n_tasks": 484,
+     "se": 0.014767590929548689
+    },
+    {
+     "gap": 0.002070393374741201,
+     "gap_at_least_mde": false,
+     "higher": "claude-opus-4-6 [2hH2GAPUFaJR7pfVKhhicg]",
+     "lower": "glm-5.2_max [4AfhcmYVNrw6gM5u8CQsyy]",
+     "mde": 0.03807417703985619,
+     "n_tasks": 483,
+     "se": 0.013590226273931218
+    },
+    {
+     "gap": 0.008298755186721992,
+     "gap_at_least_mde": false,
+     "higher": "glm-5.2_max [4AfhcmYVNrw6gM5u8CQsyy]",
+     "lower": "deepseek-v4-pro_max [WUk3f44JhxtAJaSxi6gFZR]",
+     "mde": 0.04352843342790751,
+     "n_tasks": 482,
+     "se": 0.015537072778113264
+    },
+    {
+     "gap": 0.002070393374741201,
+     "gap_at_least_mde": false,
+     "higher": "deepseek-v4-pro_max [WUk3f44JhxtAJaSxi6gFZR]",
+     "lower": "qwen3.7-max [83hhDhcT9UUrZ2NiUbWSUU]",
+     "mde": 0.03980577794870515,
+     "n_tasks": 483,
+     "se": 0.014208305244955808
+    },
+    {
+     "gap": 0.004132231404958678,
+     "gap_at_least_mde": false,
+     "higher": "qwen3.7-max [83hhDhcT9UUrZ2NiUbWSUU]",
+     "lower": "gpt-5.4-2026-03-05_high [i9HTMbAxcwsrTf2w2FuJ6N]",
+     "mde": 0.0477788458398356,
+     "n_tasks": 484,
+     "se": 0.01705421828004127
+    },
+    {
+     "gap": 0.002066115702479339,
+     "gap_at_least_mde": false,
+     "higher": "gpt-5.4-2026-03-05_high [i9HTMbAxcwsrTf2w2FuJ6N]",
+     "lower": "claude-opus-4-5-20251101 [mKQKxkpGDrFHBPBYR3mBrB]",
+     "mde": 0.05084486832538402,
+     "n_tasks": 484,
+     "se": 0.018148606723314673
+    },
+    {
+     "gap": 0.0,
+     "gap_at_least_mde": false,
+     "higher": "claude-opus-4-5-20251101 [mKQKxkpGDrFHBPBYR3mBrB]",
+     "lower": "kimi-k2.6 [bUPtAK7spEwvmiC8pi6afc]",
+     "mde": 0.0441287461562904,
+     "n_tasks": 484,
+     "se": 0.015751348868842795
+    },
+    {
+     "gap": 0.010330578512396695,
+     "gap_at_least_mde": false,
+     "higher": "kimi-k2.6 [bUPtAK7spEwvmiC8pi6afc]",
+     "lower": "claude-opus-4-6 [aQiAg6mt8HPHXjKcJvax2d]",
+     "mde": 0.04597267308348556,
+     "n_tasks": 484,
+     "se": 0.016409521575949364
+    },
+    {
+     "gap": 0.0,
+     "gap_at_least_mde": false,
+     "higher": "claude-opus-4-6 [aQiAg6mt8HPHXjKcJvax2d]",
+     "lower": "gemini-3.1-pro-preview-customtools [8QQQWDgmmEsmQVUJWcxx4P]",
+     "mde": 0.047781749534623275,
+     "n_tasks": 484,
+     "se": 0.017055254727110204
+    },
+    {
+     "gap": 0.002066115702479339,
+     "gap_at_least_mde": false,
+     "higher": "gemini-3.1-pro-preview-customtools [8QQQWDgmmEsmQVUJWcxx4P]",
+     "lower": "gemini-3-flash-preview [jxoyMNmTnYirjLJN6wRNmG]",
+     "mde": 0.04813108303388895,
+     "n_tasks": 484,
+     "se": 0.017179946097198518
+    },
+    {
+     "gap": 0.002066115702479339,
+     "gap_at_least_mde": false,
+     "higher": "gemini-3-flash-preview [jxoyMNmTnYirjLJN6wRNmG]",
+     "lower": "claude-sonnet-4-6 [KEdgiMmtJKHxgGiS82agYj]",
+     "mde": 0.049506574255550904,
+     "n_tasks": 484,
+     "se": 0.017670915000364145
+    },
+    {
+     "gap": 0.004132231404958678,
+     "gap_at_least_mde": false,
+     "higher": "claude-sonnet-4-6 [KEdgiMmtJKHxgGiS82agYj]",
+     "lower": "gpt-5.3-codex_high [6w5buMbgeEqtRoE55cLZVv]",
+     "mde": 0.04488004711201013,
+     "n_tasks": 484,
+     "se": 0.01601951881450869
+    },
+    {
+     "gap": 0.010330578512396695,
+     "gap_at_least_mde": false,
+     "higher": "gpt-5.3-codex_high [6w5buMbgeEqtRoE55cLZVv]",
+     "lower": "gpt-5.2-2025-12-11_high [9owdbpnWJ5pkQQC3GWKP5L]",
+     "mde": 0.04597267308348556,
+     "n_tasks": 484,
+     "se": 0.016409521575949364
+    },
+    {
+     "gap": 0.0,
+     "gap_at_least_mde": false,
+     "higher": "gpt-5.2-2025-12-11_high [9owdbpnWJ5pkQQC3GWKP5L]",
+     "lower": "kimi-k2.5 [5wVjUb3yn6bdjPSfPEMuiZ]",
+     "mde": 0.04707383262850859,
+     "n_tasks": 484,
+     "se": 0.01680257031774874
+    },
+    {
+     "gap": 0.002066115702479339,
+     "gap_at_least_mde": false,
+     "higher": "kimi-k2.5 [5wVjUb3yn6bdjPSfPEMuiZ]",
+     "lower": "gpt-5-2025-08-07_high [C85Bnci9xVzq5jmt8zNnbw]",
+     "mde": 0.04882367278552223,
+     "n_tasks": 484,
+     "se": 0.017427159620155275
+    },
+    {
+     "gap": 0.002066115702479339,
+     "gap_at_least_mde": false,
+     "higher": "gpt-5-2025-08-07_high [C85Bnci9xVzq5jmt8zNnbw]",
+     "lower": "claude-opus-4-1-20250805 [cA6Mq67yaynLhY8F5kes3c]",
+     "mde": 0.05018018298863613,
+     "n_tasks": 484,
+     "se": 0.01791135342384317
+    },
+    {
+     "gap": 0.004132231404958678,
+     "gap_at_least_mde": false,
+     "higher": "claude-opus-4-1-20250805 [cA6Mq67yaynLhY8F5kes3c]",
+     "lower": "gemini-3-pro-preview [5XdYZBG5Wy8DUMRqcYv4fn]",
+     "mde": 0.05557532323629214,
+     "n_tasks": 484,
+     "se": 0.019837098967036018
+    },
+    {
+     "gap": 0.004329004329004329,
+     "gap_at_least_mde": false,
+     "higher": "gemini-3-pro-preview [5XdYZBG5Wy8DUMRqcYv4fn]",
+     "lower": "glm-5 [hKkJEu4ueLiNWsTtrJ78PS]",
+     "mde": 0.053611206807784986,
+     "n_tasks": 462,
+     "se": 0.0191360257261406
+    },
+    {
+     "gap": 0.0021645021645021645,
+     "gap_at_least_mde": false,
+     "higher": "glm-5 [hKkJEu4ueLiNWsTtrJ78PS]",
+     "lower": "gpt-5-2025-08-07_medium [FCCkMNVHcjLLUDeNFqTGRL]",
+     "mde": 0.04662839063088647,
+     "n_tasks": 462,
+     "se": 0.01664357390573806
+    },
+    {
+     "gap": 0.002066115702479339,
+     "gap_at_least_mde": false,
+     "higher": "gpt-5-2025-08-07_medium [FCCkMNVHcjLLUDeNFqTGRL]",
+     "lower": "claude-sonnet-4-5-20250929 [Lti64yMEsBWSzgEMFCSVhp]",
+     "mde": 0.04742838057284352,
+     "n_tasks": 484,
+     "se": 0.016929122935903165
+    },
+    {
+     "gap": 0.006198347107438017,
+     "gap_at_least_mde": false,
+     "higher": "claude-sonnet-4-5-20250929 [Lti64yMEsBWSzgEMFCSVhp]",
+     "lower": "claude-opus-4-20250514 [RbcvuVChvxK6SMQbPK8iRn]",
+     "mde": 0.04598474296602978,
+     "n_tasks": 484,
+     "se": 0.016413829809183243
+    },
+    {
+     "gap": 0.026859504132231406,
+     "gap_at_least_mde": false,
+     "higher": "claude-opus-4-20250514 [RbcvuVChvxK6SMQbPK8iRn]",
+     "lower": "gpt-5.1-2025-11-13_high [YoHtZpMNdsRE6qdj2K4Ucj]",
+     "mde": 0.052678232089452916,
+     "n_tasks": 484,
+     "se": 0.018803009006784662
+    },
+    {
+     "gap": 0.02066115702479339,
+     "gap_at_least_mde": false,
+     "higher": "gpt-5.1-2025-11-13_high [YoHtZpMNdsRE6qdj2K4Ucj]",
+     "lower": "gpt-5.1-2025-11-13_high [G5hTYKeE5buuWzwRQK7EgS]",
+     "mde": 0.056712051647413476,
+     "n_tasks": 484,
+     "se": 0.02024284368747932
+    },
+    {
+     "gap": 0.012396694214876033,
+     "gap_at_least_mde": false,
+     "higher": "gpt-5.1-2025-11-13_high [G5hTYKeE5buuWzwRQK7EgS]",
+     "lower": "gpt-5-mini-2025-08-07_medium [7nvdQy3AwKtoay2FBvfST5]",
+     "mde": 0.06292332664188209,
+     "n_tasks": 484,
+     "se": 0.022459901000000507
+    },
+    {
+     "gap": 0.022774327122153208,
+     "gap_at_least_mde": false,
+     "higher": "gpt-5-mini-2025-08-07_medium [7nvdQy3AwKtoay2FBvfST5]",
+     "lower": "o3-2025-04-16_medium [AKt7PcE8LQtoMWVuxwMidk]",
+     "mde": 0.050867978662063905,
+     "n_tasks": 483,
+     "se": 0.0181568557448081
+    },
+    {
+     "gap": 0.012422360248447204,
+     "gap_at_least_mde": false,
+     "higher": "o3-2025-04-16_medium [AKt7PcE8LQtoMWVuxwMidk]",
+     "lower": "claude-3-7-sonnet-20250219 [cnM8U6moeqrp74wnXRj2Jj]",
+     "mde": 0.05862030926251347,
+     "n_tasks": 483,
+     "se": 0.020923978640206304
+    },
+    {
+     "gap": 0.030991735537190084,
+     "gap_at_least_mde": false,
+     "higher": "claude-3-7-sonnet-20250219 [cnM8U6moeqrp74wnXRj2Jj]",
+     "lower": "qwen3.6-plus [8HV4HP9EM5KuLSwzifuLye]",
+     "mde": 0.05809871138937761,
+     "n_tasks": 484,
+     "se": 0.02073779909094127
+    },
+    {
+     "gap": 0.002070393374741201,
+     "gap_at_least_mde": false,
+     "higher": "qwen3.6-plus [8HV4HP9EM5KuLSwzifuLye]",
+     "lower": "gemini-2.5-pro [KL724uHFGbiXj4o5PHyLn2]",
+     "mde": 0.06117362153355462,
+     "n_tasks": 483,
+     "se": 0.021835359901976725
+    },
+    {
+     "gap": 0.08559498956158663,
+     "gap_at_least_mde": true,
+     "higher": "gemini-2.5-pro [KL724uHFGbiXj4o5PHyLn2]",
+     "lower": "gpt-4.1-2025-04-14 [SheUt9cNpkSevy4r6Gsr3u]",
+     "mde": 0.060702613097842244,
+     "n_tasks": 479,
+     "se": 0.021667237785730827
+    },
+    {
+     "gap": 0.17708333333333334,
+     "gap_at_least_mde": true,
+     "higher": "gpt-4.1-2025-04-14 [SheUt9cNpkSevy4r6Gsr3u]",
+     "lower": "gpt-4o-2024-11-20 [PncXWJm7ZCY3qv982pKoRy]",
+     "mde": 0.06126450998223486,
+     "n_tasks": 480,
+     "se": 0.021867801695320228
+    }
+   ],
+   "source": "artifacts/e2/epoch-swebench/results.json"
+  },
+  "tb2": {
+   "median_abs_gap": 0.00674157303370786,
+   "median_mde": 0.09685129281800704,
+   "n_gap_at_least_mde": 1,
+   "n_pairs": 65,
+   "pairs": [
+    {
+     "gap": 0.01797752808988764,
+     "gap_at_least_mde": false,
+     "higher": "vix__claude-opus-4-7",
+     "lower": "Wecode__GPT-5.5",
+     "mde": 0.08382330676454686,
+     "n_tasks": 89,
+     "se": 0.029919956110064986
+    },
+    {
+     "gap": 0.010112359550561799,
+     "gap_at_least_mde": false,
+     "higher": "Wecode__GPT-5.5",
+     "lower": "JJAgent__Multiple",
+     "mde": 0.05335748923152428,
+     "n_tasks": 89,
+     "se": 0.01904546357774677
+    },
+    {
+     "gap": 0.025842696629213482,
+     "gap_at_least_mde": false,
+     "higher": "JJAgent__Multiple",
+     "lower": "LemonHarness_GPT-5.3-CodeX",
+     "mde": 0.07100284359169594,
+     "n_tasks": 89,
+     "se": 0.025343810044629128
+    },
+    {
+     "gap": 8.732091204916961e-18,
+     "gap_at_least_mde": false,
+     "higher": "LemonHarness_GPT-5.3-CodeX",
+     "lower": "NexAU-AHE__gpt-5.5",
+     "mde": 0.07491374552568296,
+     "n_tasks": 89,
+     "se": 0.026739770413316842
+    },
+    {
+     "gap": 0.008988764044943821,
+     "gap_at_least_mde": false,
+     "higher": "NexAU-AHE__gpt-5.5",
+     "lower": "logos-latest__claude-opus-4.7",
+     "mde": 0.10283750620705703,
+     "n_tasks": 89,
+     "se": 0.03670689920198969
+    },
+    {
+     "gap": 0.004494382022471907,
+     "gap_at_least_mde": false,
+     "higher": "logos-latest__claude-opus-4.7",
+     "lower": "Capy__GPT-5.5",
+     "mde": 0.09642716875975188,
+     "n_tasks": 89,
+     "se": 0.034418788383207284
+    },
+    {
+     "gap": 0.011235955056179778,
+     "gap_at_least_mde": false,
+     "higher": "Capy__GPT-5.5",
+     "lower": "Polaris__Claude-Opus-4.7-GPT-5.5-Gemini-3.1-Pro",
+     "mde": 0.09190718111773084,
+     "n_tasks": 89,
+     "se": 0.03280542048963112
+    },
+    {
+     "gap": 0.006741573033707864,
+     "gap_at_least_mde": false,
+     "higher": "Polaris__Claude-Opus-4.7-GPT-5.5-Gemini-3.1-Pro",
+     "lower": "CodeBrain-1.5__GPT-5.3-Codex",
+     "mde": 0.09744936062445428,
+     "n_tasks": 89,
+     "se": 0.03478365033996436
+    },
+    {
+     "gap": 0.011235955056179768,
+     "gap_at_least_mde": false,
+     "higher": "CodeBrain-1.5__GPT-5.3-Codex",
+     "lower": "Judy__Gemini-3.1-Pro-Preview",
+     "mde": 0.08743686728014911,
+     "n_tasks": 89,
+     "se": 0.031209783202326775
+    },
+    {
+     "gap": 0.0022471910112359596,
+     "gap_at_least_mde": false,
+     "higher": "Judy__Gemini-3.1-Pro-Preview",
+     "lower": "logos-ts__claude-opus-4.7",
+     "mde": 0.10070432208130328,
+     "n_tasks": 89,
+     "se": 0.03594547880615016
+    },
+    {
+     "gap": 0.015730337078651693,
+     "gap_at_least_mde": false,
+     "higher": "logos-ts__claude-opus-4.7",
+     "lower": "OpenSage__GPT-5.3-Codex",
+     "mde": 0.09527591259997831,
+     "n_tasks": 89,
+     "se": 0.034007858116895766
+    },
+    {
+     "gap": -4.989766402809692e-18,
+     "gap_at_least_mde": false,
+     "higher": "OpenSage__GPT-5.3-Codex",
+     "lower": "LemonCode__GPT-5.3-Codex",
+     "mde": 0.10364894610476746,
+     "n_tasks": 89,
+     "se": 0.03699653518823928
+    },
+    {
+     "gap": 0.010527019796682724,
+     "gap_at_least_mde": false,
+     "higher": "LemonCode__GPT-5.3-Codex",
+     "lower": "WOZCODE__Claude-Opus-4-7",
+     "mde": 0.08960433123857854,
+     "n_tasks": 89,
+     "se": 0.03198343946822089
+    },
+    {
+     "gap": 0.000708935259497056,
+     "gap_at_least_mde": false,
+     "higher": "WOZCODE__Claude-Opus-4-7",
+     "lower": "Droid__GPT-5.3-Codex",
+     "mde": 0.09078321734015352,
+     "n_tasks": 89,
+     "se": 0.032404231987382244
+    },
+    {
+     "gap": 0.008988764044943826,
+     "gap_at_least_mde": false,
+     "higher": "Droid__GPT-5.3-Codex",
+     "lower": "Meta-Harness__Claude-Opus-4.6",
+     "mde": 0.09127280523470163,
+     "n_tasks": 89,
+     "se": 0.032578985870070805
+    },
+    {
+     "gap": 0.006741573033707871,
+     "gap_at_least_mde": false,
+     "higher": "Meta-Harness__Claude-Opus-4.6",
+     "lower": "Codelia__GPT-5.3-Codex",
+     "mde": 0.10343579727529727,
+     "n_tasks": 89,
+     "se": 0.036920453679780384
+    },
+    {
+     "gap": 0.005056179775280897,
+     "gap_at_least_mde": false,
+     "higher": "Codelia__GPT-5.3-Codex",
+     "lower": "Capy__Claude-Opus-4.6",
+     "mde": 0.07760913680098806,
+     "n_tasks": 89,
+     "se": 0.027701865465032102
+    },
+    {
+     "gap": 0.003932584269662915,
+     "gap_at_least_mde": false,
+     "higher": "Capy__Claude-Opus-4.6",
+     "lower": "Terminus-KIRA__Gemini-3.1-Pro-Preview",
+     "mde": 0.07864110734806232,
+     "n_tasks": 89,
+     "se": 0.02807021783225702
+    },
+    {
+     "gap": 0.002247191011235957,
+     "gap_at_least_mde": false,
+     "higher": "Terminus-KIRA__Gemini-3.1-Pro-Preview",
+     "lower": "Mux__GPT-5.3-Codex",
+     "mde": 0.09326444638564646,
+     "n_tasks": 89,
+     "se": 0.03328988380673479
+    },
+    {
+     "gap": -4.989766402809692e-18,
+     "gap_at_least_mde": false,
+     "higher": "Mux__GPT-5.3-Codex",
+     "lower": "Simple-Codex__GPT-5.3-Codex",
+     "mde": 0.07163124150775417,
+     "n_tasks": 89,
+     "se": 0.025568110884023724
+    },
+    {
+     "gap": 0.0022471910112359583,
+     "gap_at_least_mde": false,
+     "higher": "Simple-Codex__GPT-5.3-Codex",
+     "lower": "Terminus-KIRA__Claude-Opus-4.6",
+     "mde": 0.08279064767693807,
+     "n_tasks": 89,
+     "se": 0.029551357974647804
+    },
+    {
+     "gap": 0.0067415730337078515,
+     "gap_at_least_mde": false,
+     "higher": "Terminus-KIRA__Claude-Opus-4.6",
+     "lower": "Ante__Gemini-3.1-Pro-Preview",
+     "mde": 0.09948487310508783,
+     "n_tasks": 89,
+     "se": 0.03551020774306366
+    },
+    {
+     "gap": 0.017977528089887642,
+     "gap_at_least_mde": false,
+     "higher": "Ante__Gemini-3.1-Pro-Preview",
+     "lower": "Judy__Claude-Opus-4.6",
+     "mde": 0.10805714695540017,
+     "n_tasks": 89,
+     "se": 0.03857000181782191
+    },
+    {
+     "gap": 6.237208003512115e-19,
+     "gap_at_least_mde": false,
+     "higher": "Judy__Claude-Opus-4.6",
+     "lower": "MAYA__Claude-4.6-opus",
+     "mde": 0.09685129281800704,
+     "n_tasks": 89,
+     "se": 0.03457017555341117
+    },
+    {
+     "gap": 0.004494382022471907,
+     "gap_at_least_mde": false,
+     "higher": "MAYA__Claude-4.6-opus",
+     "lower": "spoox-o-m__GPT-5.3-Codex",
+     "mde": 0.11254083897072095,
+     "n_tasks": 89,
+     "se": 0.04017041432226138
+    },
+    {
+     "gap": 0.004494382022471911,
+     "gap_at_least_mde": false,
+     "higher": "spoox-o-m__GPT-5.3-Codex",
+     "lower": "Junie_CLI__Gemini-3-Flash-Preview-Gemini-3.1-Pro-Preview-Claude-Opus-4.6-GPT-5.3-Codex",
+     "mde": 0.09642716875975188,
+     "n_tasks": 89,
+     "se": 0.034418788383207284
+    },
+    {
+     "gap": 0.006741573033707866,
+     "gap_at_least_mde": false,
+     "higher": "Junie_CLI__Gemini-3-Flash-Preview-Gemini-3.1-Pro-Preview-Claude-Opus-4.6-GPT-5.3-Codex",
+     "lower": "CodeBrain-1__GPT-5.3-Codex",
+     "mde": 0.08179451847019793,
+     "n_tasks": 89,
+     "se": 0.029195798843231806
+    },
+    {
+     "gap": 0.004494382022471909,
+     "gap_at_least_mde": false,
+     "higher": "CodeBrain-1__GPT-5.3-Codex",
+     "lower": "Droid__Claude-Opus-4.6",
+     "mde": 0.11038299655059725,
+     "n_tasks": 89,
+     "se": 0.0394001923757103
+    },
+    {
+     "gap": 0.03370786516853932,
+     "gap_at_least_mde": false,
+     "higher": "Droid__Claude-Opus-4.6",
+     "lower": "Mux__Claude-Opus-4.6",
+     "mde": 0.1104768059018963,
+     "n_tasks": 89,
+     "se": 0.03943367675829933
+    },
+    {
+     "gap": 0.0022471910112359583,
+     "gap_at_least_mde": false,
+     "higher": "Mux__Claude-Opus-4.6",
+     "lower": "logos__claude-opus-4.6",
+     "mde": 0.10267532603539838,
+     "n_tasks": 89,
+     "se": 0.036649010485769275
+    },
+    {
+     "gap": 0.0022471910112359557,
+     "gap_at_least_mde": false,
+     "higher": "logos__claude-opus-4.6",
+     "lower": "clnkr__GPT-5.5",
+     "mde": 0.10613093017397061,
+     "n_tasks": 89,
+     "se": 0.03788245650634037
+    },
+    {
+     "gap": 0.0022471910112359557,
+     "gap_at_least_mde": false,
+     "higher": "clnkr__GPT-5.5",
+     "lower": "Deep-Agents__GPT-5.2-Codex",
+     "mde": 0.09196597036539564,
+     "n_tasks": 89,
+     "se": 0.032826404769275626
+    },
+    {
+     "gap": 0.006741573033707864,
+     "gap_at_least_mde": false,
+     "higher": "Deep-Agents__GPT-5.2-Codex",
+     "lower": "Dirac__Gemini-3-Flash-Preview",
+     "mde": 0.09494916206776319,
+     "n_tasks": 89,
+     "se": 0.033891227528576484
+    },
+    {
+     "gap": 8.10837040456575e-18,
+     "gap_at_least_mde": false,
+     "higher": "Dirac__Gemini-3-Flash-Preview",
+     "lower": "OpenSage__Gemini-3-Pro-Preview",
+     "mde": 0.10248212904822333,
+     "n_tasks": 89,
+     "se": 0.036580050603369135
+    },
+    {
+     "gap": 0.004494382022471905,
+     "gap_at_least_mde": false,
+     "higher": "OpenSage__Gemini-3-Pro-Preview",
+     "lower": "Terminus2__GPT-5.3-Codex",
+     "mde": 0.09848381067790866,
+     "n_tasks": 89,
+     "se": 0.03515288774411912
+    },
+    {
+     "gap": 3.742324802107269e-18,
+     "gap_at_least_mde": false,
+     "higher": "Terminus2__GPT-5.3-Codex",
+     "lower": "Ante__Gemini-3-Pro-Preview",
+     "mde": 0.08058514669622344,
+     "n_tasks": 89,
+     "se": 0.028764124744526692
+    },
+    {
+     "gap": 0.01797752808988764,
+     "gap_at_least_mde": false,
+     "higher": "Ante__Gemini-3-Pro-Preview",
+     "lower": "Terminus2__Claude-Opus-4.6",
+     "mde": 0.09460700181234818,
+     "n_tasks": 89,
+     "se": 0.0337690965817101
+    },
+    {
+     "gap": 0.006741573033707865,
+     "gap_at_least_mde": false,
+     "higher": "Terminus2__Claude-Opus-4.6",
+     "lower": "CodeBrain-1__Gemini-3-Pro-Preview",
+     "mde": 0.10420800830178355,
+     "n_tasks": 89,
+     "se": 0.037196087282318595
+    },
+    {
+     "gap": 0.011235955056179773,
+     "gap_at_least_mde": false,
+     "higher": "CodeBrain-1__Gemini-3-Pro-Preview",
+     "lower": "hookele__gpt5.1-codex-mini",
+     "mde": 0.10570142930550502,
+     "n_tasks": 89,
+     "se": 0.03772915013333099
+    },
+    {
+     "gap": 0.004494382022471909,
+     "gap_at_least_mde": false,
+     "higher": "hookele__gpt5.1-codex-mini",
+     "lower": "Mux__GPT-5.2",
+     "mde": 0.13725420442299466,
+     "n_tasks": 89,
+     "se": 0.048991622148636046
+    },
+    {
+     "gap": 0.0022471910112359544,
+     "gap_at_least_mde": false,
+     "higher": "Mux__GPT-5.2",
+     "lower": "copilot-cli__claude-opus-4.6",
+     "mde": 0.14726231254372188,
+     "n_tasks": 89,
+     "se": 0.052563924021169585
+    },
+    {
+     "gap": 0.006741573033707861,
+     "gap_at_least_mde": false,
+     "higher": "copilot-cli__claude-opus-4.6",
+     "lower": "Gemini_CLI__Gemini-3.1-Pro-Preview",
+     "mde": 0.11792311428613253,
+     "n_tasks": 89,
+     "se": 0.0420915678465639
+    },
+    {
+     "gap": 0.011235955056179775,
+     "gap_at_least_mde": false,
+     "higher": "Gemini_CLI__Gemini-3.1-Pro-Preview",
+     "lower": "IndusAGICodingAgent__gpt-5.3-codex",
+     "mde": 0.11548786709683964,
+     "n_tasks": 89,
+     "se": 0.041222328826616056
+    },
+    {
+     "gap": 0.002247191011235962,
+     "gap_at_least_mde": false,
+     "higher": "IndusAGICodingAgent__gpt-5.3-codex",
+     "lower": "Mux__Claude-Opus-4.5",
+     "mde": 0.12325673542518062,
+     "n_tasks": 89,
+     "se": 0.04399535471143057
+    },
+    {
+     "gap": 0.06292134831460673,
+     "gap_at_least_mde": false,
+     "higher": "Mux__Claude-Opus-4.5",
+     "lower": "Simplai-Agent__Claude-Sonnet-4.6",
+     "mde": 0.1338887312923435,
+     "n_tasks": 89,
+     "se": 0.04779034755991659
+    },
+    {
+     "gap": 0.002247191011235947,
+     "gap_at_least_mde": false,
+     "higher": "Simplai-Agent__Claude-Sonnet-4.6",
+     "lower": "Terminus2__GLM-5",
+     "mde": 0.09020559867742381,
+     "n_tasks": 89,
+     "se": 0.03219805633404311
+    },
+    {
+     "gap": 0.0022471910112359596,
+     "gap_at_least_mde": false,
+     "higher": "Terminus2__GLM-5",
+     "lower": "OpenCode__Claude-Opus-4.5",
+     "mde": 0.12487227441787652,
+     "n_tasks": 89,
+     "se": 0.044572006452113316
+    },
+    {
+     "gap": 0.04269662921348314,
+     "gap_at_least_mde": false,
+     "higher": "OpenCode__Claude-Opus-4.5",
+     "lower": "Gemini_CLI__Gemini-3-Flash-Preview",
+     "mde": 0.12518568492061694,
+     "n_tasks": 89,
+     "se": 0.04468387543996853
+    },
+    {
+     "gap": 3.742324802107269e-18,
+     "gap_at_least_mde": false,
+     "higher": "Gemini_CLI__Gemini-3-Flash-Preview",
+     "lower": "just-another-coding-agent__GLM-5",
+     "mde": 0.10169681380460503,
+     "n_tasks": 89,
+     "se": 0.03629973957140729
+    },
+    {
+     "gap": 0.047191011235955066,
+     "gap_at_least_mde": false,
+     "higher": "just-another-coding-agent__GLM-5",
+     "lower": "MAYA__Claude-4.5-sonnet",
+     "mde": 0.17863489032315089,
+     "n_tasks": 89,
+     "se": 0.06376207625890885
+    },
+    {
+     "gap": 0.002247191011235957,
+     "gap_at_least_mde": false,
+     "higher": "MAYA__Claude-4.5-sonnet",
+     "lower": "harness-agent__minimax-m2-7-highspeed",
+     "mde": 0.17806667560561953,
+     "n_tasks": 89,
+     "se": 0.0635592572570603
+    },
+    {
+     "gap": -4.989766402809692e-18,
+     "gap_at_least_mde": false,
+     "higher": "harness-agent__minimax-m2-7-highspeed",
+     "lower": "Terminus2__Kimi-k2.5",
+     "mde": 0.08447097260624284,
+     "n_tasks": 89,
+     "se": 0.030151134457776365
+    },
+    {
+     "gap": 0.002247191011235957,
+     "gap_at_least_mde": false,
+     "higher": "Terminus2__Kimi-k2.5",
+     "lower": "Terminus2__Minimax-m2.5",
+     "mde": 0.08886243738712188,
+     "n_tasks": 89,
+     "se": 0.03171862730164458
+    },
+    {
+     "gap": -1.247441600702423e-18,
+     "gap_at_least_mde": false,
+     "higher": "Terminus2__Minimax-m2.5",
+     "lower": "cchuter__minimax-m2.5",
+     "mde": 0.07437672250484481,
+     "n_tasks": 89,
+     "se": 0.026548084999870852
+    },
+    {
+     "gap": 0.007865168539325847,
+     "gap_at_least_mde": false,
+     "higher": "cchuter__minimax-m2.5",
+     "lower": "grok-cli__grok-4.20-0309-reasoning",
+     "mde": 0.11651571931525763,
+     "n_tasks": 89,
+     "se": 0.041589211194417205
+    },
+    {
+     "gap": 0.01910112359550561,
+     "gap_at_least_mde": false,
+     "higher": "grok-cli__grok-4.20-0309-reasoning",
+     "lower": "Terminus2__DeepSeek-V3.2",
+     "mde": 0.12406794128139027,
+     "n_tasks": 89,
+     "se": 0.044284907158725406
+    },
+    {
+     "gap": 0.05168539325842697,
+     "gap_at_least_mde": false,
+     "higher": "Terminus2__DeepSeek-V3.2",
+     "lower": "IndusAGICodingAgent__MiniMax-M2.7",
+     "mde": 0.10576532684452167,
+     "n_tasks": 89,
+     "se": 0.03775195777045141
+    },
+    {
+     "gap": 0.011235955056179771,
+     "gap_at_least_mde": false,
+     "higher": "IndusAGICodingAgent__MiniMax-M2.7",
+     "lower": "ClaudeCode__GLM-4.7",
+     "mde": 0.10532150653642675,
+     "n_tasks": 89,
+     "se": 0.03759354020555796
+    },
+    {
+     "gap": 0.002247191011235957,
+     "gap_at_least_mde": false,
+     "higher": "ClaudeCode__GLM-4.7",
+     "lower": "Terminus2__GLM-4.7",
+     "mde": 0.08886243738712188,
+     "n_tasks": 89,
+     "se": 0.03171862730164458
+    },
+    {
+     "gap": 0.058426966292134834,
+     "gap_at_least_mde": false,
+     "higher": "Terminus2__GLM-4.7",
+     "lower": "dakou__qwen3-coder-480b",
+     "mde": 0.11190671058395604,
+     "n_tasks": 89,
+     "se": 0.039944068044209545
+    },
+    {
+     "gap": 0.03370786516853933,
+     "gap_at_least_mde": false,
+     "higher": "dakou__qwen3-coder-480b",
+     "lower": "little-coder__qwen3.6-35b-a3b",
+     "mde": 0.0873801854496301,
+     "n_tasks": 89,
+     "se": 0.031189551145792298
+    },
+    {
+     "gap": 0.0202247191011236,
+     "gap_at_least_mde": false,
+     "higher": "little-coder__qwen3.6-35b-a3b",
+     "lower": "spoox-o-m__GPT-5-Nano",
+     "mde": 0.07808141284696711,
+     "n_tasks": 89,
+     "se": 0.02787044004306944
+    },
+    {
+     "gap": 0.04943820224719102,
+     "gap_at_least_mde": false,
+     "higher": "spoox-o-m__GPT-5-Nano",
+     "lower": "terminus-2__AfterQuery-GPT-OSS-20B",
+     "mde": 0.06091347614344587,
+     "n_tasks": 89,
+     "se": 0.02174250340472408
+    },
+    {
+     "gap": 0.00674157303370786,
+     "gap_at_least_mde": false,
+     "higher": "terminus-2__AfterQuery-GPT-OSS-20B",
+     "lower": "BashAgent__TermiGen-32B",
+     "mde": 0.07981010950547031,
+     "n_tasks": 89,
+     "se": 0.028487482368723765
+    },
+    {
+     "gap": 0.06966292134831462,
+     "gap_at_least_mde": true,
+     "higher": "BashAgent__TermiGen-32B",
+     "lower": "little-coder__qwen3.5-9b",
+     "mde": 0.058097752834280585,
+     "n_tasks": 89,
+     "se": 0.020737456943541708
+    }
+   ],
+   "source": "artifacts/e2/tb2/results.json"
+  }
+ },
+ "generator": "tools/noise_floor.py",
+ "label": "exploratory, not preregistered: the gap each board's own design detects with power 0.8 at two-sided alpha 0.05 (normal approximation), from the banked paired intervals",
+ "power": 0.8
+}

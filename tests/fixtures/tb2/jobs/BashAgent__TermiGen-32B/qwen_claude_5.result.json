@@ -1,0 +1,61 @@
+{
+ "id": "c2023429-8f2a-4cb4-8587-54fa64d859b8",
+ "started_at": "2026-03-17T07:22:04.530852",
+ "finished_at": "2026-03-18T18:52:50.114952",
+ "n_total_trials": 22,
+ "stats": {
+  "n_trials": 445,
+  "n_errors": 167,
+  "evals": {
+   "qwen-agent__terminal-bench": {
+    "n_trials": 434,
+    "n_errors": 167,
+    "metrics": [
+     {
+      "mean": 0.16179775280898875
+     }
+    ],
+    "reward_stats": {
+     "reward": {
+      "0.0": [
+       "break-filter-js-from-html__C5AmQNp",
+       "adaptive-rejection-sampler__V9iKyZf",
+       "bn-fit-modify__cwQP4k4",
+       "build-cython-ext__6UE8pFg",
+       "break-filter-js-from-html__GoJ7Dox",
+       "adaptive-rejection-sampler__BzdE3oB",
+       "bn-fit-modify__Qi2nU28",
+       "build-cython-ext__37Kz9st",
+       "break-filter-js-from-html__RwXK6fy",
+       "bn-fit-modify__Y3zNxhn",
+       "build-cython-ext__A3yhzcp",
+       "break-filter-js-from-html__gqZ5NeQ",
+       "adaptive-rejection-sampler__VJubvHo",
+       "bn-fit-modify__94BBGsY",
+       "build-cython-ext__5Wfjtfc",
+       "break-filter-js-from-html__8gsVqcs",
+       "adaptive-rejection-sampler__evUj3Mp",
+       "bn-fit-modify__EuWSwPM",
+       "build-cython-ext__ccdZU5w"
+      ],
+      "1.0": [
+       "adaptive-rejection-sampler__xwaSNSx"
+      ]
+     }
+    },
+    "exception_stats": {
+     "AgentTimeoutError": [
+      "adaptive-rejection-sampler__V9iKyZf",
+      "build-cython-ext__6UE8pFg",
+      "break-filter-js-from-html__GoJ7Dox",
+      "adaptive-rejection-sampler__BzdE3oB",
+      "build-cython-ext__37Kz9st",
+      "adaptive-rejection-sampler__xwaSNSx",
+      "build-cython-ext__A3yhzcp",
+      "build-cython-ext__ccdZU5w"
+     ]
+    }
+   }
+  }
+ }
+}

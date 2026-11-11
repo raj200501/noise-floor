@@ -1,0 +1,33 @@
+{
+ "figures": {
+  "e2-epoch-swebench-gaps.svg": {
+   "sha256": "9902ede8b292c49edf6867fb88ead6a0d747593ce66248d31042dec056e689b5",
+   "sources": {
+    "artifacts/e2/epoch-swebench/results.json": "771d9fc17d53ebde3058f642c6d65bf2ddf0562f9229ff69f6ca4770edf0eb58"
+   }
+  },
+  "e2-epoch-swebench-scores.svg": {
+   "sha256": "46cad52823dc7514fb4578f2c0d03266ef72ca0326796c7f755ad45cea21fe2b",
+   "sources": {
+    "artifacts/e2/epoch-swebench/results.json": "771d9fc17d53ebde3058f642c6d65bf2ddf0562f9229ff69f6ca4770edf0eb58"
+   }
+  },
+  "e2-tb2-gaps.svg": {
+   "sha256": "fa98bae021ae6af853e2c6c4b8884980bb88623065e4544f6b6f293c579a574b",
+   "sources": {
+    "artifacts/e2/tb2/results.json": "578bf9523e201430a1287fcbd01bae8c19592191ab9f4e48ab08867fbfaee726"
+   }
+  },
+  "e2-tb2-scores.svg": {
+   "sha256": "45f2bd45a2bfa7bc91622e89ab4d99ccdd87888810eff955d12bf10305720328",
+   "sources": {
+    "artifacts/e2/tb2/results.json": "578bf9523e201430a1287fcbd01bae8c19592191ab9f4e48ab08867fbfaee726"
+   }
+  }
+ },
+ "generator": "python -m noisefloor.report",
+ "skipped": [
+  "e1-shares.svg",
+  "e1-mde.svg"
+ ]
+}

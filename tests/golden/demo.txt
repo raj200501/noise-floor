@@ -1,0 +1,39 @@
+noise-floor offline demo
+data: fixtures/demo/synthetic_results.csv (SYNTHETIC, planted effects, not model results)
+sha256 b9d8b295be1d212d matches fixtures/demo/MANIFEST.json
+1440 task runs: 4 models, 120 tasks, 3 runs per task
+
+1. Benchmark scores (mean over tasks of task means), 95% task-clustered t intervals
+   model         score  95% CI
+   synth-beta    0.658  [0.596, 0.721]
+   synth-alpha   0.636  [0.574, 0.699]
+   synth-gamma   0.633  [0.571, 0.696]
+   synth-delta   0.461  [0.394, 0.528]
+
+2. Adjacent pairs in score order (paired on shared tasks)
+   synth-beta - synth-alpha: +0.022 [-0.044, +0.089], p = 0.510, order not supported at 95%
+   synth-alpha - synth-gamma: +0.003 [-0.067, +0.072], p = 0.937, order not supported at 95%
+   synth-gamma - synth-delta: +0.172 [+0.101, +0.243], p < 0.001, order supported at 95%
+
+3. synth-beta - synth-alpha by interval method (2000 task resamples, seed 2026 for bootstraps)
+   cluster_t  [-0.044, +0.089]
+   bootstrap  [-0.042, +0.086]
+   bca        [-0.044, +0.083]
+
+4. Minimum detectable effect for synth-beta vs synth-alpha (alpha 0.05, power 0.8)
+   variances: between-task 0.0266, within-task 0.3278
+    tasks  runs     mde
+      120     1   0.152
+      120     3   0.094
+      120    10   0.062
+      250     1   0.105
+      250     3   0.065
+      250    10   0.043
+      500     1   0.075
+      500     3   0.046
+      500    10   0.031
+     1000     1   0.053
+     1000     3   0.033
+     1000    10   0.022
+
+Every number above comes from the synthetic fixture; no model was called.

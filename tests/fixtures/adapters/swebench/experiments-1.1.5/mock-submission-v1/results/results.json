@@ -1,0 +1,39 @@
+{
+    "no_generation": [
+        "pytest-dev__pytest-90003"
+    ],
+    "generated": [
+        "pytest-dev__pytest-90001",
+        "pytest-dev__pytest-90002",
+        "pytest-dev__pytest-90004",
+        "pytest-dev__pytest-90005",
+        "pytest-dev__pytest-90006",
+        "pytest-dev__pytest-90008"
+    ],
+    "with_logs": [
+        "pytest-dev__pytest-90001",
+        "pytest-dev__pytest-90002",
+        "pytest-dev__pytest-90004",
+        "pytest-dev__pytest-90005",
+        "pytest-dev__pytest-90008"
+    ],
+    "install_fail": [
+        "pytest-dev__pytest-90005"
+    ],
+    "reset_failed": [],
+    "no_apply": [
+        "pytest-dev__pytest-90008"
+    ],
+    "applied": [
+        "pytest-dev__pytest-90001",
+        "pytest-dev__pytest-90002",
+        "pytest-dev__pytest-90004"
+    ],
+    "test_errored": [],
+    "test_timeout": [
+        "pytest-dev__pytest-90004"
+    ],
+    "resolved": [
+        "pytest-dev__pytest-90001"
+    ]
+}

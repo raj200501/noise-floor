@@ -1,0 +1,170 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="616" viewBox="0 0 760 616" role="img" aria-labelledby="t d">
+<title id="t">SWE-bench Verified (Epoch AI): score of each entry with its 95% interval</title>
+<desc id="d">32 entries, 462 to 484 tasks; task-clustered t intervals; analysis plan prereg/0001-e2-leaderboard-reanalysis.md. One row per item; the dot is the estimate and the line its interval.</desc>
+<style>svg { --surface: #fcfcfb; --ink: #0b0b0b; --ink2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; }
+@media (prefers-color-scheme: dark) {
+  svg { --surface: #1a1a19; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --s1: #3987e5; --s2: #d95926; --s3: #199e70; }
+}
+text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+.bg { fill: var(--surface); }
+.title { fill: var(--ink); font-size: 15px; font-weight: 600; }
+.sub { fill: var(--ink2); font-size: 12px; }
+.label { fill: var(--ink2); font-size: 11px; }
+.note { fill: var(--ink2); font-size: 11px; font-variant-numeric: tabular-nums; }
+.tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.grid { stroke: var(--grid); stroke-width: 1; }
+.axis { stroke: var(--axis); stroke-width: 1; }
+.ci { stroke: var(--s1); stroke-width: 2; stroke-linecap: round; }
+.dot { fill: var(--s1); stroke: var(--surface); stroke-width: 2; }
+.line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.c1 { stroke: var(--s1); } .c2 { stroke: var(--s2); } .c3 { stroke: var(--s3); }
+.f1 { fill: var(--s1); } .f2 { fill: var(--s2); } .f3 { fill: var(--s3); }
+.ring { stroke: var(--surface); stroke-width: 2; }</style>
+<rect class="bg" x="0" y="0" width="760" height="616"/>
+<text class="title" x="16" y="24">SWE-bench Verified (Epoch AI): score of each entry with its 95% interval</text>
+<text class="sub" x="16" y="42">32 entries, 462 to 484 tasks; task-clustered t intervals; analysis plan prereg/0001-e2-leaderboard-reanalysis.md.</text>
+<line class="grid" x1="272.0" y1="54" x2="272.0" y2="570"/>
+<text class="tick" x="272.0" y="586" text-anchor="middle">0</text>
+<line class="grid" x1="343.2" y1="54" x2="343.2" y2="570"/>
+<text class="tick" x="343.2" y="586" text-anchor="middle">0.2</text>
+<line class="grid" x1="414.4" y1="54" x2="414.4" y2="570"/>
+<text class="tick" x="414.4" y="586" text-anchor="middle">0.4</text>
+<line class="grid" x1="485.6" y1="54" x2="485.6" y2="570"/>
+<text class="tick" x="485.6" y="586" text-anchor="middle">0.6</text>
+<line class="grid" x1="556.8" y1="54" x2="556.8" y2="570"/>
+<text class="tick" x="556.8" y="586" text-anchor="middle">0.8</text>
+<line class="grid" x1="628.0" y1="54" x2="628.0" y2="570"/>
+<text class="tick" x="628.0" y="586" text-anchor="middle">1</text>
+<line class="axis" x1="272" y1="570" x2="628" y2="570"/>
+<text class="tick" x="450.0" y="604" text-anchor="middle">success rate (mean over tasks of the per-task mean)</text>
+<text class="label" x="260" y="70.0" text-anchor="end">claude-opus-4-7_max [nCmG]</text>
+<line class="ci" x1="557.3" y1="66.0" x2="581.0" y2="66.0"/>
+<circle class="dot" cx="569.2" cy="66.0" r="4"/>
+<text class="note" x="640" y="70.0">0.835 [0.802, 0.868]</text>
+<text class="label" x="260" y="86.0" text-anchor="end">gemini-3.5-flash_high [dwRz]</text>
+<line class="ci" x1="541.6" y1="82.0" x2="567.3" y2="82.0"/>
+<circle class="dot" cx="554.4" cy="82.0" r="4"/>
+<text class="note" x="640" y="86.0">0.793 [0.757, 0.830]</text>
+<text class="label" x="260" y="102.0" text-anchor="end">claude-opus-4-6 [2hH2]</text>
+<line class="ci" x1="539.2" y1="98.0" x2="565.3" y2="98.0"/>
+<circle class="dot" cx="552.2" cy="98.0" r="4"/>
+<text class="note" x="640" y="102.0">0.787 [0.751, 0.824]</text>
+<text class="label" x="260" y="118.0" text-anchor="end">glm-5.2_max [4Afh]</text>
+<line class="ci" x1="539.0" y1="114.0" x2="565.1" y2="114.0"/>
+<circle class="dot" cx="552.1" cy="114.0" r="4"/>
+<text class="note" x="640" y="118.0">0.787 [0.750, 0.823]</text>
+<text class="label" x="260" y="134.0" text-anchor="end">deepseek-v4-pro_max [WUk3]</text>
+<line class="ci" x1="535.1" y1="130.0" x2="561.7" y2="130.0"/>
+<circle class="dot" cx="548.4" cy="130.0" r="4"/>
+<text class="note" x="640" y="134.0">0.776 [0.739, 0.814]</text>
+<text class="label" x="260" y="150.0" text-anchor="end">qwen3.7-max [83hh]</text>
+<line class="ci" x1="533.8" y1="146.0" x2="560.4" y2="146.0"/>
+<circle class="dot" cx="547.1" cy="146.0" r="4"/>
+<text class="note" x="640" y="150.0">0.773 [0.735, 0.810]</text>
+<text class="label" x="260" y="166.0" text-anchor="end">gpt-5.4-2026-03-05_high [i9HT]</text>
+<line class="ci" x1="532.2" y1="162.0" x2="559.0" y2="162.0"/>
+<circle class="dot" cx="545.6" cy="162.0" r="4"/>
+<text class="note" x="640" y="166.0">0.769 [0.731, 0.806]</text>
+<text class="label" x="260" y="182.0" text-anchor="end">claude-opus-4-5-20251101 [mKQK]</text>
+<line class="ci" x1="531.4" y1="178.0" x2="558.3" y2="178.0"/>
+<circle class="dot" cx="544.9" cy="178.0" r="4"/>
+<text class="note" x="640" y="182.0">0.767 [0.729, 0.804]</text>
+<text class="label" x="260" y="198.0" text-anchor="end">kimi-k2.6 [bUPt]</text>
+<line class="ci" x1="531.4" y1="194.0" x2="558.3" y2="194.0"/>
+<circle class="dot" cx="544.9" cy="194.0" r="4"/>
+<text class="note" x="640" y="198.0">0.767 [0.729, 0.804]</text>
+<text class="label" x="260" y="214.0" text-anchor="end">claude-opus-4-6 [aQiA]</text>
+<line class="ci" x1="527.5" y1="210.0" x2="554.9" y2="210.0"/>
+<circle class="dot" cx="541.2" cy="210.0" r="4"/>
+<text class="note" x="640" y="214.0">0.756 [0.718, 0.795]</text>
+<text class="label" x="260" y="230.0" text-anchor="end">gemini-3.1-pro-preview-customtool…</text>
+<line class="ci" x1="527.5" y1="226.0" x2="554.9" y2="226.0"/>
+<circle class="dot" cx="541.2" cy="226.0" r="4"/>
+<text class="note" x="640" y="230.0">0.756 [0.718, 0.795]</text>
+<text class="label" x="260" y="246.0" text-anchor="end">gemini-3-flash-preview [jxoy]</text>
+<line class="ci" x1="526.8" y1="242.0" x2="554.2" y2="242.0"/>
+<circle class="dot" cx="540.5" cy="242.0" r="4"/>
+<text class="note" x="640" y="246.0">0.754 [0.716, 0.793]</text>
+<text class="label" x="260" y="262.0" text-anchor="end">claude-sonnet-4-6 [KEdg]</text>
+<line class="ci" x1="526.0" y1="258.0" x2="553.5" y2="258.0"/>
+<circle class="dot" cx="539.7" cy="258.0" r="4"/>
+<text class="note" x="640" y="262.0">0.752 [0.713, 0.791]</text>
+<text class="label" x="260" y="278.0" text-anchor="end">gpt-5.3-codex_high [6w5b]</text>
+<line class="ci" x1="524.4" y1="274.0" x2="552.1" y2="274.0"/>
+<circle class="dot" cx="538.3" cy="274.0" r="4"/>
+<text class="note" x="640" y="278.0">0.748 [0.709, 0.787]</text>
+<text class="label" x="260" y="294.0" text-anchor="end">gpt-5.2-2025-12-11_high [9owd]</text>
+<line class="ci" x1="520.6" y1="290.0" x2="548.6" y2="290.0"/>
+<circle class="dot" cx="534.6" cy="290.0" r="4"/>
+<text class="note" x="640" y="294.0">0.738 [0.698, 0.777]</text>
+<text class="label" x="260" y="310.0" text-anchor="end">kimi-k2.5 [5wVj]</text>
+<line class="ci" x1="520.6" y1="306.0" x2="548.6" y2="306.0"/>
+<circle class="dot" cx="534.6" cy="306.0" r="4"/>
+<text class="note" x="640" y="310.0">0.738 [0.698, 0.777]</text>
+<text class="label" x="260" y="326.0" text-anchor="end">gpt-5-2025-08-07_high [C85B]</text>
+<line class="ci" x1="519.8" y1="322.0" x2="547.9" y2="322.0"/>
+<circle class="dot" cx="533.9" cy="322.0" r="4"/>
+<text class="note" x="640" y="326.0">0.736 [0.696, 0.775]</text>
+<text class="label" x="260" y="342.0" text-anchor="end">claude-opus-4-1-20250805 [cA6M]</text>
+<line class="ci" x1="519.0" y1="338.0" x2="547.2" y2="338.0"/>
+<circle class="dot" cx="533.1" cy="338.0" r="4"/>
+<text class="note" x="640" y="342.0">0.733 [0.694, 0.773]</text>
+<text class="label" x="260" y="358.0" text-anchor="end">gemini-3-pro-preview [5XdY]</text>
+<line class="ci" x1="517.5" y1="354.0" x2="545.8" y2="354.0"/>
+<circle class="dot" cx="531.6" cy="354.0" r="4"/>
+<text class="note" x="640" y="358.0">0.729 [0.690, 0.769]</text>
+<text class="label" x="260" y="374.0" text-anchor="end">glm-5 [hKkJ]</text>
+<line class="ci" x1="514.0" y1="370.0" x2="543.2" y2="370.0"/>
+<circle class="dot" cx="528.6" cy="370.0" r="4"/>
+<text class="note" x="640" y="374.0">0.721 [0.680, 0.762]</text>
+<text class="label" x="260" y="390.0" text-anchor="end">gpt-5-2025-08-07_medium [FCCk]</text>
+<line class="ci" x1="512.1" y1="386.0" x2="540.9" y2="386.0"/>
+<circle class="dot" cx="526.5" cy="386.0" r="4"/>
+<text class="note" x="640" y="390.0">0.715 [0.675, 0.755]</text>
+<text class="label" x="260" y="406.0" text-anchor="end">claude-sonnet-4-5-20250929 [Lti6]</text>
+<line class="ci" x1="511.4" y1="402.0" x2="540.2" y2="402.0"/>
+<circle class="dot" cx="525.8" cy="402.0" r="4"/>
+<text class="note" x="640" y="406.0">0.713 [0.672, 0.753]</text>
+<text class="label" x="260" y="422.0" text-anchor="end">claude-opus-4-20250514 [Rbcv]</text>
+<line class="ci" x1="509.1" y1="418.0" x2="538.0" y2="418.0"/>
+<circle class="dot" cx="523.6" cy="418.0" r="4"/>
+<text class="note" x="640" y="422.0">0.707 [0.666, 0.747]</text>
+<text class="label" x="260" y="438.0" text-anchor="end">gpt-5.1-2025-11-13_high [YoHt]</text>
+<line class="ci" x1="499.1" y1="434.0" x2="528.8" y2="434.0"/>
+<circle class="dot" cx="514.0" cy="434.0" r="4"/>
+<text class="note" x="640" y="438.0">0.680 [0.638, 0.721]</text>
+<text class="label" x="260" y="454.0" text-anchor="end">gpt-5.1-2025-11-13_high [G5hT]</text>
+<line class="ci" x1="491.5" y1="450.0" x2="521.7" y2="450.0"/>
+<circle class="dot" cx="506.6" cy="450.0" r="4"/>
+<text class="note" x="640" y="454.0">0.659 [0.617, 0.701]</text>
+<text class="label" x="260" y="470.0" text-anchor="end">gpt-5-mini-2025-08-07_medium [7nv…</text>
+<line class="ci" x1="487.0" y1="466.0" x2="517.4" y2="466.0"/>
+<circle class="dot" cx="502.2" cy="466.0" r="4"/>
+<text class="note" x="640" y="470.0">0.647 [0.604, 0.689]</text>
+<text class="label" x="260" y="486.0" text-anchor="end">o3-2025-04-16_medium [AKt7]</text>
+<line class="ci" x1="478.4" y1="482.0" x2="509.3" y2="482.0"/>
+<circle class="dot" cx="493.9" cy="482.0" r="4"/>
+<text class="note" x="640" y="486.0">0.623 [0.580, 0.667]</text>
+<text class="label" x="260" y="502.0" text-anchor="end">claude-3-7-sonnet-20250219 [cnM8]</text>
+<line class="ci" x1="473.5" y1="498.0" x2="504.5" y2="498.0"/>
+<circle class="dot" cx="489.0" cy="498.0" r="4"/>
+<text class="note" x="640" y="502.0">0.610 [0.566, 0.653]</text>
+<text class="label" x="260" y="518.0" text-anchor="end">qwen3.6-plus [8HV4]</text>
+<line class="ci" x1="462.2" y1="514.0" x2="493.7" y2="514.0"/>
+<circle class="dot" cx="478.0" cy="514.0" r="4"/>
+<text class="note" x="640" y="518.0">0.579 [0.534, 0.623]</text>
+<text class="label" x="260" y="534.0" text-anchor="end">gemini-2.5-pro [KL72]</text>
+<line class="ci" x1="461.2" y1="530.0" x2="492.7" y2="530.0"/>
+<circle class="dot" cx="476.9" cy="530.0" r="4"/>
+<text class="note" x="640" y="534.0">0.576 [0.531, 0.620]</text>
+<text class="label" x="260" y="550.0" text-anchor="end">gpt-4.1-2025-04-14 [SheU]</text>
+<line class="ci" x1="428.8" y1="546.0" x2="460.8" y2="546.0"/>
+<circle class="dot" cx="444.8" cy="546.0" r="4"/>
+<text class="note" x="640" y="550.0">0.485 [0.441, 0.530]</text>
+<text class="label" x="260" y="566.0" text-anchor="end">gpt-4o-2024-11-20 [PncX]</text>
+<line class="ci" x1="367.6" y1="562.0" x2="397.0" y2="562.0"/>
+<circle class="dot" cx="382.3" cy="562.0" r="4"/>
+<text class="note" x="640" y="566.0">0.310 [0.269, 0.351]</text>
+</svg>

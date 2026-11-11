@@ -1,0 +1,12 @@
+{"block": "dry/qwen3-1.7b-t4-c1", "failed": null, "runs": 4}
+{"block": "dry/qwen3-1.7b-t4-c2", "failed": null, "runs": 4}
+{"block": "dry/qwen3-1.7b-t3-c1", "failed": null, "runs": 4}
+{"block": "dry/qwen3-1.7b-t3-c2", "failed": null, "runs": 4}
+{"block": "dry/qwen3-4b-t4-c1", "failed": null, "runs": 4}
+{"block": "dry/qwen3-4b-t4-c2", "failed": null, "runs": 4}
+{"block": "dry/qwen3-4b-t3-c1", "failed": null, "runs": 4}
+{"block": "dry/qwen3-4b-t3-c2", "failed": null, "runs": 4}
+{"block": "dry/granite-4.0-micro-t4-c1", "failed": null, "runs": 4}
+{"block": "dry/granite-4.0-micro-t4-c2", "failed": null, "runs": 4}
+{"block": "dry/granite-4.0-micro-t3-c1", "failed": null, "runs": 4}
+{"block": "dry/granite-4.0-micro-t3-c2", "failed": null, "runs": 4}

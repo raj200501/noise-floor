@@ -1,0 +1,252 @@
+# Exemptions for tools/claimcheck.py (make claimcheck, gate G10). See docs/INTEGRITY.md.
+#
+# An exemption admits the number tokens inside one exact string of the Markdown source, in the
+# listed documents only. It never admits a number pattern. Result numbers (measured rates, counts
+# of outcomes, estimates, intervals, test statistics) are never exempt: mark them as claims.
+#
+# Fields, all required:
+#   text      exact source text; must contain a letter (a bare YYYY-MM-DD is allowed for "date")
+#   docs      documents it applies to, relative to the repository root
+#   category  one of: design-parameter, threshold, cap, date, version, gate-number,
+#             section-number (also figure, table, and step numbering), brief-quote (the text must
+#             occur in docs/BUILD_BRIEF.md)
+#   reason    why this number is not a result number
+#
+# An exemption that covers no number in its documents fails the check, so remove stale ones.
+#
+# Example:
+#
+# [[exempt]]
+# text = "Python 3.11 and 3.12"
+# docs = ["README.md"]
+# category = "version"
+# reason = "supported interpreter versions (section 6, G3), not a measurement"
+
+[[exempt]]
+text = "Terminal-Bench 2.0"
+docs = ["README.md"]
+category = "version"
+reason = "the benchmark's version in its name, not a measurement"
+
+[[exempt]]
+text = "(95% paired CI"
+docs = ["README.md"]
+category = "threshold"
+reason = "the preregistered confidence level, not a measurement"
+
+[[exempt]]
+text = "task-clustered 95% interval excludes zero"
+docs = ["README.md"]
+category = "threshold"
+reason = "the preregistered confidence level"
+
+[[exempt]]
+text = "are simultaneous 95% intervals"
+docs = ["README.md"]
+category = "threshold"
+reason = "the preregistered confidence level"
+
+[[exempt]]
+text = "(E0 part 2 and the planted-component"
+docs = ["README.md"]
+category = "section-number"
+reason = "names the second part of experiment E0"
+
+[[exempt]]
+text = "(Apache-2.0 and CC-BY-4.0;"
+docs = ["README.md"]
+category = "version"
+reason = "license identifiers of the leaderboard data"
+
+[[exempt]]
+text = """models on 85 mock tasks, each
+  task run 18 times per model (4,590 local runs"""
+docs = ["README.md"]
+category = "design-parameter"
+reason = "the frozen E1 design (prereg/0004 e1-design block), not a measurement"
+
+[[exempt]]
+text = """plus a Claude slice of three tiers on 30 tasks"""
+docs = ["README.md"]
+category = "design-parameter"
+reason = "the frozen E1 design (prereg/0004), not a measurement"
+
+[[exempt]]
+text = "with 80% power (median over adjacent pairs)"
+docs = ["README.md"]
+category = "threshold"
+reason = "the power and level of the minimum-detectable-effect definition, not a measurement"
+
+[[exempt]]
+text = "80% power at two-sided alpha 0.05"
+docs = ["README.md"]
+category = "threshold"
+reason = "the power and level of the minimum-detectable-effect definition, not a measurement"
+
+[[exempt]]
+text = "Report state as of 2026-11-11"
+docs = ["docs/REPORT.md"]
+category = "date"
+reason = "date the report describes, not a measurement"
+
+[[exempt]]
+text = "Terminal-Bench 2.0"
+docs = ["docs/REPORT.md"]
+category = "version"
+reason = "benchmark version in the benchmark's name"
+
+[[exempt]]
+text = "E0 part 1"
+docs = ["docs/REPORT.md"]
+category = "section-number"
+reason = "name of the first preregistered part of experiment E0 (prereg 0003)"
+
+[[exempt]]
+text = "E0 part 2"
+docs = ["docs/REPORT.md"]
+category = "section-number"
+reason = "name of the second preregistered part of experiment E0 (prereg 0005)"
+
+[[exempt]]
+text = "95% interval"
+docs = ["docs/REPORT.md"]
+category = "threshold"
+reason = "preregistered interval level, not a measurement"
+
+[[exempt]]
+text = "at a nominal level of 0.95"
+docs = ["docs/REPORT.md"]
+category = "threshold"
+reason = "nominal coverage level of every E0 cell, fixed in prereg 0003"
+
+[[exempt]]
+text = "at least 2,000 replicates per cell (500 for bootstrap or GLMM intervals); coverage no lower than nominal minus 1.5 points minus twice its Monte Carlo standard error"
+docs = ["docs/REPORT.md"]
+category = "brief-quote"
+reason = "the G5 rule quoted from the brief"
+
+[[exempt]]
+text = "at least 1,000 task runs in total, at least 150 of them on Claude tiers"
+docs = ["docs/REPORT.md"]
+category = "brief-quote"
+reason = "the G7 floor quoted from the brief"
+
+[[exempt]]
+text = "mean success for each model configuration is between 0.2 and 0.8"
+docs = ["docs/REPORT.md"]
+category = "brief-quote"
+reason = "the brief's pilot target for model configurations"
+
+[[exempt]]
+text = "at least 0.5"
+docs = ["docs/REPORT.md"]
+category = "threshold"
+reason = "preregistered threshold for the label mostly resolved (prereg 0001)"
+
+[[exempt]]
+text = "retrieved 2026-11-04"
+docs = ["docs/REPORT.md"]
+category = "date"
+reason = "retrieval date of the pinned leaderboard snapshots"
+
+[[exempt]]
+text = "85 tasks"
+docs = ["docs/REPORT.md"]
+category = "design-parameter"
+reason = "E1 local task count fixed in prereg 0004"
+
+[[exempt]]
+text = "17 tasks per family"
+docs = ["docs/REPORT.md"]
+category = "design-parameter"
+reason = "E1 tasks per family set by the preregistered sizing rule (prereg 0004)"
+
+[[exempt]]
+text = "16 runs"
+docs = ["docs/REPORT.md"]
+category = "design-parameter"
+reason = "runs per model and task in the E1 half fraction (prereg 0004)"
+
+[[exempt]]
+text = "4,590 local runs"
+docs = ["docs/REPORT.md"]
+category = "design-parameter"
+reason = "planned size of the E1 local arm (prereg 0004)"
+
+[[exempt]]
+text = "180 Claude-slice runs"
+docs = ["docs/REPORT.md"]
+category = "design-parameter"
+reason = "planned size of the E1 Claude slice (prereg 0004)"
+
+[[exempt]]
+text = "4 UTC days with 2 time-of-day blocks each"
+docs = ["docs/REPORT.md"]
+category = "design-parameter"
+reason = "E1 schedule fixed in prereg 0004"
+
+[[exempt]]
+text = "200 bootstrap replicates"
+docs = ["docs/REPORT.md"]
+category = "design-parameter"
+reason = "parametric bootstrap size of the E1 analysis (prereg 0004)"
+
+[[exempt]]
+text = "200 datasets"
+docs = ["docs/REPORT.md"]
+category = "design-parameter"
+reason = "dataset counts of the G6 study and the post-E1 check, fixed in prereg 0006 and 0004"
+
+[[exempt]]
+text = "175 cells"
+docs = ["docs/REPORT.md"]
+category = "design-parameter"
+reason = "size of the E0 part 2 grid (prereg 0005)"
+
+[[exempt]]
+text = "power 0.8"
+docs = ["docs/REPORT.md"]
+category = "threshold"
+reason = "power target of the E1 sizing rule (prereg 0004) and of the exploratory noise floor (D-035)"
+
+[[exempt]]
+text = "two-sided level 0.05"
+docs = ["docs/REPORT.md"]
+category = "threshold"
+reason = "test level for E1 power and MDE (prereg 0004) and the exploratory noise floor (D-035)"
+
+[[exempt]]
+text = "Holm-adjusted p-value below 0.05"
+docs = ["docs/REPORT.md"]
+category = "threshold"
+reason = "preregistered decision rule for E1 contrasts (prereg 0004)"
+
+[[exempt]]
+text = "3 consecutive infrastructure errors"
+docs = ["docs/REPORT.md"]
+category = "threshold"
+reason = "preregistered batch-failure rule (prereg 0004)"
+
+[[exempt]]
+text = "more than 5 percent and at least 5"
+docs = ["docs/REPORT.md"]
+category = "threshold"
+reason = "preregistered infrastructure-error stop rule (prereg 0004)"
+
+[[exempt]]
+text = "after day 7"
+docs = ["docs/REPORT.md"]
+category = "cap"
+reason = "preregistered end of the E1 local arm (prereg 0004)"
+
+[[exempt]]
+text = "45 days after the freeze"
+docs = ["docs/REPORT.md"]
+category = "cap"
+reason = "preregistered end of the E1 Claude slice (prereg 0004)"
+
+[[exempt]]
+text = "at most 6 runs a day"
+docs = ["docs/REPORT.md"]
+category = "cap"
+reason = "daily cap on Claude agent runs at the frozen cap share (budget.toml)"

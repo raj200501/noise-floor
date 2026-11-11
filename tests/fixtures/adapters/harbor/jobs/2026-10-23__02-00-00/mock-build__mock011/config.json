@@ -1,0 +1,13 @@
+{
+    "task": {
+        "path": "tasks/mock-build",
+        "source": "mock-dataset"
+    },
+    "trial_name": "mock-build__mock011",
+    "trials_dir": "jobs/2026-10-23__02-00-00",
+    "agent": {
+        "name": "terminus-2",
+        "model_name": "mock/model-b"
+    },
+    "job_id": "00000000-0000-4000-8000-000000000001"
+}

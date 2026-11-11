@@ -1,0 +1,300 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="1144" viewBox="0 0 760 1144" role="img" aria-labelledby="t d">
+<title id="t">Terminal-Bench 2.0: each adjacent gap with its 95% paired interval</title>
+<desc id="d">2 of 65 intervals exclude zero; paired on shared tasks, clustered by task; analysis plan prereg/0001-e2-leaderboard-reanalysis.md. One row per item; the dot is the estimate and the line its interval.</desc>
+<style>svg { --surface: #fcfcfb; --ink: #0b0b0b; --ink2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; }
+@media (prefers-color-scheme: dark) {
+  svg { --surface: #1a1a19; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --s1: #3987e5; --s2: #d95926; --s3: #199e70; }
+}
+text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+.bg { fill: var(--surface); }
+.title { fill: var(--ink); font-size: 15px; font-weight: 600; }
+.sub { fill: var(--ink2); font-size: 12px; }
+.label { fill: var(--ink2); font-size: 11px; }
+.note { fill: var(--ink2); font-size: 11px; font-variant-numeric: tabular-nums; }
+.tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.grid { stroke: var(--grid); stroke-width: 1; }
+.axis { stroke: var(--axis); stroke-width: 1; }
+.ci { stroke: var(--s1); stroke-width: 2; stroke-linecap: round; }
+.dot { fill: var(--s1); stroke: var(--surface); stroke-width: 2; }
+.line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.c1 { stroke: var(--s1); } .c2 { stroke: var(--s2); } .c3 { stroke: var(--s3); }
+.f1 { fill: var(--s1); } .f2 { fill: var(--s2); } .f3 { fill: var(--s3); }
+.ring { stroke: var(--surface); stroke-width: 2; }</style>
+<rect class="bg" x="0" y="0" width="760" height="1144"/>
+<text class="title" x="16" y="24">Terminal-Bench 2.0: each adjacent gap with its 95% paired interval</text>
+<text class="sub" x="16" y="42">2 of 65 intervals exclude zero; paired on shared tasks, clustered by task; analysis plan prereg/0001-e2-leaderboard-reanalysis.md.</text>
+<line class="grid" x1="272.0" y1="54" x2="272.0" y2="1098"/>
+<text class="tick" x="272.0" y="1114" text-anchor="middle">-0.20</text>
+<line class="grid" x1="361.0" y1="54" x2="361.0" y2="1098"/>
+<text class="tick" x="361.0" y="1114" text-anchor="middle">-0.10</text>
+<line class="grid" x1="450.0" y1="54" x2="450.0" y2="1098"/>
+<text class="tick" x="450.0" y="1114" text-anchor="middle">0</text>
+<line class="grid" x1="539.0" y1="54" x2="539.0" y2="1098"/>
+<text class="tick" x="539.0" y="1114" text-anchor="middle">+0.10</text>
+<line class="grid" x1="628.0" y1="54" x2="628.0" y2="1098"/>
+<text class="tick" x="628.0" y="1114" text-anchor="middle">+0.20</text>
+<line class="axis" x1="272" y1="1098" x2="628" y2="1098"/>
+<text class="tick" x="450.0" y="1132" text-anchor="middle">difference in success rate, higher-ranked minus lower-ranked entry</text>
+<text class="label" x="260" y="70.0" text-anchor="end">1 vs 2: vix__claude-opus-4-7</text>
+<line class="ci" x1="413.1" y1="66.0" x2="518.9" y2="66.0"/>
+<circle class="dot" cx="466.0" cy="66.0" r="4"/>
+<text class="note" x="640" y="70.0">+0.018</text>
+<text class="label" x="260" y="86.0" text-anchor="end">2 vs 3: Wecode__GPT-5.5</text>
+<line class="ci" x1="425.3" y1="82.0" x2="492.7" y2="82.0"/>
+<circle class="dot" cx="459.0" cy="82.0" r="4"/>
+<text class="note" x="640" y="86.0">+0.010</text>
+<text class="label" x="260" y="102.0" text-anchor="end">3 vs 4: JJAgent__Multiple</text>
+<line class="ci" x1="428.2" y1="98.0" x2="517.8" y2="98.0"/>
+<circle class="dot" cx="473.0" cy="98.0" r="4"/>
+<text class="note" x="640" y="102.0">+0.026</text>
+<text class="label" x="260" y="118.0" text-anchor="end">4 vs 5: LemonHarness_GPT-5.3-CodeX</text>
+<line class="ci" x1="402.7" y1="114.0" x2="497.3" y2="114.0"/>
+<circle class="dot" cx="450.0" cy="114.0" r="4"/>
+<text class="note" x="640" y="118.0">0.000</text>
+<text class="label" x="260" y="134.0" text-anchor="end">5 vs 6: NexAU-AHE__gpt-5.5</text>
+<line class="ci" x1="393.1" y1="130.0" x2="522.9" y2="130.0"/>
+<circle class="dot" cx="458.0" cy="130.0" r="4"/>
+<text class="note" x="640" y="134.0">+0.009</text>
+<text class="label" x="260" y="150.0" text-anchor="end">6 vs 7: logos-latest__claude-opus…</text>
+<line class="ci" x1="393.1" y1="146.0" x2="514.9" y2="146.0"/>
+<circle class="dot" cx="454.0" cy="146.0" r="4"/>
+<text class="note" x="640" y="150.0">+0.004</text>
+<text class="label" x="260" y="166.0" text-anchor="end">7 vs 8: Capy__GPT-5.5</text>
+<line class="ci" x1="402.0" y1="162.0" x2="518.0" y2="162.0"/>
+<circle class="dot" cx="460.0" cy="162.0" r="4"/>
+<text class="note" x="640" y="166.0">+0.011</text>
+<text class="label" x="260" y="182.0" text-anchor="end">8 vs 9: Polaris__Claude-Opus-4.7-…</text>
+<line class="ci" x1="394.5" y1="178.0" x2="517.5" y2="178.0"/>
+<circle class="dot" cx="456.0" cy="178.0" r="4"/>
+<text class="note" x="640" y="182.0">+0.007</text>
+<text class="label" x="260" y="198.0" text-anchor="end">9 vs 10: CodeBrain-1.5__GPT-5.3-C…</text>
+<line class="ci" x1="404.8" y1="194.0" x2="515.2" y2="194.0"/>
+<circle class="dot" cx="460.0" cy="194.0" r="4"/>
+<text class="note" x="640" y="198.0">+0.011</text>
+<text class="label" x="260" y="214.0" text-anchor="end">10 vs 11: Judy__Gemini-3.1-Pro-Pr…</text>
+<line class="ci" x1="388.4" y1="210.0" x2="515.6" y2="210.0"/>
+<circle class="dot" cx="452.0" cy="210.0" r="4"/>
+<text class="note" x="640" y="214.0">+0.002</text>
+<text class="label" x="260" y="230.0" text-anchor="end">11 vs 12: logos-ts__claude-opus-4…</text>
+<line class="ci" x1="403.9" y1="226.0" x2="524.1" y2="226.0"/>
+<circle class="dot" cx="464.0" cy="226.0" r="4"/>
+<text class="note" x="640" y="230.0">+0.016</text>
+<text class="label" x="260" y="246.0" text-anchor="end">12 vs 13: OpenSage__GPT-5.3-Codex</text>
+<line class="ci" x1="384.6" y1="242.0" x2="515.4" y2="242.0"/>
+<circle class="dot" cx="450.0" cy="242.0" r="4"/>
+<text class="note" x="640" y="246.0">0.000</text>
+<text class="label" x="260" y="262.0" text-anchor="end">13 vs 14: LemonCode__GPT-5.3-Codex</text>
+<line class="ci" x1="402.8" y1="258.0" x2="515.9" y2="258.0"/>
+<circle class="dot" cx="459.4" cy="258.0" r="4"/>
+<text class="note" x="640" y="262.0">+0.011</text>
+<text class="label" x="260" y="278.0" text-anchor="end">14 vs 15: WOZCODE__Claude-Opus-4-7</text>
+<line class="ci" x1="393.3" y1="274.0" x2="507.9" y2="274.0"/>
+<circle class="dot" cx="450.6" cy="274.0" r="4"/>
+<text class="note" x="640" y="278.0">+0.001</text>
+<text class="label" x="260" y="294.0" text-anchor="end">15 vs 16: Droid__GPT-5.3-Codex</text>
+<line class="ci" x1="400.4" y1="290.0" x2="515.6" y2="290.0"/>
+<circle class="dot" cx="458.0" cy="290.0" r="4"/>
+<text class="note" x="640" y="294.0">+0.009</text>
+<text class="label" x="260" y="310.0" text-anchor="end">16 vs 17: Meta-Harness__Claude-Op…</text>
+<line class="ci" x1="390.7" y1="306.0" x2="521.3" y2="306.0"/>
+<circle class="dot" cx="456.0" cy="306.0" r="4"/>
+<text class="note" x="640" y="310.0">+0.007</text>
+<text class="label" x="260" y="326.0" text-anchor="end">17 vs 18: Codelia__GPT-5.3-Codex</text>
+<line class="ci" x1="405.5" y1="322.0" x2="503.5" y2="322.0"/>
+<circle class="dot" cx="454.5" cy="322.0" r="4"/>
+<text class="note" x="640" y="326.0">+0.005</text>
+<text class="label" x="260" y="342.0" text-anchor="end">18 vs 19: Capy__Claude-Opus-4.6</text>
+<line class="ci" x1="403.9" y1="338.0" x2="503.1" y2="338.0"/>
+<circle class="dot" cx="453.5" cy="338.0" r="4"/>
+<text class="note" x="640" y="342.0">+0.004</text>
+<text class="label" x="260" y="358.0" text-anchor="end">19 vs 20: Terminus-KIRA__Gemini-3…</text>
+<line class="ci" x1="393.1" y1="354.0" x2="510.9" y2="354.0"/>
+<circle class="dot" cx="452.0" cy="354.0" r="4"/>
+<text class="note" x="640" y="358.0">+0.002</text>
+<text class="label" x="260" y="374.0" text-anchor="end">20 vs 21: Mux__GPT-5.3-Codex</text>
+<line class="ci" x1="404.8" y1="370.0" x2="495.2" y2="370.0"/>
+<circle class="dot" cx="450.0" cy="370.0" r="4"/>
+<text class="note" x="640" y="374.0">0.000</text>
+<text class="label" x="260" y="390.0" text-anchor="end">21 vs 22: Simple-Codex__GPT-5.3-C…</text>
+<line class="ci" x1="399.7" y1="386.0" x2="504.3" y2="386.0"/>
+<circle class="dot" cx="452.0" cy="386.0" r="4"/>
+<text class="note" x="640" y="390.0">+0.002</text>
+<text class="label" x="260" y="406.0" text-anchor="end">22 vs 23: Terminus-KIRA__Claude-O…</text>
+<line class="ci" x1="393.2" y1="402.0" x2="518.8" y2="402.0"/>
+<circle class="dot" cx="456.0" cy="402.0" r="4"/>
+<text class="note" x="640" y="406.0">+0.007</text>
+<text class="label" x="260" y="422.0" text-anchor="end">23 vs 24: Ante__Gemini-3.1-Pro-Pr…</text>
+<line class="ci" x1="397.8" y1="418.0" x2="534.2" y2="418.0"/>
+<circle class="dot" cx="466.0" cy="418.0" r="4"/>
+<text class="note" x="640" y="422.0">+0.018</text>
+<text class="label" x="260" y="438.0" text-anchor="end">24 vs 25: Judy__Claude-Opus-4.6</text>
+<line class="ci" x1="388.9" y1="434.0" x2="511.1" y2="434.0"/>
+<circle class="dot" cx="450.0" cy="434.0" r="4"/>
+<text class="note" x="640" y="438.0">0.000</text>
+<text class="label" x="260" y="454.0" text-anchor="end">25 vs 26: MAYA__Claude-4.6-opus</text>
+<line class="ci" x1="383.0" y1="450.0" x2="525.0" y2="450.0"/>
+<circle class="dot" cx="454.0" cy="450.0" r="4"/>
+<text class="note" x="640" y="454.0">+0.004</text>
+<text class="label" x="260" y="470.0" text-anchor="end">26 vs 27: spoox-o-m__GPT-5.3-Codex</text>
+<line class="ci" x1="393.1" y1="466.0" x2="514.9" y2="466.0"/>
+<circle class="dot" cx="454.0" cy="466.0" r="4"/>
+<text class="note" x="640" y="470.0">+0.004</text>
+<text class="label" x="260" y="486.0" text-anchor="end">27 vs 28: Junie_CLI__Gemini-3-Fla…</text>
+<line class="ci" x1="404.4" y1="482.0" x2="507.6" y2="482.0"/>
+<circle class="dot" cx="456.0" cy="482.0" r="4"/>
+<text class="note" x="640" y="486.0">+0.007</text>
+<text class="label" x="260" y="502.0" text-anchor="end">28 vs 29: CodeBrain-1__GPT-5.3-Co…</text>
+<line class="ci" x1="384.3" y1="498.0" x2="523.7" y2="498.0"/>
+<circle class="dot" cx="454.0" cy="498.0" r="4"/>
+<text class="note" x="640" y="502.0">+0.004</text>
+<text class="label" x="260" y="518.0" text-anchor="end">29 vs 30: Droid__Claude-Opus-4.6</text>
+<line class="ci" x1="410.3" y1="514.0" x2="549.7" y2="514.0"/>
+<circle class="dot" cx="480.0" cy="514.0" r="4"/>
+<text class="note" x="640" y="518.0">+0.034</text>
+<text class="label" x="260" y="534.0" text-anchor="end">30 vs 31: Mux__Claude-Opus-4.6</text>
+<line class="ci" x1="387.2" y1="530.0" x2="516.8" y2="530.0"/>
+<circle class="dot" cx="452.0" cy="530.0" r="4"/>
+<text class="note" x="640" y="534.0">+0.002</text>
+<text class="label" x="260" y="550.0" text-anchor="end">31 vs 32: logos__claude-opus-4.6</text>
+<line class="ci" x1="385.0" y1="546.0" x2="519.0" y2="546.0"/>
+<circle class="dot" cx="452.0" cy="546.0" r="4"/>
+<text class="note" x="640" y="550.0">+0.002</text>
+<text class="label" x="260" y="566.0" text-anchor="end">32 vs 33: clnkr__GPT-5.5</text>
+<line class="ci" x1="393.9" y1="562.0" x2="510.1" y2="562.0"/>
+<circle class="dot" cx="452.0" cy="562.0" r="4"/>
+<text class="note" x="640" y="566.0">+0.002</text>
+<text class="label" x="260" y="582.0" text-anchor="end">33 vs 34: Deep-Agents__GPT-5.2-Co…</text>
+<line class="ci" x1="396.1" y1="578.0" x2="515.9" y2="578.0"/>
+<circle class="dot" cx="456.0" cy="578.0" r="4"/>
+<text class="note" x="640" y="582.0">+0.007</text>
+<text class="label" x="260" y="598.0" text-anchor="end">34 vs 35: Dirac__Gemini-3-Flash-P…</text>
+<line class="ci" x1="385.3" y1="594.0" x2="514.7" y2="594.0"/>
+<circle class="dot" cx="450.0" cy="594.0" r="4"/>
+<text class="note" x="640" y="598.0">0.000</text>
+<text class="label" x="260" y="614.0" text-anchor="end">35 vs 36: OpenSage__Gemini-3-Pro-…</text>
+<line class="ci" x1="391.8" y1="610.0" x2="516.2" y2="610.0"/>
+<circle class="dot" cx="454.0" cy="610.0" r="4"/>
+<text class="note" x="640" y="614.0">+0.004</text>
+<text class="label" x="260" y="630.0" text-anchor="end">36 vs 37: Terminus2__GPT-5.3-Codex</text>
+<line class="ci" x1="399.1" y1="626.0" x2="500.9" y2="626.0"/>
+<circle class="dot" cx="450.0" cy="626.0" r="4"/>
+<text class="note" x="640" y="630.0">0.000</text>
+<text class="label" x="260" y="646.0" text-anchor="end">37 vs 38: Ante__Gemini-3-Pro-Prev…</text>
+<line class="ci" x1="406.3" y1="642.0" x2="525.7" y2="642.0"/>
+<circle class="dot" cx="466.0" cy="642.0" r="4"/>
+<text class="note" x="640" y="646.0">+0.018</text>
+<text class="label" x="260" y="662.0" text-anchor="end">38 vs 39: Terminus2__Claude-Opus-…</text>
+<line class="ci" x1="390.2" y1="658.0" x2="521.8" y2="658.0"/>
+<circle class="dot" cx="456.0" cy="658.0" r="4"/>
+<text class="note" x="640" y="662.0">+0.007</text>
+<text class="label" x="260" y="678.0" text-anchor="end">39 vs 40: CodeBrain-1__Gemini-3-P…</text>
+<line class="ci" x1="393.3" y1="674.0" x2="526.7" y2="674.0"/>
+<circle class="dot" cx="460.0" cy="674.0" r="4"/>
+<text class="note" x="640" y="678.0">+0.011</text>
+<text class="label" x="260" y="694.0" text-anchor="end">40 vs 41: hookele__gpt5.1-codex-m…</text>
+<line class="ci" x1="367.3" y1="690.0" x2="540.7" y2="690.0"/>
+<circle class="dot" cx="454.0" cy="690.0" r="4"/>
+<text class="note" x="640" y="694.0">+0.004</text>
+<text class="label" x="260" y="710.0" text-anchor="end">41 vs 42: Mux__GPT-5.2</text>
+<line class="ci" x1="359.0" y1="706.0" x2="545.0" y2="706.0"/>
+<circle class="dot" cx="452.0" cy="706.0" r="4"/>
+<text class="note" x="640" y="710.0">+0.002</text>
+<text class="label" x="260" y="726.0" text-anchor="end">42 vs 43: copilot-cli__claude-opu…</text>
+<line class="ci" x1="381.6" y1="722.0" x2="530.4" y2="722.0"/>
+<circle class="dot" cx="456.0" cy="722.0" r="4"/>
+<text class="note" x="640" y="726.0">+0.007</text>
+<text class="label" x="260" y="742.0" text-anchor="end">43 vs 44: Gemini_CLI__Gemini-3.1-…</text>
+<line class="ci" x1="387.1" y1="738.0" x2="532.9" y2="738.0"/>
+<circle class="dot" cx="460.0" cy="738.0" r="4"/>
+<text class="note" x="640" y="742.0">+0.011</text>
+<text class="label" x="260" y="758.0" text-anchor="end">44 vs 45: IndusAGICodingAgent__gp…</text>
+<line class="ci" x1="374.2" y1="754.0" x2="529.8" y2="754.0"/>
+<circle class="dot" cx="452.0" cy="754.0" r="4"/>
+<text class="note" x="640" y="758.0">+0.002</text>
+<text class="label" x="260" y="774.0" text-anchor="end">45 vs 46: Mux__Claude-Opus-4.5</text>
+<line class="ci" x1="421.5" y1="770.0" x2="590.5" y2="770.0"/>
+<circle class="dot" cx="506.0" cy="770.0" r="4"/>
+<text class="note" x="640" y="774.0">+0.063</text>
+<text class="label" x="260" y="790.0" text-anchor="end">46 vs 47: Simplai-Agent__Claude-S…</text>
+<line class="ci" x1="395.1" y1="786.0" x2="508.9" y2="786.0"/>
+<circle class="dot" cx="452.0" cy="786.0" r="4"/>
+<text class="note" x="640" y="790.0">+0.002</text>
+<text class="label" x="260" y="806.0" text-anchor="end">47 vs 48: Terminus2__GLM-5</text>
+<line class="ci" x1="373.2" y1="802.0" x2="530.8" y2="802.0"/>
+<circle class="dot" cx="452.0" cy="802.0" r="4"/>
+<text class="note" x="640" y="806.0">+0.002</text>
+<text class="label" x="260" y="822.0" text-anchor="end">48 vs 49: OpenCode__Claude-Opus-4…</text>
+<line class="ci" x1="409.0" y1="818.0" x2="567.0" y2="818.0"/>
+<circle class="dot" cx="488.0" cy="818.0" r="4"/>
+<text class="note" x="640" y="822.0">+0.043</text>
+<text class="label" x="260" y="838.0" text-anchor="end">49 vs 50: Gemini_CLI__Gemini-3-Fl…</text>
+<line class="ci" x1="385.8" y1="834.0" x2="514.2" y2="834.0"/>
+<circle class="dot" cx="450.0" cy="834.0" r="4"/>
+<text class="note" x="640" y="838.0">0.000</text>
+<text class="label" x="260" y="854.0" text-anchor="end">50 vs 51: just-another-coding-age…</text>
+<line class="ci" x1="379.2" y1="850.0" x2="604.8" y2="850.0"/>
+<circle class="dot" cx="492.0" cy="850.0" r="4"/>
+<text class="note" x="640" y="854.0">+0.047</text>
+<text class="label" x="260" y="870.0" text-anchor="end">51 vs 52: MAYA__Claude-4.5-sonnet</text>
+<line class="ci" x1="339.6" y1="866.0" x2="564.4" y2="866.0"/>
+<circle class="dot" cx="452.0" cy="866.0" r="4"/>
+<text class="note" x="640" y="870.0">+0.002</text>
+<text class="label" x="260" y="886.0" text-anchor="end">52 vs 53: harness-agent__minimax-…</text>
+<line class="ci" x1="396.7" y1="882.0" x2="503.3" y2="882.0"/>
+<circle class="dot" cx="450.0" cy="882.0" r="4"/>
+<text class="note" x="640" y="886.0">0.000</text>
+<text class="label" x="260" y="902.0" text-anchor="end">53 vs 54: Terminus2__Kimi-k2.5</text>
+<line class="ci" x1="395.9" y1="898.0" x2="508.1" y2="898.0"/>
+<circle class="dot" cx="452.0" cy="898.0" r="4"/>
+<text class="note" x="640" y="902.0">+0.002</text>
+<text class="label" x="260" y="918.0" text-anchor="end">54 vs 55: Terminus2__Minimax-m2.5</text>
+<line class="ci" x1="403.0" y1="914.0" x2="497.0" y2="914.0"/>
+<circle class="dot" cx="450.0" cy="914.0" r="4"/>
+<text class="note" x="640" y="918.0">0.000</text>
+<text class="label" x="260" y="934.0" text-anchor="end">55 vs 56: cchuter__minimax-m2.5</text>
+<line class="ci" x1="383.4" y1="930.0" x2="530.6" y2="930.0"/>
+<circle class="dot" cx="457.0" cy="930.0" r="4"/>
+<text class="note" x="640" y="934.0">+0.008</text>
+<text class="label" x="260" y="950.0" text-anchor="end">56 vs 57: grok-cli__grok-4.20-030…</text>
+<line class="ci" x1="388.7" y1="946.0" x2="545.3" y2="946.0"/>
+<circle class="dot" cx="467.0" cy="946.0" r="4"/>
+<text class="note" x="640" y="950.0">+0.019</text>
+<text class="label" x="260" y="966.0" text-anchor="end">57 vs 58: Terminus2__DeepSeek-V3.2</text>
+<line class="ci" x1="429.2" y1="962.0" x2="562.8" y2="962.0"/>
+<circle class="dot" cx="496.0" cy="962.0" r="4"/>
+<text class="note" x="640" y="966.0">+0.052</text>
+<text class="label" x="260" y="982.0" text-anchor="end">58 vs 59: IndusAGICodingAgent__Mi…</text>
+<line class="ci" x1="393.5" y1="978.0" x2="526.5" y2="978.0"/>
+<circle class="dot" cx="460.0" cy="978.0" r="4"/>
+<text class="note" x="640" y="982.0">+0.011</text>
+<text class="label" x="260" y="998.0" text-anchor="end">59 vs 60: ClaudeCode__GLM-4.7</text>
+<line class="ci" x1="395.9" y1="994.0" x2="508.1" y2="994.0"/>
+<circle class="dot" cx="452.0" cy="994.0" r="4"/>
+<text class="note" x="640" y="998.0">+0.002</text>
+<text class="label" x="260" y="1014.0" text-anchor="end">60 vs 61: Terminus2__GLM-4.7</text>
+<line class="ci" x1="431.4" y1="1010.0" x2="572.6" y2="1010.0"/>
+<circle class="dot" cx="502.0" cy="1010.0" r="4"/>
+<text class="note" x="640" y="1014.0">+0.058</text>
+<text class="label" x="260" y="1030.0" text-anchor="end">61 vs 62: dakou__qwen3-coder-480b</text>
+<line class="ci" x1="424.8" y1="1026.0" x2="535.2" y2="1026.0"/>
+<circle class="dot" cx="480.0" cy="1026.0" r="4"/>
+<text class="note" x="640" y="1030.0">+0.034</text>
+<text class="label" x="260" y="1046.0" text-anchor="end">62 vs 63: little-coder__qwen3.6-3…</text>
+<line class="ci" x1="418.7" y1="1042.0" x2="517.3" y2="1042.0"/>
+<circle class="dot" cx="468.0" cy="1042.0" r="4"/>
+<text class="note" x="640" y="1046.0">+0.020</text>
+<text class="label" x="260" y="1062.0" text-anchor="end">63 vs 64: spoox-o-m__GPT-5-Nano</text>
+<line class="ci" x1="455.5" y1="1058.0" x2="532.5" y2="1058.0"/>
+<circle class="dot" cx="494.0" cy="1058.0" r="4"/>
+<text class="note" x="640" y="1062.0">+0.049 separated</text>
+<text class="label" x="260" y="1078.0" text-anchor="end">64 vs 65: terminus-2__AfterQuery-…</text>
+<line class="ci" x1="405.6" y1="1074.0" x2="506.4" y2="1074.0"/>
+<circle class="dot" cx="456.0" cy="1074.0" r="4"/>
+<text class="note" x="640" y="1078.0">+0.007</text>
+<text class="label" x="260" y="1094.0" text-anchor="end">65 vs 66: BashAgent__TermiGen-32B</text>
+<line class="ci" x1="475.3" y1="1090.0" x2="548.7" y2="1090.0"/>
+<circle class="dot" cx="512.0" cy="1090.0" r="4"/>
+<text class="note" x="640" y="1094.0">+0.070 separated</text>
+</svg>

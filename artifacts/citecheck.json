@@ -1,0 +1,867 @@
+{
+  "schema": 1,
+  "checked_by": "citation-checker subagent",
+  "method": "Each URL fetched once with curl -sSL -o <file> -w '%{url_effective} %{http_code}' (descriptive User-Agent, no other headers); content_sha256 is the sha256 of the raw response body. arXiv title, authors, and year come from the citation_title, citation_author, and citation_date meta tags of the abs page; other pages from the visible heading and byline. Raw bodies are kept outside the repository.",
+  "references": [
+    {
+      "key": "anthropic-infrastructure-noise-2026",
+      "url": "https://www.anthropic.com/engineering/infrastructure-noise",
+      "final_url": "https://www.anthropic.com/research/infrastructure-noise",
+      "http_status": 200,
+      "title": "Quantifying infrastructure noise in agentic coding evals",
+      "authors": [
+        "Gian Segato"
+      ],
+      "year": 2026,
+      "retrieved": "2026-10-23",
+      "content_sha256": "30e507921ae3edab09dcb63e37058986132a9ab6b5c4f52cb8d9b945630fab63",
+      "verified": true,
+      "note": "The cited URL redirects to /research/infrastructure-noise; the page still labels the post 'Team: Engineering'. The page heading and JSON-LD headline match the brief's title; the HTML title and og:title read 'Infrastructure noise in agentic coding evals'. Byline: 'Written by Gian Segato'; the JSON-LD author is the organization Anthropic. Published 2026-02-05 and modified 2026-10-18 per the page metadata, so the text checked is the modified version. The brief's claims match the text: resource configuration moved Terminal-Bench 2.0 scores by up to 6 points; the finding was replicated across Anthropic models, and other models were 'not rigorously tested'; time-of-day effects (attributed to API latency) were observed anecdotally and not quantified.",
+      "summary": {
+        "text": "Reports that Terminal-Bench 2.0 run with one Claude model under six container resource configurations showed a 6 percentage point gap between the most and least resourced setups (p < 0.01), with infrastructure error rates falling from 5.8% to 0.5%, and a smaller effect in a SWE-bench crossover. It suggests that leaderboard differences below 3 percentage points deserve skepticism until the eval configuration is documented and matched.",
+        "based_on": "full post text as served at the final URL",
+        "unconfirmed": []
+      }
+    },
+    {
+      "key": "miller-error-bars-2024",
+      "url": "https://arxiv.org/abs/2411.00640",
+      "final_url": "https://arxiv.org/abs/2411.00640",
+      "http_status": 200,
+      "title": "Adding Error Bars to Evals: A Statistical Approach to Language Model Evaluations",
+      "authors": [
+        "Miller, Evan"
+      ],
+      "year": 2024,
+      "retrieved": "2026-10-23",
+      "content_sha256": "159a0e76137a127202eea0c8bf8c48db8855fe69e69cfeeeb465a6276b8b42a6",
+      "verified": true,
+      "note": "The arXiv title carries a subtitle the brief omits: 'A Statistical Approach to Language Model Evaluations'. Author (Evan Miller) and year match the brief. Submitted 2024-11-01 (v1 only). Metadata from the abs page citation_* tags; the summary also draws on the arXiv HTML full text (see also_read).",
+      "also_read": [
+        {
+          "url": "https://arxiv.org/html/2411.00640",
+          "http_status": 200,
+          "content_sha256": "d7fed5cb82ff7bd8b636b5586bcf1102a39c89afeef91f6d031a1ede9b6ed077"
+        }
+      ],
+      "summary": {
+        "text": "Treats eval questions as draws from an unseen super-population and gives formulas for standard errors, clustered standard errors when questions come in related groups, inference on question-level paired differences between two models, and power analysis for planning an eval. Its worked example reports that clustered standard errors on two evals can be over 3 times the naive ones.",
+        "based_on": "arXiv abstract page and arXiv HTML full text (v1)",
+        "unconfirmed": []
+      }
+    },
+    {
+      "key": "heineman-signal-noise-2025",
+      "url": "https://arxiv.org/abs/2508.13144",
+      "final_url": "https://arxiv.org/abs/2508.13144",
+      "http_status": 200,
+      "title": "Signal and Noise: A Framework for Reducing Uncertainty in Language Model Evaluation",
+      "authors": [
+        "Heineman, David",
+        "Hofmann, Valentin",
+        "Magnusson, Ian",
+        "Gu, Yuling",
+        "Smith, Noah A.",
+        "Hajishirzi, Hannaneh",
+        "Lo, Kyle",
+        "Dodge, Jesse"
+      ],
+      "year": 2025,
+      "retrieved": "2026-10-23",
+      "content_sha256": "94c2c89ba151dfb9375b3b599677d945d362c592c5806dff5515b63ddcf023ae",
+      "verified": true,
+      "note": "The brief gives the short title 'Signal and Noise'; the full title adds 'A Framework for Reducing Uncertainty in Language Model Evaluation'. Year 2025 matches; the brief names no authors. Submitted 2025-08-18 (v1 only). Its 'noise' is variability between training checkpoints in pretraining experiments, not run-to-run or infrastructure noise in agentic evals.",
+      "summary": {
+        "text": "Defines signal (a benchmark's ability to separate better from worse models) and noise (sensitivity to random variability between training steps), and reports that benchmarks with a better signal-to-noise ratio are more reliable for decisions made at small scale. It proposes interventions (a different metric, filtering noisy subtasks, averaging intermediate checkpoints), tested on 30 benchmarks and 375 open-weight models.",
+        "based_on": "arXiv abstract page (abstract only)",
+        "unconfirmed": [
+          "Nothing beyond the abstract was read."
+        ]
+      }
+    },
+    {
+      "key": "metr-time-horizon-limitations-2026",
+      "url": "https://metr.org/notes/2026-01-22-time-horizon-limitations/",
+      "final_url": "https://metr.org/notes/2026-01-22-time-horizon-limitations/",
+      "http_status": 200,
+      "title": "Clarifying limitations of time horizon",
+      "authors": [
+        "Thomas Kwa"
+      ],
+      "year": 2026,
+      "retrieved": "2026-10-23",
+      "content_sha256": "b1aa2ec058d0956c5681111915240d3c277e370d9d022248b6373df6a6e188c3",
+      "verified": true,
+      "note": "Title mismatch: the brief calls it 'Time horizon limitations'; the page title, citation_title tag, and the page's own BibTeX give 'Clarifying limitations of time horizon' (the URL slug is time-horizon-limitations). It is a METR research note by Thomas Kwa dated 2026-01-22; the page says notes have had less review than research posts and do not necessarily reflect the views of METR as a whole. The brief's 'wide intervals' is confirmed; 'sensitivity to modeling and scoring choices' is partly confirmed (modeling and human-baseline choices are discussed, grading rules are not).",
+      "summary": {
+        "text": "Says time horizon estimates are imprecise (bootstrap error bars historically about a factor of 2 in each direction, wider as the benchmark saturates) and that relative comparisons between models have somewhat smaller error bars because model performance is correlated. It lists choices that move the estimates, including human baseline-time conventions, geometric versus arithmetic averaging of baselines, and the two-parameter logistic fit used for the 20% and 80% horizons.",
+        "based_on": "full note text as served",
+        "unconfirmed": [
+          "The brief's phrase 'scoring choices' is not used; the note covers modeling and human-baseline choices, not rules for grading agent outputs."
+        ]
+      }
+    },
+    {
+      "key": "bean-measuring-what-matters-2025",
+      "url": "https://arxiv.org/abs/2511.04703",
+      "final_url": "https://arxiv.org/abs/2511.04703",
+      "http_status": 200,
+      "title": "Measuring what Matters: Construct Validity in Large Language Model Benchmarks",
+      "authors": [
+        "Bean, Andrew M.",
+        "Kearns, Ryan Othniel",
+        "Romanou, Angelika",
+        "Hafner, Franziska Sofia",
+        "Mayne, Harry",
+        "Batzner, Jan",
+        "Foroutan, Negar",
+        "Schmitz, Chris",
+        "Korgul, Karolina",
+        "Batra, Hunar",
+        "Deb, Oishi",
+        "Beharry, Emma",
+        "Emde, Cornelius",
+        "Foster, Thomas",
+        "Gausen, Anna",
+        "Grandury, María",
+        "Han, Simeng",
+        "Hofmann, Valentin",
+        "Ibrahim, Lujain",
+        "Kim, Hazel",
+        "Kirk, Hannah Rose",
+        "Lin, Fangru",
+        "Liu, Gabrielle Kaili-May",
+        "Luettgau, Lennart",
+        "Magomere, Jabez",
+        "Rystrøm, Jonathan",
+        "Sotnikova, Anna",
+        "Yang, Yushi",
+        "Zhao, Yilun",
+        "Bibi, Adel",
+        "Bosselut, Antoine",
+        "Clark, Ronald",
+        "Cohan, Arman",
+        "Foerster, Jakob",
+        "Gal, Yarin",
+        "Hale, Scott A.",
+        "Raji, Inioluwa Deborah",
+        "Summerfield, Christopher",
+        "Torr, Philip H. S.",
+        "Ududec, Cozmin",
+        "Rocher, Luc",
+        "Mahdi, Adam"
+      ],
+      "year": 2025,
+      "retrieved": "2026-10-23",
+      "content_sha256": "e4daad7870cd5b6ece8fa4b7796ba6b0a70d8807fb2c78af76057d440f06a5ce",
+      "verified": true,
+      "note": "The full title adds 'Construct Validity in Large Language Model Benchmarks'. Year 2025 matches (submitted 2025-11-03); first author Andrew M. Bean. The arXiv comments field names the NeurIPS 2025 Track on Datasets and Benchmarks. The brief's claim (little statistical testing) is not in the abstract; it is confirmed in the arXiv HTML full text (see also_read), where it is one finding of a review that is mainly about construct validity.",
+      "also_read": [
+        {
+          "url": "https://arxiv.org/html/2511.04703",
+          "http_status": 200,
+          "content_sha256": "79e3c1ec50739bb9c24713ef77b8031fa6db0940964e46cfa0330db686d4f83e"
+        }
+      ],
+      "summary": {
+        "text": "A systematic review of 445 LLM benchmarks from NLP and ML venues, focused on construct validity, which reports that only 16.0% of the reviewed benchmarks used uncertainty estimates or statistical tests to compare results. Its checklist recommends reporting the sample size with a justification of statistical power and uncertainty estimates for all primary scores.",
+        "based_on": "arXiv abstract page and arXiv HTML full text",
+        "unconfirmed": []
+      }
+    },
+    {
+      "key": "polo-tinybenchmarks-2024",
+      "url": "https://arxiv.org/abs/2402.14992",
+      "final_url": "https://arxiv.org/abs/2402.14992",
+      "http_status": 200,
+      "title": "tinyBenchmarks: evaluating LLMs with fewer examples",
+      "authors": [
+        "Polo, Felipe Maia",
+        "Weber, Lucas",
+        "Choshen, Leshem",
+        "Sun, Yuekai",
+        "Xu, Gongjun",
+        "Yurochkin, Mikhail"
+      ],
+      "year": 2024,
+      "retrieved": "2026-10-23",
+      "content_sha256": "433e39eb37084231077d3b80356304af2c8cc0e87ebbd18d95cedd574fe46f31",
+      "verified": true,
+      "note": "Title and year match the brief (v1 2024-02-22, v2 2024-05-26; citation_date 2024/02/22). The arXiv comments field reads 'Proceedings of the 41st International Conference on Machine Learning (ICML)'. The IRT claim is not in the abstract; it is confirmed in the arXiv HTML full text (see also_read).",
+      "also_read": [
+        {
+          "url": "https://arxiv.org/html/2402.14992",
+          "http_status": 200,
+          "content_sha256": "038eecb0a464d9f44b8fd42c98595e9ee78ebec94a461eee4039b8cdf6453073"
+        }
+      ],
+      "summary": {
+        "text": "Uses item response theory (IRT) fitted to many LLMs' example-level results to choose small evaluation sets and to correct estimates from them, and reports that 100 curated examples per scenario estimate full-benchmark performance within about 2% error on average. The benchmarks are Open LLM Leaderboard, MMLU, HELM, and AlpacaEval 2.0, all static and non-agentic.",
+        "based_on": "arXiv abstract page and arXiv HTML full text (introduction, section 4)",
+        "unconfirmed": []
+      }
+    },
+    {
+      "key": "merrill-terminal-bench-2026",
+      "url": "https://arxiv.org/abs/2601.11868",
+      "final_url": "https://arxiv.org/abs/2601.11868",
+      "http_status": 200,
+      "title": "Terminal-Bench: Benchmarking Agents on Hard, Realistic Tasks in Command Line Interfaces",
+      "authors": [
+        "Merrill, Mike A.",
+        "Shaw, Alexander G.",
+        "Carlini, Nicholas",
+        "Li, Boxuan",
+        "Raj, Harsh",
+        "Bercovich, Ivan",
+        "Shi, Lin",
+        "Shin, Jeong Yeon",
+        "Walshe, Thomas",
+        "Buchanan, E. Kelly",
+        "Shen, Junhong",
+        "Ye, Guanghao",
+        "Lin, Haowei",
+        "Poulos, Jason",
+        "Wang, Maoyu",
+        "Nezhurina, Marianna",
+        "Jitsev, Jenia",
+        "Lu, Di",
+        "Mastromichalakis, Orfeas Menis",
+        "Xu, Zhiwei",
+        "Chen, Zizhao",
+        "Liu, Yue",
+        "Zhang, Robert",
+        "Chen, Leon Liangyu",
+        "Kashyap, Anurag",
+        "Uslu, Jan-Lucas",
+        "Li, Jeffrey",
+        "Wu, Jianbo",
+        "Yan, Minghao",
+        "Bian, Song",
+        "Sharma, Vedang",
+        "Sun, Ke",
+        "Dillmann, Steven",
+        "Anand, Akshay",
+        "Lanpouthakoun, Andrew",
+        "Koopah, Bardia",
+        "Hu, Changran",
+        "Guha, Etash",
+        "Dreiman, Gabriel H. S.",
+        "Zhu, Jiacheng",
+        "Krauth, Karl",
+        "Zhong, Li",
+        "Muennighoff, Niklas",
+        "Amanfu, Robert",
+        "Tan, Shangyin",
+        "Pimpalgaonkar, Shreyas",
+        "Aggarwal, Tushar",
+        "Lin, Xiangning",
+        "Lan, Xin",
+        "Zhao, Xuandong",
+        "Liang, Yiqing",
+        "Wang, Yuanli",
+        "Wang, Zilong",
+        "Zhou, Changzhi",
+        "Heineman, David",
+        "Liu, Hange",
+        "Trivedi, Harsh",
+        "Yang, John",
+        "Lin, Junhong",
+        "Shetty, Manish",
+        "Yang, Michael",
+        "Omi, Nabil",
+        "Raoof, Negin",
+        "Li, Shanda",
+        "Zhuo, Terry Yue",
+        "Lin, Wuwei",
+        "Dai, Yiwei",
+        "Wang, Yuxin",
+        "Chai, Wenhao",
+        "Zhou, Shang",
+        "Wahdany, Dariush",
+        "She, Ziyu",
+        "Hu, Jiaming",
+        "Dong, Zhikang",
+        "Zhu, Yuxuan",
+        "Cui, Sasha",
+        "Saiyed, Ahson",
+        "Kolbeinsson, Arinbjörn",
+        "Hu, Jesse",
+        "Rytting, Christopher Michael",
+        "Marten, Ryan",
+        "Wang, Yixin",
+        "Dimakis, Alex",
+        "Konwinski, Andy",
+        "Schmidt, Ludwig"
+      ],
+      "year": 2026,
+      "retrieved": "2026-10-23",
+      "content_sha256": "60d50fa9f8fcabe6776af2548867f1df8a70a104dc509886bfe11d7e156c1734",
+      "verified": true,
+      "note": "Year 2026 matches (submitted 2026-01-17, v1 only); the brief gives no title or authors. First authors Mike A. Merrill and Alexander G. Shaw. Only the abstract was read.",
+      "summary": {
+        "text": "Introduces Terminal-Bench 2.0, 89 hard tasks in command-line environments, each with its own environment, a human-written solution, and tests, and reports that frontier models and agents score below 65%. The dataset and evaluation harness are published.",
+        "based_on": "arXiv abstract page (abstract only)",
+        "unconfirmed": [
+          "The paper's treatment of resource limits, timeouts, or run-to-run variance was not checked."
+        ]
+      }
+    },
+    {
+      "key": "bates-lme4-2015",
+      "url": "https://doi.org/10.18637/jss.v067.i01",
+      "final_url": "https://www.jstatsoft.org/article/view/v067i01",
+      "http_status": 200,
+      "title": "Fitting Linear Mixed-Effects Models Using lme4",
+      "authors": [
+        "Bates, Douglas",
+        "Mächler, Martin",
+        "Bolker, Ben",
+        "Walker, Steve"
+      ],
+      "year": 2015,
+      "retrieved": "2026-11-04",
+      "content_sha256": "c1343a9b187ed3027aace5e1d62073f723792fb547a0a4b547d804ff8ee051cb",
+      "verified": true,
+      "note": "DOI redirected to the JSS article page (HTTP 200). Title, four authors in the expected order, and DC.Date.issued 2015-10-07 (volume 67, pages 1-48, DOI 10.18637/jss.v067.i01) match the expected metadata. Author name read from the page as Mächler (the expected hint omitted the umlaut). Saved body: /tmp/claude-0/-home-user-noise-floor/b5fd6b69-b3b0-56ef-9f17-e15c370adddf/scratchpad/cite/bates-lme4-2015/doi.html. Only the landing page metadata was read, not the full PDF.",
+      "also_read": [],
+      "summary": {
+        "text": "The article describes fitting linear mixed-effects models with the lmer function in the lme4 R package, using a formula with fixed and random effects and optimizing the profiled deviance or REML criterion. It documents the model structure and the computational steps.",
+        "based_on": "https://www.jstatsoft.org/article/view/v067i01 (landing page metadata and abstract, reached via the DOI)",
+        "unconfirmed": [
+          "That glmer, the logit GLMM fitter used for the E1 variance decomposition, is covered: the abstract and page metadata mention only linear mixed models (lmer) and do not mention glmer or generalized linear mixed models. The full PDF was not read."
+        ]
+      }
+    },
+    {
+      "key": "breslow-lin-1995",
+      "url": "https://doi.org/10.1093/biomet/82.1.81",
+      "final_url": "https://api.crossref.org/works/10.1093/biomet/82.1.81",
+      "http_status": 200,
+      "title": "Bias correction in generalised linear mixed models with a single component of dispersion",
+      "authors": [
+        "Breslow, N. E.",
+        "Lin, X."
+      ],
+      "year": 1995,
+      "retrieved": "2026-11-04",
+      "content_sha256": "7b67b74ecbb0fcc8d856f2bcbb86712e821951ea7b7f913f654fbff6ca59b91e",
+      "verified": true,
+      "note": "The DOI redirected to academic.oup.com and returned HTTP 403 with a Cloudflare 'Just a moment...' challenge page (body sha256 f663d8b1628dec945a2ff77fd45f0d66a3ad27ae60824a733869dc70035bc700). I did not work around it. Verified through the DOI's Crossref record instead (HTTP 200): title as above with no subtitle, authors BRESLOW, N. E. and LIN, X. (Crossref upper-cases the surnames; the case is normalised here), issued 1995-03-01, Biometrika vol 82 issue 1, pages 81-91. This matches the expected metadata.",
+      "also_read": [
+        {
+          "url": "https://api.crossref.org/works/10.1093/biomet/82.1.81",
+          "http_status": 200,
+          "content_sha256": "7b67b74ecbb0fcc8d856f2bcbb86712e821951ea7b7f913f654fbff6ca59b91e"
+        }
+      ],
+      "summary": {
+        "text": "Crossref confirms the bibliographic record: Breslow and Lin, Biometrika 82(1), 81-91, 1995, on bias correction in generalised linear mixed models with a single component of dispersion. The title indicates the paper addresses bias in GLMM estimation with one dispersion component.",
+        "based_on": "Crossref metadata at https://api.crossref.org/works/10.1093/biomet/82.1.81 (the publisher page was blocked by a Cloudflare challenge).",
+        "unconfirmed": [
+          "That Laplace and penalized quasi-likelihood variance-component estimates in binary GLMMs are biased downward when clusters are small: no abstract or full text was opened, only bibliographic metadata."
+        ]
+      }
+    },
+    {
+      "key": "davison-hinkley-1997",
+      "url": "https://doi.org/10.1017/CBO9780511802843",
+      "final_url": "https://www.cambridge.org/core/books/bootstrap-methods-and-their-application/ED2FD043579F27952363566DC09CBD6A",
+      "http_status": 200,
+      "title": "Bootstrap Methods and their Application",
+      "authors": [
+        "Davison, A. C.",
+        "Hinkley, D. V."
+      ],
+      "year": 1997,
+      "retrieved": "2026-11-04",
+      "content_sha256": "bb49b332a49df40dcd4b520f7b563f7a53143f5b60aa4f8e079c35d21ea8f291",
+      "verified": true,
+      "note": "DOI resolved to the Cambridge Core book page (HTTP 200). Its citation_* meta tags give the title \"Bootstrap Methods and their Application\", authors A. C. Davison then D. V. Hinkley, publication date 1997/10, DOI 10.1017/CBO9780511802843, and publisher Cambridge University Press; the page's details table dates the hardback and paperback 28 October 1997. The Crossref record (type monograph, issued 1997-10-28, no subtitle) agrees. No differences from the expected metadata. (The first record said the page had no citation_* tags; a cross-check found them, and this note is corrected.)",
+      "also_read": [
+        {
+          "url": "https://api.crossref.org/works/10.1017/CBO9780511802843",
+          "http_status": 200,
+          "content_sha256": "03797808e24b4efd40629ef86b8fe0eacd1b9b59f0c96541c6fc9eaed59aff2a"
+        }
+      ],
+      "summary": {
+        "text": "The record identifies the cited work as the Cambridge University Press monograph Bootstrap Methods and their Application by A. C. Davison and D. V. Hinkley, issued 1997. The pages opened give only bibliographic metadata and a Cambridge Core subject category (Computational Statistics, Machine Learning and Information Science).",
+        "based_on": "Cambridge Core book page reached via the DOI, and the Crossref works record for 10.1017/CBO9780511802843.",
+        "unconfirmed": [
+          "That the book covers percentile and basic bootstrap intervals and the parametric bootstrap: the opened pages did not show the contents, so this use is not confirmed from them."
+        ]
+      }
+    },
+    {
+      "key": "efron-bca-1987",
+      "url": "https://doi.org/10.1080/01621459.1987.10478410",
+      "final_url": "https://api.crossref.org/works/10.1080/01621459.1987.10478410",
+      "http_status": 200,
+      "title": "Better Bootstrap Confidence Intervals",
+      "authors": [
+        "Efron, Bradley"
+      ],
+      "year": 1987,
+      "retrieved": "2026-11-04",
+      "content_sha256": "20816a124126c128da62b1d437f7ec9db4950dda440d8729f3165a51394a2394",
+      "verified": true,
+      "note": "The DOI redirected to tandfonline.com and returned HTTP 403 with a Cloudflare \"Just a moment...\" challenge page (body sha256 eb1c88bef37b75baaa4a3441ee80a1ff55bfdb220876040d9277e6674bb34146). I did not work around it. Verified from the Crossref record for the same DOI: title \"Better Bootstrap Confidence Intervals\", sole author Bradley Efron, Journal of the American Statistical Association, volume 82, issue 397, issued 1987-03. This matches the expected metadata with no differences. The publisher page itself was not read, so the title and authors come from Crossref only.",
+      "also_read": [
+        {
+          "url": "https://api.crossref.org/works/10.1080/01621459.1987.10478410",
+          "http_status": 200,
+          "content_sha256": "20816a124126c128da62b1d437f7ec9db4950dda440d8729f3165a51394a2394"
+        },
+        {
+          "url": "https://doi.org/10.1080/01621459.1987.10478410",
+          "http_status": 403,
+          "content_sha256": "eb1c88bef37b75baaa4a3441ee80a1ff55bfdb220876040d9277e6674bb34146"
+        }
+      ],
+      "summary": {
+        "text": "The Crossref record confirms that the cited work exists as Efron's 1987 JASA paper \"Better Bootstrap Confidence Intervals\" (vol. 82, issue 397). The title is consistent with the stated use, but the record has no abstract.",
+        "based_on": "Crossref metadata at https://api.crossref.org/works/10.1080/01621459.1987.10478410",
+        "unconfirmed": [
+          "That the paper introduces or defines the bias-corrected and accelerated (BCa) interval and the bias-corrected percentile interval; the publisher page was blocked and Crossref gave no abstract or text."
+        ]
+      }
+    },
+    {
+      "key": "epoch-benchmarking-hub",
+      "url": "https://epoch.ai/data/ai-benchmarking-dashboard",
+      "final_url": "https://epoch.ai/benchmarks",
+      "http_status": 200,
+      "title": "AI benchmarks & capabilities | Epoch AI",
+      "authors": [
+        "Epoch AI"
+      ],
+      "year": 2026,
+      "retrieved": "2026-11-04",
+      "content_sha256": "7f64eb4e7ef924fde23a5d8b0fcb424388042cff225a788f1c4785db3eff46b5",
+      "verified": true,
+      "note": "The cited URL redirected (HTTP 200 after redirect) to https://epoch.ai/benchmarks, whose page title is \"AI benchmarks & capabilities | Epoch AI\"; the name \"AI Benchmarking Dashboard\" does not appear. The page names no individual authors; its JSON-LD names the ResearchOrganization \"Epoch AI\" as publisher and its footer reads \"(c) 2026 Epoch AI\", so the author is the organization. The year is the page's update year (badge \"Updated Nov. 4, 2026\" above the heading); no first-publication date is shown. The page mentions SWE-bench Verified and links its downloads at /benchmarks/use-this-data#downloads. The data file https://epoch.ai/data/benchmark_data.zip was not fetched in this check. A cross-check refetched the page (byte-identical body) and supplied the author and year from it; the first record had left them empty.",
+      "also_read": [],
+      "summary": {
+        "text": "Epoch AI describes its benchmarking hub as a collection of benchmark results for leading AI models, covering benchmarks Epoch runs itself and data collected from external sources. The page says the data can be downloaded in CSV format and is also available through a client library and API, and it mentions SWE-bench Verified.",
+        "based_on": "https://epoch.ai/benchmarks (reached by redirect from https://epoch.ai/data/ai-benchmarking-dashboard)",
+        "unconfirmed": [
+          "That https://epoch.ai/data/benchmark_data.zip exists and contains SWE-bench Verified per-sample results (not fetched, and not named on the page)",
+          "The license and terms of the downloadable data (not read)",
+          "A first-publication year (the page shows only its update date)"
+        ]
+      }
+    },
+    {
+      "key": "granite-4.0-micro-gguf",
+      "url": "https://huggingface.co/ibm-granite/granite-4.0-micro-GGUF",
+      "final_url": "https://huggingface.co/ibm-granite/granite-4.0-micro-GGUF",
+      "http_status": 200,
+      "title": "ibm-granite/granite-4.0-micro-GGUF · Hugging Face",
+      "authors": [
+        "ibm-granite"
+      ],
+      "year": 2025,
+      "retrieved": "2026-11-04",
+      "content_sha256": "c07eaba9c2a7214cf234d7836e03defd19dbbaeb904246a155769c52ae2ed5e4",
+      "verified": true,
+      "note": "Opened once with curl (HTTP 200, no redirect). Page is the model repository itself. Author is the Hugging Face organization ibm-granite (no individual authors listed). Year 2025 is the repo createdAt (2025-09-24) in the page's embedded metadata; lastModified shown is 2026-04-23, so the repo has been updated since. License shown in metadata: apache-2.0. Base model: ibm-granite/granite-4.0-micro. Matches expected metadata. Page does not show a file hash for a specific GGUF file in what I read, so a pin of the exact file must come from the project's own record.",
+      "also_read": [],
+      "summary": {
+        "text": "The page is the Hugging Face repository of GGUF quantizations of ibm-granite/granite-4.0-micro (3B parameters, Apache-2.0 license in metadata). It lists multiple quantized files (for example Q4_0, Q4_K_M, Q5_K_M) and shows llama.cpp commands to run them locally.",
+        "based_on": "https://huggingface.co/ibm-granite/granite-4.0-micro-GGUF (page HTML, retrieved 2026-11-04)",
+        "unconfirmed": [
+          "Which specific quantization file the project pinned and its file hash",
+          "That the model was used in the E1 screening or in E1 itself"
+        ]
+      }
+    },
+    {
+      "key": "imbens-manski-2004",
+      "url": "https://doi.org/10.1111/j.1468-0262.2004.00555.x",
+      "final_url": "https://api.crossref.org/works/10.1111/j.1468-0262.2004.00555.x",
+      "http_status": 200,
+      "title": "Confidence Intervals for Partially Identified Parameters",
+      "authors": [
+        "Imbens, Guido W.",
+        "Manski, Charles F."
+      ],
+      "year": 2004,
+      "retrieved": "2026-11-04",
+      "content_sha256": "ef85069acbdbaea9a463b4bf804fb2564bf2743073e7f097a409e8134e081d1b",
+      "verified": true,
+      "note": "The DOI redirected to doi.wiley.com and returned HTTP 403 with a Cloudflare \"Just a moment...\" challenge page (sha256 622e614d76573e077163a38597663f845b0372fd53c22e5c5636685e1b9eddd9). I did not work around it. Verified through the DOI's Crossref record instead (HTTP 200). Crossref gives title \"Confidence Intervals for Partially Identified Parameters\", authors Imbens, Guido W. and Manski, Charles F., Econometrica vol 72 issue 6, pages 1845-1857, issued 2004-11. This matches the expected metadata with no differences. Crossref has no abstract and no subtitle.",
+      "also_read": [
+        {
+          "url": "https://api.crossref.org/works/10.1111/j.1468-0262.2004.00555.x",
+          "http_status": 200,
+          "content_sha256": "ef85069acbdbaea9a463b4bf804fb2564bf2743073e7f097a409e8134e081d1b"
+        }
+      ],
+      "summary": {
+        "text": "The Crossref record confirms the work exists as Imbens and Manski, 'Confidence Intervals for Partially Identified Parameters', Econometrica 72(6), 2004. The title is consistent with the stated use of intervals for a partially identified quantity.",
+        "based_on": "Crossref metadata record for DOI 10.1111/j.1468-0262.2004.00555.x (the publisher page was blocked by a Cloudflare challenge).",
+        "unconfirmed": [
+          "What the paper's method or results say, since no abstract or full text was opened",
+          "That its interval is the one the E3 policy-sensitivity bounds use"
+        ]
+      }
+    },
+    {
+      "key": "inspect-ai",
+      "url": "https://inspect.aisi.org.uk/",
+      "final_url": "https://inspect.aisi.org.uk/",
+      "http_status": 200,
+      "title": "Inspect",
+      "authors": [
+        "AI Security Institute, UK"
+      ],
+      "year": 2024,
+      "retrieved": "2026-11-04",
+      "content_sha256": "ef24b08a12d908081154f9301db2c2b9d6334482ca4be98b2ef8f226b16efc59",
+      "verified": true,
+      "note": "Fetched once with the generic User-Agent, HTTP 200, no redirect. The HTML title is \"Inspect\"; the page heading (h1) is \"Inspect\", followed by the subtitle paragraph \"An open-source framework for large language model evaluations\". The page text says Inspect is developed by the UK AI Security Institute and Meridian Labs. The author is an organisation, taken from the page's own BibTeX block (author \"AI Security Institute, UK\"), so it is not a Last, First name. The year 2024 comes from that BibTeX block (date 2024-05, title \"Inspect AI: Framework for Large Language Model Evaluations\", url github.com/UKGovernmentBEIS/inspect_ai), not from a release date on the page. Differences from the expected hint: the page also names Meridian Labs as a developer, and the page title is just \"Inspect\". The GitHub URL in the BibTeX was not opened.",
+      "also_read": [],
+      "summary": {
+        "text": "The page describes Inspect as an open-source framework for frontier AI evaluations developed by the UK AI Security Institute and Meridian Labs. It lists built-in agents (a ReAct Agent page appears in the navigation), support for running external agents, and a Log Files section in the navigation.",
+        "based_on": "https://inspect.aisi.org.uk/ (landing page only; the linked ReAct Agent and Log Files pages were not opened)",
+        "unconfirmed": [
+          "That the Inspect basic agent is the specific agent the report uses as an E1 harness level: the landing page only lists a ReAct Agent in the navigation and does not use the name 'basic agent'.",
+          "The Inspect log file format and its fields, which evalstats would read: the Log Files page was not opened."
+        ]
+      }
+    },
+    {
+      "key": "jimenez-swebench-2024",
+      "url": "https://arxiv.org/abs/2310.06770",
+      "final_url": "https://arxiv.org/abs/2310.06770",
+      "http_status": 200,
+      "title": "SWE-bench: Can Language Models Resolve Real-World GitHub Issues?",
+      "authors": [
+        "Jimenez, Carlos E.",
+        "Yang, John",
+        "Wettig, Alexander",
+        "Yao, Shunyu",
+        "Pei, Kexin",
+        "Press, Ofir",
+        "Narasimhan, Karthik"
+      ],
+      "year": 2023,
+      "retrieved": "2026-11-04",
+      "content_sha256": "b73e4ef010c660ce011f6eaad07d0c94c97e3b6a38a5c21df2ac15ac7f13a86a",
+      "verified": true,
+      "note": "Opened the arXiv abs page once (HTTP 200, no redirect). Title, seven authors in order, and year come from citation_* meta tags (citation_date 2023/10/10, first version; citation_online_date 2024/11/11 is a later revision). Title and authors match the expected hints. The key says 2024 but the first-version year is 2023, so year is 2023. Body saved at /tmp/claude-0/-home-user-noise-floor/b5fd6b69-b3b0-56ef-9f17-e15c370adddf/scratchpad/cite/jimenez-swebench-2024/abs.html.",
+      "also_read": [],
+      "summary": {
+        "text": "The abstract introduces SWE-bench, an evaluation framework of 2,294 software engineering problems drawn from real GitHub issues and pull requests across 12 Python repositories. A model is given a codebase and an issue description and must edit the codebase to resolve the issue. This is the original benchmark from which SWE-bench Verified derives.",
+        "based_on": "https://arxiv.org/abs/2310.06770 (arXiv abstract page and its citation meta tags)",
+        "unconfirmed": [
+          "That Epoch AI SWE-bench Verified results are built on this benchmark: the page describes the original SWE-bench and does not mention SWE-bench Verified or Epoch AI.",
+          "The reanalysis in E2 itself, which this page does not cover."
+        ]
+      }
+    },
+    {
+      "key": "llama-cpp-python-0.3.36",
+      "url": "https://pypi.org/project/llama-cpp-python/0.3.36/",
+      "final_url": "https://pypi.org/project/llama-cpp-python/0.3.36/",
+      "http_status": 200,
+      "title": "llama-cpp-python 0.3.36",
+      "authors": [
+        "Betlen, Andrei"
+      ],
+      "year": 2026,
+      "retrieved": "2026-11-04",
+      "content_sha256": "32ed63159c77e21ee19ca1b9aa3213ccf0218eb59539560b132a8e68ef0e18ea",
+      "verified": true,
+      "note": "The cited URL returned HTTP 200 but the body was a \"Client Challenge\" page (title \"Client Challenge\"), not the record, so I did not use it for metadata and did not try to get past it. The content_sha256 above is the hash of that challenge body, as saved. Title, author, and year come from the package index's own JSON record for the same release (https://pypi.org/pypi/llama-cpp-python/0.3.36/json, HTTP 200, listed in also_read): name \"llama-cpp-python\", version 0.3.36, summary \"Python bindings for the llama.cpp library\", MIT license, sdist llama_cpp_python-0.3.36.tar.gz uploaded 2026-10-01. The record has no author name field (author is null). Author \"Andrei Betlen\" is taken from author_email, and the Homepage is github.com/abetlen/llama-cpp-python. Year 2026 is the upload year of this release. The title is the package name and version, as expected.",
+      "also_read": [
+        {
+          "url": "https://pypi.org/pypi/llama-cpp-python/0.3.36/json",
+          "http_status": 200,
+          "content_sha256": "b55fb3c5cda9b7a3dc1b6a99411d4b4738473c7fac2d96ce8e09f7e41ad5befb"
+        }
+      ],
+      "summary": {
+        "text": "The PyPI record for llama-cpp-python 0.3.36 describes it as Python bindings for the llama.cpp library. It lists an MIT-licensed source distribution (llama_cpp_python-0.3.36.tar.gz) uploaded on 2026-10-01.",
+        "based_on": "https://pypi.org/pypi/llama-cpp-python/0.3.36/json (the PyPI JSON record). The project page itself returned only a challenge page.",
+        "unconfirmed": [
+          "That the sdist vendors the llama.cpp source. The record only says these are bindings for llama.cpp and lists the sdist, and I did not open the archive.",
+          "That a llama.cpp llama-server build from this source serves the local models in E1. Nothing I opened mentions llama-server or E1."
+        ]
+      }
+    },
+    {
+      "key": "mogstad-ranks-2024",
+      "url": "https://doi.org/10.1093/restud/rdad006",
+      "final_url": "https://api.crossref.org/works/10.1093/restud/rdad006",
+      "http_status": 200,
+      "title": "Inference for Ranks with Applications to Mobility across Neighbourhoods and Academic Achievement across Countries",
+      "authors": [
+        "Mogstad, Magne",
+        "Romano, Joseph P",
+        "Shaikh, Azeem M",
+        "Wilhelm, Daniel"
+      ],
+      "year": 2023,
+      "retrieved": "2026-11-04",
+      "content_sha256": "8f9691ad576ab525894a9918c1d826a95f3afde60171160580570d45917a16f1",
+      "verified": true,
+      "note": "The DOI URL redirected to https://academic.oup.com/restud/article/91/1/476/7008541 and returned 403 with a Cloudflare \"Just a moment...\" challenge page, so the publisher page was not read and nothing was worked around. Verification used the DOI's Crossref metadata (HTTP 200): Review of Economic Studies, volume 91, issue 1, pages 476-518. Title and authors match the expected values, with the author order unchanged. Crossref gives the middle name as \"Joseph P\" and \"Azeem M\". Year: Crossref issued is 2023-01-27 (published online), while published-print is 2024-01-12 and the volume is 91(1). The year field follows the Crossref issued date as instructed, so it is 2023, not the 2024 expected in the hint. The key and the report's citation say 2024 (the print and volume year). Raj or the main session should choose one convention and cite it consistently, for example \"2024 (online 2023)\".",
+      "also_read": [
+        {
+          "url": "https://api.crossref.org/works/10.1093/restud/rdad006",
+          "http_status": 200,
+          "content_sha256": "8f9691ad576ab525894a9918c1d826a95f3afde60171160580570d45917a16f1"
+        }
+      ],
+      "summary": {
+        "text": "The abstract describes constructing marginal confidence sets for the rank of one population and simultaneous confidence sets for the ranks of all populations, under weak assumptions and at a computational cost that stays feasible when the number of populations is very large. It applies these to neighbourhood mobility and country test-score rankings, and reports that the confidence sets can become much less informative as the number of populations grows.",
+        "based_on": "Crossref metadata record (abstract, title, authors, dates) for DOI 10.1093/restud/rdad006; the publisher page was blocked by a Cloudflare challenge (403) and not read.",
+        "unconfirmed": [
+          "That the simultaneous rank confidence sets are built by inverting a max-|t| statistic: the abstract does not say how they are constructed, and the full text was not opened.",
+          "That the method suits the E2 rank-confidence sets for model leaderboards: the abstract covers only the mobility and academic-achievement applications."
+        ]
+      }
+    },
+    {
+      "key": "nakagawa-schielzeth-2013",
+      "url": "https://doi.org/10.1111/j.2041-210x.2012.00261.x",
+      "final_url": "https://api.crossref.org/works/10.1111/j.2041-210x.2012.00261.x",
+      "http_status": 200,
+      "title": "A general and simple method for obtaining R2 from generalized linear mixed-effects models",
+      "authors": [
+        "Nakagawa, Shinichi",
+        "Schielzeth, Holger"
+      ],
+      "year": 2013,
+      "retrieved": "2026-11-04",
+      "content_sha256": "1710ad94c5753ebdbc05b3f3f89e5091e2417e1fcc3a430764ea3c3adf253e42",
+      "verified": true,
+      "note": "The DOI resolved to besjournals.onlinelibrary.wiley.com and returned HTTP 403 with a Cloudflare challenge page (\"Just a moment...\"), so the publisher page was not read and no workaround was attempted. Metadata was taken from the Crossref record for the DOI (HTTP 200): title, authors Nakagawa, Shinichi and Schielzeth, Holger, Methods in Ecology and Evolution, volume 4, issue 2, pages 133-142. Year: the print issue 4(2) is dated 2013-02 (Crossref published-print), and that is the year used here with the volume and issue; Crossref issued and published-online are 2012-12-03. The title has italic R and superscript 2 markup and a U+2010 hyphen, shown here as R2 and an ASCII hyphen.",
+      "also_read": [
+        {
+          "url": "https://api.crossref.org/works/10.1111/j.2041-210x.2012.00261.x",
+          "http_status": 200,
+          "content_sha256": "1710ad94c5753ebdbc05b3f3f89e5091e2417e1fcc3a430764ea3c3adf253e42"
+        }
+      ],
+      "summary": {
+        "text": "The paper argues for reporting R2 for linear and generalized linear mixed-effects models. It recommends a general and simple method for computing marginal and conditional R2 for both LMMs and GLMMs, which is the variance-partitioning framework the report builds on.",
+        "based_on": "Crossref metadata record and abstract for 10.1111/j.2041-210x.2012.00261.x (the publisher page was blocked by a Cloudflare challenge)",
+        "unconfirmed": [
+          "The specific use of the logistic residual variance pi^2/3 on the latent scale for a logit GLMM",
+          "The fixed-effect variance terms (the abstract does not give formulas; the full text was not opened)"
+        ]
+      }
+    },
+    {
+      "key": "phi-4-mini-gguf",
+      "url": "https://huggingface.co/unsloth/Phi-4-mini-instruct-GGUF",
+      "final_url": "https://huggingface.co/unsloth/Phi-4-mini-instruct-GGUF",
+      "http_status": 200,
+      "title": "unsloth/Phi-4-mini-instruct-GGUF · Hugging Face",
+      "authors": [
+        "unsloth"
+      ],
+      "year": 2025,
+      "retrieved": "2026-11-04",
+      "content_sha256": "a058cd9c24c3cb3cd5ce6e1c5f0e971d4266f2492b75bcaf9014b9be426f361c",
+      "verified": true,
+      "note": "Fetched once with the generic user agent, HTTP 200, no redirect. The page is the model repository itself. The author is the Hugging Face organization \"unsloth\", not a personal author list, so the authors field holds the organization name. Year 2025 comes from the repository createdAt (2025-02-28) in the page data; lastModified is 2025-03-03. The page lists a 4B-parameter text generation model with a license of mit. It lists these GGUF files: Q2_K, Q2_K_L, Q3_K_M, Q4_K_M, Q5_K_M, Q6_K, Q8_0 and BF16. No mismatch with the expected metadata. The page does not show file hashes in the fetched HTML, so pinning a specific file requires a separate commit hash and file checksum.",
+      "also_read": [],
+      "summary": {
+        "text": "The page is the unsloth Hugging Face repository for Phi-4-mini-instruct in GGUF format, a 4B-parameter text generation model under the MIT license. It offers several quantizations (Q2_K through Q8_0 and BF16), so a specific file can be chosen and pinned.",
+        "based_on": "https://huggingface.co/unsloth/Phi-4-mini-instruct-GGUF (HTML body, sha256 a058cd9c...)",
+        "unconfirmed": [
+          "That this repository is the exact source and revision of the pinned local model file used in E1 screening; the page body does not show the commit hash or per-file checksums used by the project.",
+          "That Microsoft Phi-4-mini-instruct is the upstream model; not checked beyond the license_link pointing to a microsoft repository."
+        ]
+      }
+    },
+    {
+      "key": "qwen3-1.7b-gguf",
+      "url": "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF",
+      "final_url": "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF",
+      "http_status": 200,
+      "title": "Qwen/Qwen3-1.7B-GGUF · Hugging Face",
+      "authors": [
+        "Qwen"
+      ],
+      "year": 2025,
+      "retrieved": "2026-11-04",
+      "content_sha256": "937f1415f23c3a47db46cff9ee11638d59f776bc923584722291f7b2006ff696",
+      "verified": true,
+      "note": "Fetched once, HTTP 200, no redirect. Page title and og:title are \"Qwen/Qwen3-1.7B-GGUF · Hugging Face\". The author is the Hugging Face organization \"Qwen\" (no individual bylines on the page). Year 2025 comes from the embedded repo metadata createdAt 2025-05-05 (lastModified 2025-05-09). Embedded metadata lists license apache-2.0 and a Q8_0.gguf file. Matches the expected hint (Qwen team).",
+      "also_read": [],
+      "summary": {
+        "text": "This is the Hugging Face model repository Qwen/Qwen3-1.7B-GGUF, a text-generation model published as GGUF files, including a Q8_0 file. The page metadata lists the Apache-2.0 license and a repo creation date of 2025-05-05.",
+        "based_on": "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF (raw HTML body, title, meta tags and embedded repo metadata)",
+        "unconfirmed": [
+          "That the specific local model file used in E1 screening matches a file or hash in this repo (file hashes were not checked)",
+          "That the model is used in E1 itself (this is a project decision, not on the page)"
+        ]
+      }
+    },
+    {
+      "key": "qwen3-4b-gguf",
+      "url": "https://huggingface.co/Qwen/Qwen3-4B-GGUF",
+      "final_url": "https://huggingface.co/Qwen/Qwen3-4B-GGUF",
+      "http_status": 200,
+      "title": "Qwen/Qwen3-4B-GGUF · Hugging Face",
+      "authors": [
+        "Qwen"
+      ],
+      "year": 2025,
+      "retrieved": "2026-11-04",
+      "content_sha256": "4126e2891fed864a9209b187c130ed362cd0dea9f2deb54503c817331af49ac0",
+      "verified": true,
+      "note": "Fetched once with curl, HTTP 200, no redirect. The page is the Qwen/Qwen3-4B-GGUF model repository. The author is the organisation \"Qwen\" (no individual byline on the page). Year 2025 comes from the page's lastModified metadata (2025-05-21); the same metadata gives createdAt 2025-05-05, so 2025 is also the year the repository was created; the page shows no release date in its visible text. License shown: apache-2.0. The page lists GGUF quantizations (Q4_K_M, Q5_0, Q5_K_M, Q6_K, Q8_0 among them). The page was not checked for the specific file or commit hash the project pins.",
+      "also_read": [],
+      "summary": {
+        "text": "The page is the Hugging Face model card for Qwen3-4B-GGUF from the Qwen organisation, an Apache-2.0 licensed 4B-parameter text-generation model distributed as GGUF files in several quantizations (including Q4_K_M, Q5_0, Q5_K_M, Q6_K and Q8_0). It gives quickstart instructions for llama.cpp and ollama, so it supports use as the source of a local model file.",
+        "based_on": "https://huggingface.co/Qwen/Qwen3-4B-GGUF",
+        "unconfirmed": [
+          "Which specific quantization file and commit hash the project pins",
+          "That the file was used in the E1 screening or E1 (project-internal)"
+        ]
+      }
+    },
+    {
+      "key": "smollm3-3b-gguf",
+      "url": "https://huggingface.co/ggml-org/SmolLM3-3B-GGUF",
+      "final_url": "https://huggingface.co/ggml-org/SmolLM3-3B-GGUF",
+      "http_status": 200,
+      "title": "ggml-org/SmolLM3-3B-GGUF · Hugging Face",
+      "authors": [
+        "ggml-org"
+      ],
+      "year": 2025,
+      "retrieved": "2026-11-04",
+      "content_sha256": "e0abe02f00200e95c74f505c8d8a08cc17031cd329b5081a5b6ca0484c009ee5",
+      "verified": true,
+      "note": "Opened once with curl, HTTP 200, no redirect. Page is the Hugging Face model repository ggml-org/SmolLM3-3B-GGUF, matching the expected record. The page names no individual authors, only the organization ggml-org, so the author field is the organization. Year 2025 comes from the embedded page metadata (createdAt 2025-07-08, lastModified 2025-07-08); the page body shown in HTML does not display a year in its visible text. Page shows license apache-2.0, 3B parameters, base model HuggingFaceTB/SmolLM3-3B, and files SmolLM3-Q4_K_M.gguf, SmolLM3-Q8_0.gguf, SmolLM3-f16.gguf. The page is live and may change, so the hash pins this snapshot only.",
+      "also_read": [],
+      "summary": {
+        "text": "The repository ggml-org/SmolLM3-3B-GGUF hosts GGUF conversions of HuggingFaceTB/SmolLM3-3B in three files (Q4_K_M, Q8_0, f16), licensed apache-2.0, with llama.cpp usage instructions. This supports its use as the source of a pinned local model file.",
+        "based_on": "https://huggingface.co/ggml-org/SmolLM3-3B-GGUF (HTML page, fetched 2026-11-04)",
+        "unconfirmed": [
+          "That the file was used in the E1 screening or E1: the page says nothing about the project.",
+          "Which specific file hash or commit revision the project pinned: the opened page was not checked for per-file hashes or a commit id."
+        ]
+      }
+    },
+    {
+      "key": "tb2-leaderboard-dataset",
+      "url": "https://huggingface.co/datasets/harborframework/terminal-bench-2-leaderboard",
+      "final_url": "https://huggingface.co/datasets/harborframework/terminal-bench-2-leaderboard",
+      "http_status": 200,
+      "title": "harborframework/terminal-bench-2-leaderboard · Datasets at Hugging Face",
+      "authors": [
+        "Harbor"
+      ],
+      "year": 2025,
+      "retrieved": "2026-11-04",
+      "content_sha256": "28b84485a015212c66a68b562f15d8863d524e7245b168a1573bbf8bf9dd56c0",
+      "verified": true,
+      "note": "Fetched once with the generic UA, HTTP 200, no redirect. Page is the dataset repo itself (card heading \"Terminal-Bench 2.0 Leaderboard Submissions\"). Author is the HF organization account (display name \"Harbor\", namespace harborframework); no personal authors are shown. Year 2025 is the repo createdAt (2025-12-24) in the page metadata; lastModified shows 2026-05-15. License apache-2.0 per card metadata. The page body is the repo landing page; it states a submission rule of at least five trials per task but not how many trials the dataset holds, and no per-trial schema beyond the submission structure, so those were not checked. The card's first heading is \"SUBMISSIONS CLOSED\" (a banner about a new submission process). The raw body carries per-request tokens, so its sha256 does not reproduce on a refetch although the content is unchanged.",
+      "also_read": [],
+      "summary": {
+        "text": "The page is the Hugging Face dataset repository for Terminal-Bench 2.0 leaderboard submissions, maintained by the Harbor organization under the Apache-2.0 license. The card says the repository accepts leaderboard submissions and describes a submissions/terminal-bench/2.0/<agent>__<model>/ layout with a required metadata.yaml.",
+        "based_on": "https://huggingface.co/datasets/harborframework/terminal-bench-2-leaderboard (landing page HTML, saved body only; file contents not opened)",
+        "unconfirmed": [
+          "That the repository contains per-trial results usable for the E2 reanalysis (file listing and trial files were not opened)",
+          "Number of submissions, trials, or tasks",
+          "Any pinned commit or per-file hashes for snapshotting"
+        ]
+      }
+    }
+  ],
+  "dropped": [
+    {
+      "key": "raise-v1-public",
+      "url": "https://github.com/raj200501/raise-v1-public",
+      "final_url": "https://github.com/raj200501/raise-v1-public",
+      "http_status": 403,
+      "title": null,
+      "authors": [],
+      "year": null,
+      "retrieved": "2026-10-23",
+      "content_sha256": "b3e03aaaff81d68730d67392a135ac3fdfdf022880c66632ab188d2fe084cda3",
+      "verified": false,
+      "note": "Not opened. curl got HTTP 403 from this session's egress proxy with the message 'GitHub access to this repository is not enabled for this session'; content_sha256 is the hash of that refusal body, not of the repository page. A request to attach the repository to the session (read access) was denied by the permission system, so no other route was tried. Needs Raj, or a session with access to this repository, for a manual check; until then leave it out of README.md and docs/REPORT.md.",
+      "summary": {
+        "text": "Not confirmed: the page did not open, so nothing is summarized.",
+        "based_on": "nothing (page not opened)",
+        "unconfirmed": [
+          "The brief's whole description (hash-chained preregistration, frozen readers, claimcheck, freshness checks, mutation-tested gates) is unconfirmed."
+        ]
+      },
+      "dropped": "2026-10-23: could not be opened from this session; dropped per rule 11 and listed under Needs Raj in STATUS.md"
+    },
+    {
+      "key": "tbench-leaderboard",
+      "url": "https://www.tbench.ai/leaderboard",
+      "final_url": "https://www.tbench.ai/",
+      "http_status": 200,
+      "title": "TERMINAL-BENCH",
+      "authors": [],
+      "year": null,
+      "retrieved": "2026-11-04",
+      "content_sha256": "abb970dd2c33ba4f7cb3f3053255b921fc02167b742110aaaeedc1990d531437",
+      "verified": false,
+      "note": "Fetched once with curl and the generic user agent. The URL redirected to the site root (https://www.tbench.ai/) and returned 200 with a client-rendered page (145344 bytes) titled \"TERMINAL-BENCH\", meta description \"A benchmark to measure and evolve with the frontier of agent work\". The server-sent HTML showed no visible leaderboard table, no byline and no date. Embedded JSON only mentions a leaderboard record titled \"Terminal-Bench 4.0\" (description \"The official leaderboard for Terminal-Bench 4.0.\", package terminal-bench/terminal-bench). Because the cited /leaderboard path did not resolve to a leaderboard page and no per-task results, authors, or year were visible, I could not confirm the page is the cited leaderboard record. Title shown is the site title, not a leaderboard-specific title. No alternative page was opened. Marked verified=false for manual check by Raj; the version of the leaderboard (embedded text says 4.0) should also be confirmed against what E2 reanalyzes.",
+      "also_read": [],
+      "summary": {
+        "text": "The opened page is the Terminal-Bench site home, a client-rendered app described as a benchmark to measure and evolve with the frontier of agent work. Its embedded data refers to an official leaderboard record titled Terminal-Bench 4.0, but no leaderboard table or per-task results were visible in the fetched HTML.",
+        "based_on": "https://www.tbench.ai/leaderboard (redirected to https://www.tbench.ai/), raw HTML body only",
+        "unconfirmed": [
+          "That /leaderboard resolves to a leaderboard page",
+          "That per-task results are publicly available there",
+          "The leaderboard version (4.0 appears in embedded data) matches what E2 reanalyzes",
+          "Authors and publication year (none shown)"
+        ]
+      },
+      "dropped": "2026-11-04: the cited URL redirects to the site root, which shows the Terminal-Bench 4.0 leaderboard, not the 2.0 board E2 reanalyzes, and no per-task results; dropped per rule 11. E2's source of record is the pinned Hugging Face dataset (tb2-leaderboard-dataset)."
+    }
+  ],
+  "rounds": [
+    {
+      "date": "2026-10-23",
+      "references": [
+        "anthropic-infrastructure-noise-2026",
+        "bean-measuring-what-matters-2025",
+        "heineman-signal-noise-2025",
+        "merrill-terminal-bench-2026",
+        "metr-time-horizon-limitations-2026",
+        "miller-error-bars-2024",
+        "polo-tinybenchmarks-2024"
+      ],
+      "how": "citation-checker subagents; descriptive User-Agent (see Needs Raj item on its contents)"
+    },
+    {
+      "date": "2026-11-04",
+      "references": [
+        "bates-lme4-2015",
+        "breslow-lin-1995",
+        "davison-hinkley-1997",
+        "efron-bca-1987",
+        "epoch-benchmarking-hub",
+        "granite-4.0-micro-gguf",
+        "imbens-manski-2004",
+        "inspect-ai",
+        "jimenez-swebench-2024",
+        "llama-cpp-python-0.3.36",
+        "mogstad-ranks-2024",
+        "nakagawa-schielzeth-2013",
+        "phi-4-mini-gguf",
+        "qwen3-1.7b-gguf",
+        "qwen3-4b-gguf",
+        "smollm3-3b-gguf",
+        "tb2-leaderboard-dataset",
+        "tbench-leaderboard"
+      ],
+      "how": "a workflow of citation-checker agents, one per reference, each record then cross-checked by a second agent that refetched the source with the generic User-Agent 'noise-floor/0.1 (statistical reanalysis; no login)'. 16 agreed as recorded; epoch-benchmarking-hub disagreed on authors and year, which were filled from the page; tbench-leaderboard did not verify and is dropped. Notes corrected from the cross-checks: breslow-lin-1995 (Crossref as the verified copy), nakagawa-schielzeth-2013 (print year), davison-hinkley-1997, inspect-ai, tb2-leaderboard-dataset, qwen3-4b-gguf."
+    }
+  ]
+}

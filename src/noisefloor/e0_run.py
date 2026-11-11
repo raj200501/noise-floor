@@ -1,0 +1,284 @@
+"""Run E0 cells from frozen grids and bank ``artifacts/e0/coverage.json`` (gate G5).
+
+``python -m noisefloor.e0_run run PREREG [--cells ID ...] [--workers N]`` runs every
+missing replicate of the grid's cells in worker processes and appends one JSON line per
+replicate to ``artifacts/e0/raw/<cell>.jsonl`` (so an interrupted run resumes).
+``python -m noisefloor.e0_run bank PREREG [AMENDMENT ...]`` summarizes the raw files
+of every cell in the base grid and its amendments into ``coverage.json``. Grids come
+from the ```json e0-grid``` blocks of the preregistration files.
+"""
+
+from __future__ import annotations
+
+import argparse
+import contextlib
+import json
+import math
+import multiprocessing as mp
+import os
+import re
+import sys
+from collections.abc import Iterable, Sequence
+from pathlib import Path
+from typing import Any
+
+from noisefloor import preregs as chain  # bank() takes a 'preregs' argument
+from noisefloor.e0 import Cell, Replicate, cells_from_grid, run_replicate, summarize
+from noisefloor.provenance import (
+    check_same_environment,
+    process_environment,
+    single_analysis_code,
+    single_environment,
+    stamp,
+)
+
+REPO = Path(__file__).resolve().parents[2]
+E0_DIR = REPO / "artifacts" / "e0"
+FENCE = re.compile(r"```json[ \t]+e0-grid[ \t]*\n(.*?)\n```", re.S)
+
+
+def grid_from_prereg(path: Path) -> list[Cell]:
+    """The cells of the ```json e0-grid``` block in a preregistration file."""
+    match = FENCE.search(path.read_text())
+    if match is None:
+        raise ValueError(f"{path}: no ```json e0-grid``` block")
+    return cells_from_grid(json.loads(match.group(1)))
+
+
+def raw_path(cell: Cell, root: Path = E0_DIR) -> Path:
+    """Where a cell's replicate lines are banked."""
+    return root / "raw" / f"{cell.cell}.jsonl"
+
+
+def read_raw(cell: Cell, root: Path = E0_DIR) -> dict[int, Replicate]:
+    """Banked replicates of a cell, by index (later lines win for a repeated index)."""
+    path = raw_path(cell, root)
+    if not path.exists():
+        return {}
+    out = {}
+    for line in path.read_text().splitlines():
+        if line.strip():
+            row = json.loads(line)
+            out[int(row["i"])] = Replicate(
+                truth=_num(row["truth"]),
+                lo=_num(row["lo"]),
+                hi=_num(row["hi"]),
+                estimate=_num(row["estimate"]),
+                hit=row.get("hit"),
+            )
+    return out
+
+
+def read_stamps(cell: Cell, root: Path = E0_DIR) -> list[dict[str, Any] | None]:
+    """The provenance stamp of each banked replicate of a cell (None for older lines)."""
+    path = raw_path(cell, root)
+    if not path.exists():
+        return []
+    rows = [json.loads(ln) for ln in path.read_text().splitlines() if ln.strip()]
+    return [r.get("stamp") for r in rows if int(r["i"]) < cell.replicates]
+
+
+def record_environment(directory: Path) -> str:
+    """Add this process's environment to ``directory/environments.json``; returns its hash."""
+    found = process_environment()
+    path = directory / "environments.json"
+    known = json.loads(path.read_text()) if path.exists() else {}
+    if known.get(found["env"]) != found["key"]:
+        known[found["env"]] = found["key"]
+        directory.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(known, indent=1, sort_keys=True) + "\n")
+    return str(found["env"])
+
+
+def _num(value: Any) -> float:
+    return float("nan") if value is None else float(value)
+
+
+def _json_num(value: float) -> float | None:
+    return value if math.isfinite(value) else None  # NaN and infinities become null
+
+
+def _work(args: tuple[dict[str, Any], int]) -> tuple[int, dict[str, Any]]:
+    spec, i = args
+    cell = Cell(**spec)
+    rep = run_replicate(cell, i)
+    return i, {
+        "i": i,
+        "truth": _json_num(rep.truth),
+        "lo": _json_num(rep.lo),
+        "hi": _json_num(rep.hi),
+        "estimate": _json_num(rep.estimate),
+        "hit": rep.hit,
+        "stamp": stamp(),
+    }
+
+
+def run_cell(cell: Cell, workers: int = 1, root: Path = E0_DIR, log: Any = print) -> int:
+    """Run the cell's missing replicates; returns how many were added."""
+    done = read_raw(cell, root)
+    todo = [i for i in range(cell.replicates) if i not in done]
+    if not todo:
+        return 0
+    check_same_environment(read_stamps(cell, root), f"e0 cell {cell.cell}")
+    path = raw_path(cell, root)
+    record_environment(path.parent)
+    spec = {
+        "cell": cell.cell,
+        "method": cell.method,
+        "interval_type": cell.interval_type,
+        "nominal": cell.nominal,
+        "replicates": cell.replicates,
+        "params": dict(cell.params),
+    }
+    jobs = [(spec, i) for i in todo]
+    added = 0
+    with path.open("a") as fh:
+        if workers <= 1:
+            results: Iterable[tuple[int, dict[str, Any]]] = map(_work, jobs)
+            for _, row in results:
+                fh.write(json.dumps(row, sort_keys=True) + "\n")
+                added += 1
+        else:
+            with mp.get_context("spawn").Pool(workers, initializer=init_worker) as pool:
+                for _, row in pool.imap_unordered(_work, jobs, chunksize=4):
+                    fh.write(json.dumps(row, sort_keys=True) + "\n")
+                    fh.flush()
+                    added += 1
+    log(f"{cell.cell}: {added} replicates added ({len(done) + added}/{cell.replicates})")
+    return added
+
+
+def lower_priority(autogroup: Path = Path("/proc/self/autogroup")) -> None:
+    """Lowest CPU priority for this process.
+
+    Sets nice 10 and, where the kernel groups jobs into scheduler autogroups (in which
+    ``nice`` only orders processes within a group, D-024), the group's own nice to 19. A
+    failure to set the group is ignored.
+    """
+    os.nice(10)
+    with contextlib.suppress(OSError):
+        autogroup.write_text("19\n")
+
+
+_lower_priority = lower_priority
+
+
+def init_worker() -> None:
+    """Pool worker start: lowest CPU priority, and read the environment the worker loaded.
+
+    Reading it here, before any work, makes every stamp name the code the worker imported
+    at start, even if a commit lands while it runs.
+    """
+    lower_priority()
+    process_environment()
+
+
+def coverage_name(index: int, prereg: Path) -> str:
+    """Artifact name for one grid: ``coverage.json`` for the base, else ``coverage-NNNN.json``.
+
+    Each grid gets its own artifact citing its own preregistration, so every amendment's data
+    is first committed after that amendment (prereg-verify check (d), gate G5).
+    """
+    return "coverage.json" if index == 0 else f"coverage-{prereg.name[:4]}.json"
+
+
+def bank(
+    preregs: Sequence[Path], root: Path = E0_DIR, only: Sequence[Path] | None = None
+) -> dict[str, dict[str, Any]]:
+    """Summarize each grid's cells into its own coverage artifact; returns them by name.
+
+    The first path is the base grid; each later path is an amendment of it. Every grid
+    must be frozen, and the raw lines of a grid's cells must share one environment from a
+    clean ``src/`` (:func:`noisefloor.provenance.single_environment`; lines banked before
+    stamps existed carry none), which its artifact names. With ``only``, every grid is
+    still read (cell ids must not repeat across grids) but only those grids' artifacts are
+    written, so banking an amendment leaves earlier artifacts as they were banked.
+    """
+    targets = None if only is None else {p.resolve() for p in only}
+    grids = [(path, grid_from_prereg(path)) for path in preregs]
+    ids = [c.cell for _, cells in grids for c in cells]
+    if len(set(ids)) != len(ids):
+        raise ValueError("cell ids repeat across grids")
+    base = str(preregs[0].resolve().relative_to(REPO))
+    out: dict[str, dict[str, Any]] = {}
+    for index, (path, cells) in enumerate(grids):
+        if targets is not None and path.resolve() not in targets:
+            continue
+        summaries = []
+        for cell in cells:
+            reps = read_raw(cell, root)
+            ordered = [reps[i] for i in sorted(reps) if i < cell.replicates]
+            summaries.append(summarize(cell, ordered))
+        rel = str(path.resolve().relative_to(REPO))
+        entry = chain.require_frozen(path)
+        stamps = [s for cell in cells for s in read_stamps(cell, root)]
+        env = single_environment(stamps)
+        code = single_analysis_code(stamps)
+        envs = root / "raw" / "environments.json"
+        known = json.loads(envs.read_text()) if env and envs.exists() else {}
+        artifact: dict[str, Any] = {
+            "prereg": rel,
+            "prereg_sha256": entry["sha256"],
+            "environment": {"env": env, "key": known.get(env)} if env else None,
+            "analysis_code": code,
+            "synthetic": True,  # every E0 cell simulates its data (rule 4)
+            "confirmatory": True,
+            "generator": "python -m noisefloor.e0_run bank "
+            + " ".join(str(p.resolve().relative_to(REPO)) for p in preregs),
+            "raw": "artifacts/e0/raw/<cell>.jsonl",
+            "cells": summaries,
+        }
+        if index == 0:
+            artifact["amendments"] = []  # each amendment has its own artifact (D-026)
+        else:
+            artifact["amends"] = base
+        name = coverage_name(index, path)
+        (root / name).write_text(
+            json.dumps(_clean(artifact), indent=1, sort_keys=True, allow_nan=False) + "\n"
+        )
+        out[name] = artifact
+    return out
+
+
+def _clean(value: Any) -> Any:
+    """NaN and infinities become None, recursively (strict JSON)."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: _clean(v) for k, v in value.items()}
+    if isinstance(value, list | tuple):
+        return [_clean(v) for v in value]
+    return value
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """CLI entry point."""
+    parser = argparse.ArgumentParser(prog="python -m noisefloor.e0_run")
+    sub = parser.add_subparsers(dest="command", required=True)
+    r = sub.add_parser("run")
+    r.add_argument("prereg", type=Path)
+    r.add_argument("--cells", nargs="*")
+    r.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1))
+    b = sub.add_parser("bank")
+    b.add_argument("preregs", type=Path, nargs="+")
+    b.add_argument("--only", type=Path, nargs="*", help="write only these grids' artifacts")
+    args = parser.parse_args(list(argv) if argv is not None else None)
+    if args.command == "run":
+        chain.require_frozen(args.prereg)
+        for cell in grid_from_prereg(args.prereg):
+            if args.cells and cell.cell not in args.cells:
+                continue
+            if "group" in cell.params:
+                # E1-shaped cells share one simulated dataset (and one fit) per replicate.
+                print(f"{cell.cell}: skipped; run it with python -m noisefloor.recovery e0-run")
+                continue
+            run_cell(cell, args.workers, log=lambda m: print(m, flush=True))
+        return 0
+    artifacts = bank(args.preregs, only=args.only)
+    for name, artifact in artifacts.items():
+        print(f"banked {len(artifact['cells'])} cells in artifacts/e0/{name}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

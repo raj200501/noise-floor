@@ -1,0 +1,55 @@
+{
+    "total_instances": 8,
+    "submitted_instances": 7,
+    "completed_instances": 4,
+    "resolved_instances": 2,
+    "unresolved_instances": 2,
+    "infra_failure_instances": 1,
+    "ambiguous_failure_instances": 1,
+    "empty_patch_instances": 1,
+    "error_instances": 2,
+    "completed_ids": [
+        "pytest-dev__pytest-90001",
+        "pytest-dev__pytest-90002",
+        "pytest-dev__pytest-90005",
+        "pytest-dev__pytest-90008"
+    ],
+    "incomplete_ids": [
+        "pytest-dev__pytest-90007"
+    ],
+    "empty_patch_ids": [
+        "pytest-dev__pytest-90003"
+    ],
+    "submitted_ids": [
+        "pytest-dev__pytest-90001",
+        "pytest-dev__pytest-90002",
+        "pytest-dev__pytest-90003",
+        "pytest-dev__pytest-90004",
+        "pytest-dev__pytest-90005",
+        "pytest-dev__pytest-90006",
+        "pytest-dev__pytest-90008"
+    ],
+    "resolved_ids": [
+        "pytest-dev__pytest-90001",
+        "pytest-dev__pytest-90008"
+    ],
+    "unresolved_ids": [
+        "pytest-dev__pytest-90002",
+        "pytest-dev__pytest-90005"
+    ],
+    "infra_failure_ids": [
+        "pytest-dev__pytest-90005"
+    ],
+    "ambiguous_failure_ids": [
+        "pytest-dev__pytest-90004"
+    ],
+    "failure_reasons": {
+        "pytest-dev__pytest-90004": "tests_timed_out",
+        "pytest-dev__pytest-90005": "container_unavailable"
+    },
+    "error_ids": [
+        "pytest-dev__pytest-90004",
+        "pytest-dev__pytest-90006"
+    ],
+    "schema_version": 2
+}

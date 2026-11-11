@@ -1,0 +1,5 @@
+>>>>> Applied Patch (pred)
+>>>>> Start Test Output
+PASSED testing/test_mock.py::test_fixed
+PASSED testing/test_mock.py::test_kept
+>>>>> End Test Output

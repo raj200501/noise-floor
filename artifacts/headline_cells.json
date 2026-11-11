@@ -1,0 +1,23 @@
+{
+ "cells": [
+  "B-ep",
+  "B-tb2",
+  "P-ep-t",
+  "P-tb2-t",
+  "R-ep-sim",
+  "R-tb2-sim",
+  "S-ep-t",
+  "S-tb2-t"
+ ],
+ "prereg": "prereg/0003-e0-coverage-grid-part1.md",
+ "sources": {
+  "e2 adjacent pairs (epoch-swebench)": "P-ep-t",
+  "e2 adjacent pairs (tb2)": "P-tb2-t",
+  "e2 rank intervals (epoch-swebench)": "R-ep-sim",
+  "e2 rank intervals (tb2)": "R-tb2-sim",
+  "e2 score intervals (epoch-swebench)": "S-ep-t",
+  "e2 score intervals (tb2)": "S-tb2-t",
+  "e3 bounds (epoch-swebench)": "B-ep",
+  "e3 bounds (tb2)": "B-tb2"
+ }
+}
