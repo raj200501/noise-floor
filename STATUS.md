@@ -1,4 +1,4 @@
-goal_turn: 3
+goal_turn: 4
 STATE: ACTIVE
 
 # Status
@@ -16,39 +16,34 @@ Last fast ship-check (does not count) at c39565e: 7/14 (G2 failed on two test-on
 | G2 Static quality | PASS | ruff, ruff format, mypy --strict clean; every `type: ignore` has a reason |
 | G3 CI parity | PASS | ci.yml runs `make ci` on 3.11 and 3.12; `make prepush` passes before every push |
 | G4 Offline demo | PASS | runs in a network namespace in seconds, matches golden |
-| G5 Library validity | PASS (part 1) | E0 part 2 (0005) cells must run and pass once 0005 is frozen |
-| G6 Orchestrator validity | FAIL | 0006 to freeze, then 200 datasets (`runs/e0g6/driver.sh`) |
-| G7 Factorial study | FAIL | 0004 final-review fixes in (85 local tasks, 4 days); local arm after G6 and E0 part 2; Claude slice needs Raj |
+| G5 Library validity | PASS (part 1) | E0 part 2 (0005, frozen) cells must run and pass |
+| G6 Orchestrator validity | FAIL | 0006 frozen; 200 datasets to run (`runs/e0g6/driver.sh`) |
+| G7 Factorial study | FAIL | 0004 frozen (85 local tasks, 4 days); local arm after G6 and E0 part 2; Claude slice needs Raj |
 | G8 Leaderboards and bounds | FAIL | E2 and both reports done; E3 on E1 comes with the E1 analysis |
 | G9 Library shipped | PASS | wheel installs in a clean venv; 5 examples run; API reference generated |
-| G10 Claim integrity | FAIL | README and docs/REPORT.md not written yet |
-| G11 Preregistration integrity | PASS | 3 preregistrations frozen, artifacts predated by them |
+| G10 Claim integrity | FAIL | README passes claimcheck and freshness; docs/REPORT.md in progress |
+| G11 Preregistration integrity | PASS | 6 preregistrations frozen, artifacts predated by them |
 | G12 Independent review | FAIL | `make review` after E1 |
-| G13 Documentation | FAIL | README and REPORT at the end; 24 references verified (citecheck passes) |
+| G13 Documentation | FAIL | README written (section 11); REPORT in progress; 24 references verified |
 | G14 Hygiene | PASS | secrets-scan clean; cash_usd = 0, caps respected; tree clean |
 
 ## Now
 
-goal_turn 3: the final review of the 0004 to 0006 drafts (40 confirmed findings) is answered in
-code, gates, and text (D-034, pushed). A verification of those fixes was stopped partway: its
-stats and resolution verifiers found 24 of 25 findings fixed and these gaps, not yet applied:
-G5's retirement rule must require an amendment of 0004 with an analysis-code block and treat
-`box_interval` as no new method under the jackknife; G6's equality with E0 part 2 must allow the
-GLMM replacement route; the arms should check the analysis-code pin and the `e0_validity`
-commit before starting; 0004 and PLAN should say the pinned run-time modules stay unchanged
-through the final ship-check; and the `e1_power` docstring. Patches for all of these are in
-`docs/prereg-drafts/fixes2.py` and `fixes3.py`, beside the unfrozen drafts (README there).
-Nothing is frozen; no confirmatory data exist.
+goal_turn 4: preregistrations 0004 (E1), 0005 (E0 part 2), and 0006 (G6) are frozen (4907a03),
+after three review rounds and a verification of the final fixes (D-032 to D-034). README.md now
+presents the project (every number claim-checked against its artifact), `make reproduce`
+recomputes E2 and E3 from the pinned snapshots, and docs/REPORT.md is being written. No
+confirmatory E0 part 2, G6, or E1 data exist yet.
 
 ## Next three actions
 
-1. Apply `docs/prereg-drafts/fixes2.py` and `fixes3.py` (after pointing them at the drafts
-   here), rerun the ops and regression verification of the fixes, run the full tests, commit,
-   `make prepush`, push.
-2. Freeze 0004 to 0006 in one commit with `docs/prereg-drafts/freeze.sh`, then run G6 and E0
-   part 2 (`runs/e0g6/driver.sh`, a little over 40 hours on 4 workers), bank both, run
-   `e0_validity` and commit it; then launch the E1 local arm at 00:00 UTC.
-3. Ask Raj to start the Claude slice once G6 and E0 part 2 are banked (docs/PLAN.md).
+1. Run G6 and E0 part 2 (`runs/e0g6/driver.sh`, a little over 40 hours on 4 workers), commit and
+   push raw rows at check-ins, bank both, run `python -m noisefloor.e0_validity` and commit it.
+2. Launch the E1 local arm at 00:00 UTC (`python -m noisefloor.e1 local
+   prereg/0004-e1-factorial.md`, at least 4 UTC days, with check-ins); ask Raj to start the
+   Claude slice on his machine (docs/PLAN.md).
+3. After both arms end: the E1 analysis, the post-E1 check, E3 on E1, the report's E1 sections,
+   `make review`, and the final sequence (brief section 10.6).
 
 ## Usage to date
 

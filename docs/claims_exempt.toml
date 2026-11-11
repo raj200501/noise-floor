@@ -21,3 +21,39 @@
 # docs = ["README.md"]
 # category = "version"
 # reason = "supported interpreter versions (section 6, G3), not a measurement"
+
+[[exempt]]
+text = "Terminal-Bench 2.0"
+docs = ["README.md"]
+category = "version"
+reason = "the benchmark's version in its name, not a measurement"
+
+[[exempt]]
+text = "(95% paired CI"
+docs = ["README.md"]
+category = "threshold"
+reason = "the preregistered confidence level, not a measurement"
+
+[[exempt]]
+text = "task-clustered 95% interval excludes zero"
+docs = ["README.md"]
+category = "threshold"
+reason = "the preregistered confidence level"
+
+[[exempt]]
+text = "are simultaneous 95% intervals"
+docs = ["README.md"]
+category = "threshold"
+reason = "the preregistered confidence level"
+
+[[exempt]]
+text = "(E0 part 2 and the planted-component"
+docs = ["README.md"]
+category = "section-number"
+reason = "names the second part of experiment E0"
+
+[[exempt]]
+text = "(Apache-2.0 and CC-BY-4.0;"
+docs = ["README.md"]
+category = "version"
+reason = "license identifiers of the leaderboard data"

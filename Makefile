@@ -59,7 +59,10 @@ report:
 	$(RUN) python -m noisefloor.report
 
 reproduce:
-	$(TODO) reproduce G13
+	$(RUN) python -m noisefloor.reanalysis --verify
+	$(RUN) python -m noisefloor.report
+	git diff --exit-code --stat -- docs/figures docs/leaderboards
+	@echo "REPRODUCE: PASS (E2 and E3 recomputed from the pinned snapshots; figures unchanged)"
 
 ship-check:
 	$(TOOL) tools/ship_check.py
