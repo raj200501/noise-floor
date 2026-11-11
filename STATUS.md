@@ -92,10 +92,13 @@ Local model runs: pilot p1 24, screening s2 11 (exploratory, suite v1), s3 84 (s
 2. raise-v1-public: its web page returns a proxy 403 here, so it is dropped from the verified
    references; its integrity tools were ported from a clone with Apache-2.0 attribution.
    Optional: check the reference by hand.
-3. Optional: this session runs in the Default environment, which has no setup script. A
-   personal environment for this repository whose setup script runs `apt-get install -y
-   r-base-core r-base-dev r-cran-lme4` would keep R and lme4 in fresh containers (D-008). Not
-   proposed from here, since the approval prompt would stall the unattended run.
+3. Optional but now more useful: this session runs in the Default environment, which has no
+   setup script. A personal environment for this repository whose setup script runs `apt-get
+   install -y r-base-core r-base-dev r-cran-lme4` would keep R and lme4 in fresh containers
+   (D-008). The E1 analysis runs weeks from now, after the Claude slice, and its analysis-code
+   pin needs the exact package versions D-037 item 4 lists, so a container replaced before then
+   without them needs an amendment of 0004. Not proposed from here, since the approval prompt
+   would stall the unattended run.
 4. FYI (from goal_turn 1): one batch of citation fetches sent a User-Agent containing the local
    part of your email address to arxiv.org, anthropic.com, and metr.org; fetch tooling now uses
    a generic User-Agent.

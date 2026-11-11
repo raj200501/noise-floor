@@ -149,4 +149,6 @@ is in `artifacts/citecheck.json` with `verified: true`; `make citecheck` passes;
 Original checkout clean and `private/` untracked (see above); LICENSE, CITATION.cff, SECURITY.md,
 CONTRIBUTING.md exist; `budget.toml` has `cash_usd = 0` and no cap above the brief's defaults
 (`disk_floor_gb` may only rise); `make secrets-scan` clean; `make budget` passes and prints
-`cash_usd = 0`.
+`cash_usd = 0`. Its turn check reads the `agent_usage` rows on which the client logs a Claude
+Code run's turns; a run the stream check stopped at its first turn over the cap records cap + 1
+and is reported as stopped at the cap, and any higher count fails (D-037 item 2).

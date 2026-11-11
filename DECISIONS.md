@@ -889,3 +889,32 @@ procedure gaps and no defect that changes a result. These rules hold from now on
    a later entry says otherwise. Changes in pinned files (counting a started first batch as the
    arm's start, re-raising a missing R in `recover`, comparing E0's environment with G6's) would
    need a frozen amendment of 0004 with an analysis-code block and are not planned.
+
+## D-037 2026-11-11 Follow-ups to D-036: blinding in the tools, the G14 turn check, the stack
+1. Blinding. Prereg 0004 lets only the runners read `artifacts/e1/local.jsonl` and
+   `claude.jsonl` before an arm ends. So `tools/runcheck.py e1-relaunch` counts the whole lines
+   of a workspace's results file and never parses a record, and it reads only the size of
+   `local.jsonl`. For the same reason G5's test of "before E1 data" keeps reading only the
+   analysis output (`artifacts/e1/runs.jsonl`): it bites once the analysis is built, the final
+   ship-check comes after that, and amendments are frozen before any arm starts (D-036 item 1).
+2. G14 turn check. `tools/budget.py` read turns from `agent_run` rows, which the client writes
+   without turns, so it always found 0. It now reads the `agent_usage` rows the client writes. A
+   Claude Code child runs with `--max-turns` at the cap, and the stream check stops it at the
+   first message of a turn over the cap, which records cap + 1 turns: that is reported as
+   stopped at the cap, and only more fails. Other rows that carry turns stay held to the cap.
+3. `make doctor` has a `model routing` row naming `ANTHROPIC_*` variables outside the guard's
+   list and settings `env` blocks that set `ANTHROPIC_*` or `CLAUDE_CODE_USE_*` names (names
+   only, never values). They could remap the model aliases on Raj's machine, and the billing
+   guard that the client enforces does not cover them; the row reports and blocks nothing.
+4. The analysis-code pin includes the library versions, so the E1 analysis must run on this
+   stack weeks from now: Debian packages r-base-core 4.3.3-2build2, r-cran-lme4 1.1-35.1-4,
+   r-cran-matrix 1.6-5-1, libblas3 and liblapack3 3.12.0-3build1.1 (the reference BLAS at
+   /usr/lib/x86_64-linux-gnu/blas/libblas.so.3), python3.12 3.12.3-1ubuntu0.17, and the locked
+   `.venv`. Nothing here runs `apt upgrade` or rebuilds `.venv` before the analysis. A new
+   container needs these exact versions (Needs Raj item 3); otherwise a frozen amendment of 0004
+   with an analysis-code block comes before the build.
+5. The post-E1 check reuses the planted configuration it wrote first, so the E1 tables are
+   built once, after both arms have ended and Raj's files are merged; before any rebuild,
+   `artifacts/e1/post_check/` and `artifacts/e1/post_check.json` are removed.
+6. G13 caps the REPORT at 8,000 words, and about 1,400 are left. The E0 part 2, G6, and E1
+   results replace the report's "not run" passages instead of being added beside them.

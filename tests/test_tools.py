@@ -90,6 +90,21 @@ def test_budget_turn_cap() -> None:
     assert not budget.check(CAPS, entries)[1]
 
 
+def test_budget_reads_turns_where_the_client_logs_them() -> None:
+    # The client logs turns on agent_usage rows (its agent_run rows carry none).
+    cap = int(CAPS["claude_agent_max_turns"])
+    run = {"ts": "2026-10-23", "kind": "agent_run"}
+
+    def usage(turns: int) -> dict[str, object]:
+        return {"ts": "2026-10-23", "kind": "agent_usage", "turns": turns}
+
+    lines, ok = budget.check(CAPS, [run, usage(cap)])
+    assert ok and f"worst {cap}/{cap} OK" in "\n".join(lines)
+    lines, ok = budget.check(CAPS, [run, usage(cap + 1)])  # stopped by the stream check
+    assert ok and "1 stopped at the cap" in "\n".join(lines)
+    assert not budget.check(CAPS, [run, usage(cap + 2)])[1]
+
+
 def test_billing_guard_detects_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in list(doctor.os.environ):
         if name.startswith("ANTHROPIC_") or name.startswith("CLAUDE_CODE_USE_"):
@@ -98,6 +113,28 @@ def test_billing_guard_detects_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert doctor.billing_guard_findings() == []
     monkeypatch.setenv("CLAUDE_CODE_USE_BEDROCK", "1")
     assert doctor.billing_guard_findings() == ["CLAUDE_CODE_USE_BEDROCK"]
+
+
+def test_routing_findings_names_overrides_and_settings_env_blocks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    for name in list(doctor.os.environ):
+        if name.startswith("ANTHROPIC_") or name.startswith("CLAUDE_CODE_USE_"):
+            monkeypatch.delenv(name)
+    settings = tmp_path / "settings.json"
+    monkeypatch.setattr(doctor, "CLAUDE_SETTINGS_FILES", (settings,))
+    assert doctor.routing_findings() == []
+    monkeypatch.setenv("ANTHROPIC_DEFAULT_HAIKU_MODEL", "x")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")  # the billing guard's, not repeated here
+    settings.write_text(
+        json.dumps({"env": {"ANTHROPIC_BASE_URL": "x", "DISABLE_AUTOUPDATER": "1"}})
+    )
+    assert doctor.routing_findings() == [
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+        f"ANTHROPIC_BASE_URL in {settings}",
+    ]
 
 
 def test_cap_share_is_the_smaller_and_floors_claude_caps() -> None:

@@ -61,6 +61,30 @@ def billing_guard_findings() -> list[str]:
     return found
 
 
+def routing_findings() -> list[str]:
+    """Settings the billing guard does not cover that could route or remap Claude models.
+
+    ``ANTHROPIC_*`` variables outside the guard's list (such as alias overrides), and ``env``
+    blocks in Claude settings files that set ``ANTHROPIC_*`` or ``CLAUDE_CODE_USE_*`` names. Names
+    only, never values. The Claude slice's runbook asks for none (docs/PLAN.md, D-036).
+    """
+    found = sorted(
+        n for n in os.environ if n.startswith("ANTHROPIC_") and n not in BILLING_GUARD_EXACT
+    )
+    for path in CLAUDE_SETTINGS_FILES:
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        block = data.get("env") if isinstance(data, dict) else None
+        if isinstance(block, dict):
+            names = [
+                str(k) for k in block if str(k).startswith(("ANTHROPIC_", BILLING_GUARD_PREFIX))
+            ]
+            found += [f"{name} in {path}" for name in sorted(names)]
+    return found
+
+
 def ram_gb() -> float | None:
     """Total physical memory in GiB, if it can be read."""
     try:
@@ -155,6 +179,7 @@ def probe() -> dict[str, Any]:
     report["claude_cli_version"] = claude_version
     guard = billing_guard_findings()
     report["billing_guard"] = guard
+    report["claude_routing"] = routing_findings()
     # A hosted Claude Code session (CLAUDE_CODE_REMOTE) has no Max-plan login of its own.
     hosted = os.environ.get("CLAUDE_CODE_REMOTE", "").lower() in ("1", "true")
     report["claude_hosted_session"] = hosted
@@ -212,6 +237,10 @@ def render(report: dict[str, Any]) -> str:
         ("ollama", ollama),
         ("claude cli", claude),
         ("billing guard", "TRIPPED by " + ", ".join(guard) if guard else "clean"),
+        (
+            "model routing",
+            "CHECK " + ", ".join(report["claude_routing"]) if report["claude_routing"] else "clean",
+        ),
         ("free tiers", free),
         (
             "ram fits",

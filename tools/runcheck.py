@@ -20,9 +20,10 @@ one repair it makes, so the repair is the one the runs themselves use.
     (exit 1), or ``E1-GAP: SHORT <s>`` (exit 1) when fewer than SECONDS are left.
 ``e1-relaunch [--rotate]``
     Before the arm is relaunched after an interruption: refuses while an arm, a batch runner, or
-    a model server is alive; lists each unbanked E1 workspace with the runs a relaunch will
-    salvage and any ``aborted.json``; and, with ``--rotate``, moves aside the output of a
-    workspace from which nothing would be salvaged, so the retry does not replay the cached
+    a model server is alive; lists each unbanked E1 workspace with the number of whole records
+    it holds (counted by lines, never parsed: prereg 0004 lets only the runners read E1 records
+    before an arm ends) and any ``aborted.json``; and, with ``--rotate``, moves aside the output
+    of a workspace from which nothing would be salvaged, so the retry does not replay the cached
     model replies of the killed attempt (prereg 0004: interrupted runs run again from the
     beginning).
 """
@@ -252,40 +253,43 @@ def gap(procs: Sequence[Proc], log: Path, now: float, need: float = 0.0) -> tupl
     return 0, f"E1-GAP: OPEN {left:.0f} s"
 
 
-def _complete_records(results: Path) -> list[dict[str, Any]]:
-    """Records of a runner's results.jsonl, without a cut final line."""
-    return jsonl.read(results, tail_ok=True) if results.exists() else []
+def complete_lines(results: Path) -> int:
+    """How many records a runner's results.jsonl holds, by counting whole lines only.
+
+    Prereg 0004 lets only the runners read E1 records before an arm ends, so this never parses
+    one (a cut final line has no newline and is not counted).
+    """
+    return results.read_bytes().count(b"\n") if results.exists() else 0
 
 
 def relaunch(
-    procs: Sequence[Proc], work: Path, banked: set[str], now: float, rotate: bool = False
+    procs: Sequence[Proc], work: Path, nothing_banked: bool, now: float, rotate: bool = False
 ) -> Report:
-    """The e1-relaunch checks and, with ``rotate``, the rotation of replay-prone outputs."""
+    """The e1-relaunch checks and, with ``rotate``, the rotation of replay-prone outputs.
+
+    A relaunch reuses the workspace of an interrupted batch when it salvages nothing from it:
+    when the workspace holds no whole record, or when ``aborted.json`` drops every record. The
+    retry would then replay the killed attempt's cached replies, so its output is moved aside.
+    """
     rep = Report()
     found = arm_processes(procs)
     alive = [f"{kind} {pid}" for kind, pids in found.items() for pid in pids]
     if alive:
         rep.problems.append("alive: " + ", ".join(alive) + "; do not relaunch")
         return rep
-    first = not banked
     for ws in sorted(work.glob("e1-day*")):
         out = ws / "out"
         if (ws / ".banked").exists() or not out.is_dir():
             continue
-        try:
-            rows = _complete_records(out / "results.jsonl")
-        except ValueError as exc:  # a cut record in mid-file: needs a look by hand
-            rep.problems.append(f"{ws.name}: {exc}")
-            continue
+        records = complete_lines(out / "results.jsonl")
         note = out / "aborted.json"
         failed = json.loads(note.read_text()) if note.exists() else None
-        drop = set(failed.get("drop", [])) if failed else set()
-        keep = [r for r in rows if r.get("run_id") not in banked | drop]
-        text = f"{ws.name}: {len(keep)} runs to salvage"
+        dropped = len(set(failed.get("drop", []))) if failed else 0
+        text = f"{ws.name}: {records} whole records"
         if failed:
-            text += f"; aborted.json: {failed.get('reason')!r} at {failed.get('at')}"
-            text += " (record it with `python -m noisefloor.e1 note local --reason ...`)"
-        if not keep:
+            text += f", {dropped} of them dropped; aborted.json: {failed.get('reason')!r} at "
+            text += f"{failed.get('at')} (record it with `python -m noisefloor.e1 note local`)"
+        if records <= dropped:
             n = sum(1 for _ in ws.glob("out.*"))
             if rotate:
                 out.rename(ws / f"out.{n}")
@@ -293,19 +297,13 @@ def relaunch(
             else:
                 text += "; nothing to salvage: rotate it (--rotate) before relaunching"
                 rep.problems.append(f"{ws.name}: not rotated")
-        elif first and ws.name.startswith("e1-day1-b1-"):
-            since = int(now) % 86_400
-            if since > GRACE_S:
-                text += (
-                    "; FIRST BATCH: nothing is banked and it is past 00:15 UTC, so a relaunch "
-                    "waits for the next 00:00 UTC and these runs become a day of their own"
-                )
+        elif nothing_banked and ws.name.startswith("e1-day1-b1-") and int(now) % 86_400 > GRACE_S:
+            text += (
+                "; FIRST BATCH: nothing is banked and it is past 00:15 UTC, so a relaunch waits "
+                "for the next 00:00 UTC and these runs become a day of their own"
+            )
         rep.lines.append(text)
     return rep
-
-
-def _banked(artifact: Path) -> set[str]:
-    return {str(r["run_id"]) for r in jsonl.read(artifact, tail_ok=True) if "run_id" in r}
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -324,9 +322,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return code
     if args.cmd == "e1-relaunch":
         work = Path(os.environ.get("NOISEFLOOR_WORK", Path.home() / ".cache/noisefloor/work"))
-        rep = relaunch(
-            processes(), work, _banked(REPO / "artifacts/e1/local.jsonl"), time.time(), args.rotate
-        )
+        artifact = REPO / "artifacts/e1/local.jsonl"  # its size only: no record is read
+        empty = not artifact.exists() or artifact.stat().st_size == 0
+        rep = relaunch(processes(), work, empty, time.time(), args.rotate)
         verdict = "RELAUNCH: FAIL" if rep.problems else "RELAUNCH: OK"
     else:
         rep = preflight(

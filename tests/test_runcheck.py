@@ -116,26 +116,38 @@ def test_relaunch_rotates_replay_prone_outputs_only(tmp_path: Path) -> None:
         [{"run_id": "r7"}],
         aborted={"reason": "three infra_error runs in a row", "drop": ["r7"], "at": "t"},
     )
-    rep = rc.relaunch([], work, {"r1"}, now)
-    assert len(rep.problems) == 2  # two workspaces still to rotate
-    assert any("2 runs to salvage" in ln for ln in rep.lines)
+    cut = _workspace(work, "e1-day1-b1-b0004-b0000-eeee", [])
+    (cut / "out" / "results.jsonl").write_text('{"run_id": "r9", "outc')  # no whole record
+    rep = rc.relaunch([], work, False, now)
+    assert len(rep.problems) == 3  # three workspaces still to rotate
+    assert any("cccc: 2 whole records" in ln for ln in rep.lines)
     assert any("aborted.json" in ln and "note local" in ln for ln in rep.lines)
-    rep = rc.relaunch([], work, {"r1"}, now, rotate=True)
+    rep = rc.relaunch([], work, False, now, rotate=True)
     assert rep.problems == []
     assert (empty / "out.0").is_dir() and not (empty / "out").exists()
     assert (dropped / "out.0" / "aborted.json").exists()
+    assert (cut / "out.0" / "results.jsonl").exists()
     assert (keep / "out" / "results.jsonl").exists()
     assert (done / "out").exists()
-    assert rc.relaunch([ARM], work, set(), now).problems  # never while an arm is alive
+    assert rc.relaunch([ARM], work, True, now).problems  # never while an arm is alive
+
+
+def test_relaunch_counts_lines_and_never_parses_records(tmp_path: Path) -> None:
+    results = tmp_path / "results.jsonl"
+    results.write_text("not json at all\nstill not json\n{cut")
+    assert rc.complete_lines(results) == 2
+    assert rc.complete_lines(tmp_path / "missing.jsonl") == 0
 
 
 def test_relaunch_warns_about_the_first_batch(tmp_path: Path) -> None:
     work = tmp_path / "work"
     _workspace(work, "e1-day1-b1-b0000-b0000-aaaa", [{"run_id": "r1"}])
-    late = rc.relaunch([], work, set(), _ts("2026-11-14T00:40:00"))
+    late = rc.relaunch([], work, True, _ts("2026-11-14T00:40:00"))
     assert any("FIRST BATCH" in ln for ln in late.lines)
-    early = rc.relaunch([], work, set(), _ts("2026-11-14T00:10:00"))
+    early = rc.relaunch([], work, True, _ts("2026-11-14T00:10:00"))
     assert not any("FIRST BATCH" in ln for ln in early.lines)
+    banked = rc.relaunch([], work, False, _ts("2026-11-14T00:40:00"))
+    assert not any("FIRST BATCH" in ln for ln in banked.lines)
 
 
 def test_preflight_refuses_then_repairs_and_checks_the_environment(tmp_path: Path) -> None:
