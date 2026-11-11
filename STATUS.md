@@ -1,10 +1,10 @@
-goal_turn: 4
+goal_turn: 5
 STATE: ACTIVE
 
 # Status
 
-Updated 2026-11-04, goal_turn 3 (Loop Protocol, continuing after Raj's "continue"). History is in
-docs/LOG.md.
+Updated 2026-11-11, goal_turn 5 (Raj's "crunch time" order: G5 and G6, then the E1 local arm,
+E3 on E1, and the review). History is in docs/LOG.md.
 
 ## Gates
 
@@ -16,8 +16,8 @@ Last fast ship-check (does not count) at 3ad6ea2: 9/14 (G1 to G4, G9 to G11, G13
 | G2 Static quality | PASS | ruff, ruff format, mypy --strict clean; every `type: ignore` has a reason |
 | G3 CI parity | PASS | ci.yml runs `make ci` on 3.11 and 3.12; `make prepush` passes before every push |
 | G4 Offline demo | PASS | runs in a network namespace in seconds, matches golden |
-| G5 Library validity | FAIL | part 1 passes; E0 part 2 (0005, frozen) must run and pass (`runs/e0g6/driver.sh`) |
-| G6 Orchestrator validity | FAIL | 0006 frozen; 200 datasets to run (`runs/e0g6/driver.sh`) |
+| G5 Library validity | FAIL | part 1 passes; E0 part 2 (0005, frozen) queued after G6 in `runs/e0g6/driver.sh` |
+| G6 Orchestrator validity | FAIL | 0006 frozen; running (`runs/e0g6/driver.sh`, resumable per dataset) |
 | G7 Factorial study | FAIL | 0004 frozen (85 local tasks, 4 days); local arm after G6 and E0 part 2; Claude slice needs Raj |
 | G8 Leaderboards and bounds | FAIL | E2 and both reports done; E3 on E1 comes with the E1 analysis |
 | G9 Library shipped | PASS | wheel installs in a clean venv; 5 examples run; API reference generated |
@@ -29,24 +29,29 @@ Last fast ship-check (does not count) at 3ad6ea2: 9/14 (G1 to G4, G9 to G11, G13
 
 ## Now
 
-Release sprint (Raj, 2026-11-11), experiments on hold: the branch was checked for publication
-(secrets-scan clean, nothing under private/ tracked, no personal data beyond Raj's name and
-GitHub noreply email in files or history, third-party data limited to licensed outcome snapshots
-with attribution and mock fixtures, no third-party benchmark flaw disclosed); `make lint
-typecheck test demo` was rerun; README.md gained a one-paragraph pitch and a Status section that
-lists the passing gates and the experiments still to run. Preregistrations 0004 to 0006 are
-frozen (4907a03); README.md and docs/REPORT.md trace every number to an artifact (D-035). No
-confirmatory E0 part 2, G6, or E1 data exist yet.
+Crunch time (Raj, 2026-11-11). Raj merged the release-ready commit into main (bbe8e62, a merge
+commit with the same tree as 3a451b0) and made the repository public; this branch fast-forwarded
+to it. Raj authorizes updating main at each RELEASE-READY point (`git merge --ff-only
+origin/main`, fresh-clone `make ci`, claimcheck and freshness, then push HEAD and HEAD:main,
+never force). The Needs Raj list had no "move main" item, so nothing was dropped.
+
+The container restarted at 21:04 UTC and killed the G6 run after its first rows; the driver was
+relaunched at 21:07 UTC with 4 workers at bbe8e62 (`src/` unchanged, same environment hash) and
+resumes per dataset. README.md now says plainly that the Claude slice of E1 is pending. No `src/`
+change until G6 and E0 part 2 are banked: their rows refuse a dirty or changed `src/`.
 
 ## Next three actions
 
-1. Run G6 and E0 part 2 (`runs/e0g6/driver.sh`, a little over 40 hours on 4 workers), commit and
-   push raw rows at check-ins, bank both, run `python -m noisefloor.e0_validity` and commit it.
-2. Launch the E1 local arm at 00:00 UTC (`python -m noisefloor.e1 local
-   prereg/0004-e1-factorial.md`, at least 4 UTC days, with check-ins); ask Raj to start the
-   Claude slice on his machine (docs/PLAN.md).
-3. After both arms end: the E1 analysis, the post-E1 check, E3 on E1, the report's E1 sections,
-   `make review`, and the final sequence (brief section 10.6).
+1. Keep G6 and E0 part 2 running (`runs/e0g6/driver.sh`, a little over 40 hours on 4 workers;
+   relaunch after any container restart), commit and push raw rows at check-ins.
+2. When both have written every row: bank G6 (`python -m noisefloor.recovery g6-bank
+   prereg/0006-g6-recovery.md`) and E0 part 2 (`python -m noisefloor.e0_run bank
+   prereg/0003-e0-coverage-grid-part1.md prereg/0005-e0-glmm-cells.md --only
+   prereg/0005-e0-glmm-cells.md`), run `python -m noisefloor.e0_validity`, commit, fast
+   ship-check; on G5 and G6 passing, update main (RELEASE-READY).
+3. Launch the E1 local arm at the next 00:00 UTC (`python -m noisefloor.e1 local
+   prereg/0004-e1-factorial.md`, at least 4 UTC days, with check-ins); after it: the E1
+   analysis, the post-E1 check, E3 on E1, the report's E1 sections, and `make review`.
 
 ## Usage to date
 
@@ -64,8 +69,10 @@ Local model runs: pilot p1 24, screening s2 11 (exploratory, suite v1), s3 84 (s
 2. raise-v1-public: its web page returns a proxy 403 here, so it is dropped from the verified
    references; its integrity tools were ported from a clone with Apache-2.0 attribution.
    Optional: check the reference by hand.
-3. Optional: add `apt-get install -y r-base-core r-base-dev r-cran-lme4` to this environment's
-   setup script so R and lme4 survive container restarts (D-008).
+3. Optional: this session runs in the Default environment, which has no setup script. A
+   personal environment for this repository whose setup script runs `apt-get install -y
+   r-base-core r-base-dev r-cran-lme4` would keep R and lme4 in fresh containers (D-008). Not
+   proposed from here, since the approval prompt would stall the unattended run.
 4. FYI (from goal_turn 1): one batch of citation fetches sent a User-Agent containing the local
    part of your email address to arxiv.org, anthropic.com, and metr.org; fetch tooling now uses
    a generic User-Agent.
