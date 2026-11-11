@@ -619,14 +619,22 @@ def first_e1_run(ctx: Ctx) -> Any:
 
 
 E1_NUMBER = "0004"  # the E1 preregistration, whose analysis names each kind's method
-# The recovery-config setting that is a GLMM kind's method (its cells' interval_type label
-# does not change with it): a replacement of the kind must change one of these.
-GLMM_RULE_KEYS = {
-    "random": ("boot_interval",),
-    "fixed": ("fixed_interval", "box_interval"),
-    "share": ("share_interval",),
-    "mde": ("mde_interval",),
-}
+GLMM_KINDS = ("random", "fixed", "share", "mde")
+
+
+def glmm_rule(kind: str, settings: dict[str, Any]) -> tuple[Any, ...]:
+    """The recovery-config setting that is a GLMM kind's method.
+
+    Its cells' interval_type label does not change with it, so a replacement of the kind
+    must change this. Under the task jackknife the bootstrap box rule (``box_interval``)
+    has no effect, so a fixed contribution's rule is the jackknife, or the box with its
+    ``box_interval``.
+    """
+    if kind == "fixed":
+        rule = settings.get("fixed_interval", "box")
+        return ("jackknife",) if rule == "jackknife" else ("box", settings.get("box_interval"))
+    key = {"random": "boot_interval", "share": "share_interval", "mde": "mde_interval"}[kind]
+    return (settings.get(key),)
 
 
 def _settings(ctx: Ctx, prereg: str) -> dict[str, Any]:
@@ -641,18 +649,16 @@ def method_replaced(
     """True when ``prereg``'s new cells of ``kind`` test another method than ``gone`` did.
 
     ``grid`` maps every frozen cell to (its preregistration, its cell entry). A GLMM kind
-    must change its rule in ``prereg``'s own recovery-config block; another kind's new
-    cells must name another (method, interval_type) than every retired cell.
+    must change its rule (:func:`glmm_rule`) in ``prereg``'s own recovery-config block;
+    another kind's new cells must name another (method, interval_type) than every retired
+    cell.
     """
-    if kind in GLMM_RULE_KEYS:
+    if kind in GLMM_KINDS:
         mine = _settings(ctx, prereg)
         if not mine or not new:
             return False
         sources = {grid[c][0] for c in gone if c in grid}
-        return all(
-            any(mine.get(k) != _settings(ctx, src).get(k) for k in GLMM_RULE_KEYS[kind])
-            for src in sources
-        )
+        return all(glmm_rule(kind, mine) != glmm_rule(kind, _settings(ctx, src)) for src in sources)
 
     def label(cid: str) -> tuple[str, str]:
         entry = grid[cid][1]
@@ -671,7 +677,9 @@ def frozen_headline_cells(ctx: Ctx, grids: list[tuple[str, str]]) -> set[str]:
     needs only their listing and warning. The block counts only from an amendment frozen
     before the first confirmatory E1 run, beside new headline cells of the kind that test
     another method (:func:`method_replaced`) and a frozen amendment of the E1
-    preregistration from before that run (which allows the new analysis code).
+    preregistration from before that run whose ```json analysis-code``` block allows the
+    new analysis code (an amendment of 0004 for another purpose, such as a rebuilt
+    llama-server, does not count).
     """
     base = grids[0][0]
     found = PART1_HEADLINE_RE.search(rel(ctx, base).read_text())
@@ -719,6 +727,7 @@ def frozen_headline_cells(ctx: Ctx, grids: list[tuple[str, str]]) -> set[str]:
                 f
                 for f in chain_files(ctx)
                 if amends(ctx, f) == E1_NUMBER
+                and has_block(ctx, f, "analysis-code")
                 and (first is None or chain_frozen_at(ctx, f) < first)
             ]
             need(
@@ -875,17 +884,26 @@ def g6(ctx: Ctx) -> str:
     nominal = float(data["nominal"])
     need(nominal == float(config["settings"]["level"]), "nominal level differs from the prereg's")
     need(bool((data.get("environment") or {}).get("env")), "rows carry no single environment")
-    # The one analysis-code hash the E1 analysis requires (prereg 0004), and the same one
-    # E0 part 2 ran once it is banked.
+    # The one analysis-code hash the E1 analysis requires (prereg 0004): the one E0 part 2
+    # ran once it is banked, or, for a rerun of G6 under an amendment of its preregistration
+    # (a replaced GLMM method), one that a frozen amendment of 0004 allows.
     code = data.get("analysis_code")
     need(
         isinstance(code, str) and re.fullmatch(r"[0-9a-f]{16}", code) is not None,
         "no 16-hex analysis_code",
     )
-    e0 = rel(ctx, E0_PART2_ARTIFACT)
-    if e0.exists():
-        other = load_json(e0).get("analysis_code")
-        need(other == code, f"G6 ran analysis code {code}, E0 part 2 {other}")
+    if amends(ctx, prereg) is None:
+        e0 = rel(ctx, E0_PART2_ARTIFACT)
+        if e0.exists():
+            other = load_json(e0).get("analysis_code")
+            need(other == code, f"G6 ran analysis code {code}, E0 part 2 {other}")
+    else:
+        allowed = {
+            str(prereg_block(ctx, f, "analysis-code").get("allows"))
+            for f in chain_files(ctx)
+            if amends(ctx, f) == E1_NUMBER and has_block(ctx, f, "analysis-code")
+        }
+        need(code in allowed, f"no frozen amendment of {E1_NUMBER} allows G6's code {code}")
     names = sorted({n for d in datasets for n in d["components"]})
     need(bool(names), "no variance components")
     # Every preregistered component, and only those, decides the gate (prereg 0006).

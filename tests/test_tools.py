@@ -415,7 +415,8 @@ def test_retired_headline_cells_count_only_before_e1_data(tmp_path: Path) -> Non
         '```json retired-headline\n["G-c"]\n```\n\n'
     )
     (pre / "0007-swap.md").write_text(swap % "share" + config % "percentile")
-    (pre / "0008-e1.md").write_text("---\namends: 0004\n---\n# allows the new code\n")
+    allows = '```json analysis-code\n{"allows": "' + "e" * 16 + '"}\n```\n'
+    (pre / "0008-e1.md").write_text("---\namends: 0004\n---\n# allows the new code\n\n" + allows)
     chain = [
         {"file": "prereg/0003-grid.md", "frozen_at": "2026-11-01T00:00:00Z"},
         {"file": "prereg/0005-more.md", "frozen_at": "2026-11-02T00:00:00Z"},
@@ -453,7 +454,23 @@ def test_retired_headline_cells_count_only_before_e1_data(tmp_path: Path) -> Non
     (pre / "CHAIN.jsonl").write_text("".join(json.dumps(e) + "\n" for e in chain[:3]))
     with pytest.raises(ship_check.GateError, match="no amendment of prereg 0004"):
         ship_check.frozen_headline_cells(ctx, grids)
+    # An amendment of 0004 for another purpose (a rebuilt server) allows no new method.
+    server = '```json llama-server\n{"sha256": "' + "f" * 64 + '"}\n```\n'
+    (pre / "0008-e1.md").write_text("---\namends: 0004\n---\n# rebuilt server\n\n" + server)
     (pre / "CHAIN.jsonl").write_text("".join(json.dumps(e) + "\n" for e in chain))
+    with pytest.raises(ship_check.GateError, match="no amendment of prereg 0004"):
+        ship_check.frozen_headline_cells(ctx, grids)
+    (pre / "0008-e1.md").write_text("---\namends: 0004\n---\n# allows the new code\n\n" + allows)
+    # Under the task jackknife the box rule has no effect: changing it alone is no new method.
+    jack = {"fixed_interval": "jackknife"}
+    assert ship_check.glmm_rule("fixed", {**jack, "box_interval": "basic"}) == (
+        ship_check.glmm_rule("fixed", {**jack, "box_interval": "percentile"})
+    )
+    box = {"fixed_interval": "box", "box_interval": "basic"}
+    assert ship_check.glmm_rule("fixed", box) != ship_check.glmm_rule("fixed", jack)
+    assert ship_check.glmm_rule("fixed", box) != (
+        ship_check.glmm_rule("fixed", {**box, "box_interval": "student"})
+    )
     (pre / "0007-swap.md").write_text(swap % "share" + config % "percentile")
     e1 = tmp_path / "artifacts" / "e1"
     e1.mkdir(parents=True)

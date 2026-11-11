@@ -54,9 +54,11 @@ dead proxies (evidence says `env-only`), plus `UV_OFFLINE=1`, `NOISEFLOOR_OFFLIN
   before the first confirmatory E1 run lists in a ` ```json retired-headline ` block, which it
   may do only beside new headline cells of the same kinds (its ` ```json headline-kinds `) that
   test another method (another `method` or `interval_type`; for a GLMM kind, another rule in the
-  amendment's own ` ```json recovery-config ` settings: `boot_interval`, `fixed_interval` or
-  `box_interval`, `share_interval`, `mde_interval`), and only when a frozen amendment of the E1
-  preregistration (0004) from before that run exists (D-034 item 13). All
+  amendment's own ` ```json recovery-config ` settings: `boot_interval`; the fixed rule, the task
+  jackknife or the bootstrap box with its `box_interval`, which has no effect under the
+  jackknife; `share_interval`; `mde_interval`), and only when a frozen amendment of the E1
+  preregistration (0004) from before that run has a ` ```json analysis-code ` block (D-034
+  items 13 and 16). All
   must pass, and all must appear in `artifacts/headline_cells.json` (`{"cells": [...]}`, written
   by `python -m noisefloor.e0_validity`). Every failing cell must be in
   `evalstats.validity.UNSUPPORTED_CELLS`, and `evalstats.validity.check` with the cell's own
@@ -75,7 +77,9 @@ exactly its ` ```json g6-components ` list, and each one's coverage meets the G5
 without an interval, such as a failed fit, counts as a miss); `environment.env` names the one
 environment every row ran in (`noisefloor.provenance`), and `analysis_code` the one 16-hex
 analysis-code hash, which prereg 0004's analysis requires and which must equal the
-`analysis_code` of `artifacts/e0/coverage-0005.json` once E0 part 2 is banked; reported bias
+`analysis_code` of `artifacts/e0/coverage-0005.json` once E0 part 2 is banked (for a rerun of G6
+under an amendment of its preregistration, a replaced GLMM method, the hash that a frozen
+amendment of 0004 allows in its ` ```json analysis-code ` block); reported bias
 equals the recomputed mean of estimate minus planted.
 
 ## G7 Factorial study (E1)

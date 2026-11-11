@@ -773,3 +773,16 @@ analysis-code pin fixes the corrected code; none rests on E1 data, which do not 
    (checked on all four answer families, three difficulties, and seeds 100000 to 100999 and
    900000 to 900999; a test pins the E1 seed range), so for every suite task a match as
    submitted already implied a match after extraction, and no grade of a suite task changes.
+16. Verification of these fixes (one verifier per finding group and a regression reader; the
+   stats and resolution groups finished and found 24 of 25 findings fixed). Follow-ups: G5's
+   retirement rule counts only an amendment of 0004 with an analysis-code block (a llama-server
+   amendment no longer satisfies it), and a fixed contribution's rule is the task jackknife or
+   the bootstrap box with its `box_interval`, so changing `box_interval` under the jackknife is
+   no new method. G6 compares its analysis code with E0 part 2's only for the base 0006
+   artifact; a rerun under an amendment of 0006 (a replaced GLMM method) must run code that a
+   frozen amendment of 0004 allows. The arms refuse to start unless the analysis code at HEAD,
+   recomputed with each artifact's own library versions so the check also holds on Raj's
+   machine, is the code G6 and E0 part 2 recorded (or an amendment allows it), and unless the
+   library's list of failing cells is what `e0_validity` builds from the banked coverage.
+   Pinning `e1.py` and `models.py` keeps them unchanged through G7's recompute; 0004 and PLAN
+   now say that a repair to them during an arm needs an analysis-code amendment.

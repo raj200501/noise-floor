@@ -62,7 +62,12 @@ No commit changes `src/` or `uv.lock` from the start of G6 to the E1 analysis, e
 `e0_validity` commit above, which lands after G6 and E0 part 2 have written all their rows (the
 list of failing cells is outside the analysis-code pin): the studies refuse rows from a second
 environment, the arms stop on new run code, and the analysis runs only under the analysis code
-G6 and E0 part 2 ran (D-033 item 10, D-034 item 8). Raw rows are committed and pushed at
+G6 and E0 part 2 ran (D-033 item 10, D-034 item 8). The pinned files include `noisefloor.e1`
+and `noisefloor.models`, so they stay unchanged through G7's recompute in the final ship-check;
+a repair to one of them during an arm, which a resume accepts, also needs a frozen amendment of
+0004 with a ```json analysis-code``` block before the analysis runs. Both arms check before they
+start that the analysis code at HEAD is the code G6 and E0 part 2 recorded and that the list of
+failing cells is rebuilt from the banked coverage (D-034 item 16). Raw rows are committed and pushed at
 check-ins (while E1 runs, pushes wait for the gaps between blocks), because this container is
 not persistent: only pushed rows survive a new one. Runs banked after the last push and lost with
 a container are noted in the stop log (`python -m noisefloor.e1 note local --reason "..."`) and

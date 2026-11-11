@@ -1003,9 +1003,33 @@ def test_arms_start_only_after_g6_and_e0_part_2(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(analysis, "validation_artifacts", lambda settings: {"g6": g6, "e0": e0})
     with pytest.raises(ValueError, match="G6 and E0 part 2 come first"):
         e1.require_validation(prereg)
-    g6.write_text("{}")
-    e0.write_text("{}")
+    import json as _json
+
+    from noisefloor import e0_validity, provenance
+
+    versions = {"python": "3.12.0", "numpy": "2.0", "r": "4.3"}  # each artifact's own
+    key = {"src_tree": "t" * 40, "uv_lock": "l" * 40, **versions}
+    ran = provenance.analysis_code(versions=versions)["hash"]
+    for path in (g6, e0):
+        path.write_text(_json.dumps({"environment": {"key": key}, "analysis_code": ran}))
+    monkeypatch.setattr(e0_validity, "stale", lambda: [])
+    monkeypatch.setattr(preregs, "amendments_with", lambda number, block: [])
     e1.require_validation(prereg)
+    # Other analysis code at HEAD (here: another recorded hash) refuses the arm.
+    e0.write_text(_json.dumps({"environment": {"key": key}, "analysis_code": "0" * 16}))
+    with pytest.raises(ValueError, match=r"is not the code coverage-0005\.json recorded"):
+        e1.require_validation(prereg)
+    allows = tmp_path / "0009-code.md"
+    allows.write_text(
+        "---\namends: 0004\n---\n\n```json analysis-code\n"
+        + _json.dumps({"allows": ran})
+        + "\n```\n"
+    )
+    monkeypatch.setattr(preregs, "amendments_with", lambda number, block: [allows])
+    e1.require_validation(prereg)  # a frozen amendment allows the code in use
+    monkeypatch.setattr(e0_validity, "stale", lambda: [e0_validity.VALIDITY])
+    with pytest.raises(ValueError, match=r"validity\.json not rebuilt from the banked coverage"):
+        e1.require_validation(prereg)
 
 
 def test_the_first_claude_code_version_needs_a_smoke_run(tmp_path) -> None:

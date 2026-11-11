@@ -725,15 +725,44 @@ def require_validation(prereg: Path) -> None:
     """Refuse to start an arm before G6 and E0 part 2 are banked (prereg 0004).
 
     Then a kind of interval that fails its cells can still change method by a dated
-    amendment before any E1 run exists. A file outside the chain (a fixture) is not checked.
+    amendment before any E1 run exists. The arm also refuses analysis code at HEAD other
+    than the code each artifact recorded, recomputed with that artifact's own library
+    versions (so the check holds on any machine; a frozen amendment of this preregistration
+    may allow other code in its ```json analysis-code``` block), and a list of failing cells
+    not rebuilt from the banked coverage (``python -m noisefloor.e0_validity``, committed),
+    so that neither mistake is found only after E1 data exist. A file outside the chain (a
+    fixture) is not checked.
     """
     if preregs.chain_entry(prereg) is None:
         return
+    from noisefloor import e0_validity, provenance  # noqa: PLC0415 - provenance loads R lazily
     from noisefloor.analysis.e1 import validation_artifacts  # noqa: PLC0415 - imports e1
 
-    for name, path in validation_artifacts(prereg_block(prereg, "e1-analysis")).items():
+    artifacts = validation_artifacts(prereg_block(prereg, "e1-analysis"))
+    for name, path in artifacts.items():
         if not path.exists():
             raise ValueError(f"{name}: {path.name} is not banked; G6 and E0 part 2 come first")
+    allowed = {
+        str(prereg_block(a, "analysis-code").get("allows"))
+        for a in preregs.amendments_with(E1_PREREG, "analysis-code")
+    }
+    for name, path in artifacts.items():
+        data = json.loads(path.read_text())
+        key = dict((data.get("environment") or {}).get("key") or {})
+        versions = {k: v for k, v in key.items() if k not in ("src_tree", "uv_lock")}
+        here = provenance.analysis_code(versions=versions)["hash"] if versions else None
+        if here != data.get("analysis_code") and here not in allowed:
+            raise ValueError(
+                f"{name}: the analysis code at HEAD ({here}) is not the code {path.name} "
+                f"recorded ({data.get('analysis_code')}); a frozen amendment must allow it"
+            )
+    stale = e0_validity.stale()
+    if stale:
+        names = ", ".join(p.name for p in stale)
+        raise ValueError(
+            f"{names} not rebuilt from the banked coverage: run python -m "
+            "noisefloor.e0_validity and commit its outputs first"
+        )
 
 
 def infra_counts(artifact: Path, stops: Path) -> tuple[int, int]:

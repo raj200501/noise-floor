@@ -110,13 +110,28 @@ def load_coverage(directory: Path = COVERAGE.parent) -> dict[str, Any]:
     return merged
 
 
+def outputs(directory: Path = COVERAGE.parent) -> dict[Path, str]:
+    """The text of each output file, built from the banked coverage artifacts."""
+    coverage = load_coverage(directory)
+    validity, headline = build(coverage, amendment_headlines(coverage))
+    return {
+        VALIDITY: json.dumps(validity, indent=1, sort_keys=True) + "\n",
+        HEADLINE: json.dumps(headline, indent=1, sort_keys=True) + "\n",
+    }
+
+
+def stale(directory: Path = COVERAGE.parent) -> list[Path]:
+    """Output files whose text differs from what the banked coverage gives (run main)."""
+    return [p for p, text in outputs(directory).items() if not p.exists() or p.read_text() != text]
+
+
 def main() -> int:
     """Write both files from the banked coverage artifacts."""
-    coverage = load_coverage()
-    validity, headline = build(coverage, amendment_headlines(coverage))
+    texts = outputs()
     VALIDITY.parent.mkdir(parents=True, exist_ok=True)
-    VALIDITY.write_text(json.dumps(validity, indent=1, sort_keys=True) + "\n")
-    HEADLINE.write_text(json.dumps(headline, indent=1, sort_keys=True) + "\n")
+    for path, text in texts.items():
+        path.write_text(text)
+    validity, headline = (json.loads(texts[p]) for p in (VALIDITY, HEADLINE))
     print(
         f"unsupported cells: {sorted(validity['unsupported'])}; "
         f"headline cells: {len(headline['cells'])}"

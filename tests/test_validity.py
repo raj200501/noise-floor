@@ -178,3 +178,33 @@ def test_decompose_and_mde_labels_match_the_e0_glmm_cells(
     seen.clear()
     glmm._check_validity(frame, (), "box", "percentile", "task")
     assert seen == [("decompose", "parametric_bootstrap", 7)]
+
+
+def test_the_validity_outputs_are_rebuilt_from_the_banked_coverage(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import json
+
+    cell = {
+        "cell": "X",
+        "method": "score_interval",
+        "interval_type": "cluster_t",
+        "nominal": 0.95,
+        "replicates": 100,
+        "covered": 80,
+        "params": {"n_tasks": 10},
+    }
+    (tmp_path / "coverage.json").write_text(json.dumps({"prereg": "p", "cells": [cell]}))
+    monkeypatch.setattr(e0_validity, "VALIDITY", tmp_path / "validity.json")
+    monkeypatch.setattr(e0_validity, "HEADLINE", tmp_path / "headline_cells.json")
+    assert e0_validity.stale(tmp_path) == [
+        tmp_path / "validity.json",
+        tmp_path / "headline_cells.json",
+    ]
+    for path, content in e0_validity.outputs(tmp_path).items():
+        path.write_text(content)
+    assert e0_validity.stale(tmp_path) == []
+    assert "X" in json.loads((tmp_path / "validity.json").read_text())["unsupported"]
+    # The committed file in the repository is what the banked coverage gives.
+    monkeypatch.undo()
+    assert e0_validity.stale() == []

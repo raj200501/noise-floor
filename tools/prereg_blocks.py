@@ -707,10 +707,12 @@ def smallest_tasks_per_family() -> int:
 def e1_power(rules: dict[str, Any]) -> dict[str, Any]:
     """The ``e1-power`` block: the preregistered power analysis (writing-14, stats-12).
 
-    Families: the normal-approximation power of :func:`evalstats.power_at` for every
-    confirmatory contrast family at stated, assumed effects and the planted variances,
-    with the tasks each comparison needs for power 0.8 and a frozen verdict per family
-    (underpowered when its least-powered row is below 0.8). Fixed factors: power to read a
+    Families: the power of one comparison and of the Holm reading for every confirmatory
+    contrast family at stated, assumed effects and the planted variances, with each
+    family's test statistic (t on tasks - 1 degrees of freedom for the cluster_t families,
+    normal for the Wilson families, :func:`evalstats.power_at`), the tasks one comparison
+    needs for power 0.8, and a frozen verdict per family (underpowered when its smallest
+    ``power_holm`` is below 0.8). Fixed factors: power to read a
     factor as non-zero comes from G6 at the E1 shape (prereg 0006, before any E1 data);
     the exploratory pilot 7 shares at 30 tasks are planning information.
     """
