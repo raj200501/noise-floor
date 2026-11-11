@@ -21,19 +21,23 @@ Last fast ship-check (does not count) at 0c851c3: 7/14 (G1 to G4, G9, G11, G14 p
 | G7 Factorial study | FAIL | 0004 frozen (85 local tasks, 4 days); local arm after G6 and E0 part 2; Claude slice needs Raj |
 | G8 Leaderboards and bounds | FAIL | E2 and both reports done; E3 on E1 comes with the E1 analysis |
 | G9 Library shipped | PASS | wheel installs in a clean venv; 5 examples run; API reference generated |
-| G10 Claim integrity | FAIL | README passes claimcheck and freshness; docs/REPORT.md in progress |
+| G10 Claim integrity | see fast check | README and REPORT pass claimcheck and freshness |
 | G11 Preregistration integrity | PASS | 6 preregistrations frozen, artifacts predated by them |
 | G12 Independent review | FAIL | `make review` after E1 |
-| G13 Documentation | FAIL | README written (section 11); REPORT in progress; 24 references verified |
+| G13 Documentation | see fast check | README (section 11) and REPORT written; 24 references verified |
 | G14 Hygiene | PASS | secrets-scan clean; cash_usd = 0, caps respected; tree clean |
 
 ## Now
 
-goal_turn 4: preregistrations 0004 (E1), 0005 (E0 part 2), and 0006 (G6) are frozen (4907a03),
-after three review rounds and a verification of the final fixes (D-032 to D-034). README.md now
-presents the project (every number claim-checked against its artifact), `make reproduce`
-recomputes E2 and E3 from the pinned snapshots, and docs/REPORT.md is being written. No
-confirmatory E0 part 2, G6, or E1 data exist yet.
+goal_turn 4 (public-release push): preregistrations 0004 (E1), 0005 (E0 part 2), and 0006 (G6)
+are frozen (4907a03) after three review rounds and a verification of the final fixes
+(D-032 to D-034). README.md and docs/REPORT.md present the project; every number in them is a
+registered claim checked against its artifact (`make claimcheck`, `make freshness`), both
+passed two-lens fresh-eyes reviews, and `make reproduce` recomputes E2 and E3 from the pinned
+snapshots. New this turn (D-035): an exploratory noise floor of each board's own design,
+adjacent-gap figures, a G13 fix (claim markers inside a first-screen interval), and a [0, 1]
+cut of the policy-bounds interval (CORRECTIONS.md). No confirmatory E0 part 2, G6, or E1 data
+exist yet; those gates wait on the runs below.
 
 ## Next three actions
 
