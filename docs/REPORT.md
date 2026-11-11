@@ -64,15 +64,22 @@ For a paired comparison on T tasks with k runs per entry and task, the per-task 
 Every interval method has cells in a preregistered simulation grid (E0). Failing cells are listed in `src/evalstats/data/validity.json`, and the score, comparison, contrast, rank, bound, cluster-robust, and decomposition functions emit `UnsupportedDesignWarning`, naming an alternative, on a design at least as small as a failing cell's. A typical call sequence:
 
 ```python
-from evalstats import (design_from_results, mde, paired_difference, policy_bounds,
-                       rank_confidence, read_csv, tasks_needed)
+from evalstats import (
+    design_from_results,
+    mde,
+    paired_difference,
+    policy_bounds,
+    rank_confidence,
+    read_csv,
+    tasks_needed,
+)
 
-results = read_csv("runs.csv")      # one row per run: model, task, run, outcome, status
+results = read_csv("runs.csv")  # one row per run: model, task, run, outcome, status
 cmp = paired_difference(results, "agent-a", "agent-b")  # paired by task, cluster_t
 print(cmp.difference.estimate, cmp.difference.lo, cmp.difference.hi, cmp.supported)
 
 ranks = rank_confidence(results, simultaneous=True, n_boot=4000, seed=0)
-bounds = policy_bounds(results)     # infra_error, timeout, flagged are ambiguous
+bounds = policy_bounds(results)  # infra_error, timeout, flagged are ambiguous
 design = design_from_results(results, "agent-a", "agent-b")
 print(mde(design, n_tasks=89, runs_per_task=5), tasks_needed(0.05, design, runs_per_task=5))
 ```
