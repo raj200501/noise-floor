@@ -2,6 +2,15 @@
 
 **How much of a leaderboard gap is the model, and how much is noise?**
 
+noise-floor is a toolkit and a set of preregistered studies for telling real differences between
+AI agents from noise. Its library, evalstats, compares agents task by task with intervals whose
+coverage is checked by simulation, and warns when a method is used where that check failed. With
+it, this repository reanalyzes public agent leaderboards to show which of their orderings the
+published data support, and it has frozen, before any data, a factorial study of how much of
+agent success comes from the model rather than the harness, resource limits, sampling, and time.
+Every result number below is generated from a banked artifact and checked by the repository's own
+tools.
+
 On Terminal-Bench 2.0, the top two submissions differ by <!-- claim:e2.tb2.top.diff -->+0.018 in task
 success (95% paired CI [<!-- claim:e2.tb2.top.lo -->-0.041, <!-- claim:e2.tb2.top.hi -->+0.077]), only
 <!-- claim:e2.tb2.adjacent.supported -->2 of <!-- claim:e2.tb2.adjacent.pairs -->65 adjacent pairs on
@@ -99,6 +108,21 @@ its interval, the E1 design, and the limitations in full.
 The study plan is in [docs/PLAN.md](docs/PLAN.md) and every design choice, with its reason, in
 [DECISIONS.md](DECISIONS.md). Changed or withdrawn claims are dated in
 [CORRECTIONS.md](CORRECTIONS.md).
+
+## Status
+
+The project defines its finish line as fourteen gates that `make ship-check` checks on a fresh
+clone ([docs/GATES.md](docs/GATES.md)). In the latest fast run (`python tools/ship_check.py
+--fast`, which does not count as the final check) these pass: build and tests with coverage
+(G1), static quality (G2), CI parity (G3), the offline demo (G4), the library shipped as a wheel
+(G9), claim integrity (G10), preregistration integrity (G11), documentation (G13), and hygiene
+(G14).
+
+Still in progress, and failing until their experiments run: library validity for E1's
+intervals (G5, the second part of the E0 coverage cells), planted-component recovery of the E1 analysis
+(G6), the factorial study itself (G7), the E3 bounds on E1 (G8), and the independent review of
+the finished study (G12). Their plans are frozen; none of them has data yet, and nothing in this
+README presents them as results. [STATUS.md](STATUS.md) has the live table and next steps.
 
 ## How it works
 

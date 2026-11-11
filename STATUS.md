@@ -29,15 +29,14 @@ Last fast ship-check (does not count) at 3ad6ea2: 9/14 (G1 to G4, G9 to G11, G13
 
 ## Now
 
-goal_turn 4 (public-release push): preregistrations 0004 (E1), 0005 (E0 part 2), and 0006 (G6)
-are frozen (4907a03) after three review rounds and a verification of the final fixes
-(D-032 to D-034). README.md and docs/REPORT.md present the project; every number in them is a
-registered claim checked against its artifact (`make claimcheck`, `make freshness`), both
-passed two-lens fresh-eyes reviews, and `make reproduce` recomputes E2 and E3 from the pinned
-snapshots. New this turn (D-035): an exploratory noise floor of each board's own design,
-adjacent-gap figures, a G13 fix (claim markers inside a first-screen interval), and a [0, 1]
-cut of the policy-bounds interval (CORRECTIONS.md). No confirmatory E0 part 2, G6, or E1 data
-exist yet; those gates wait on the runs below.
+Release sprint (Raj, 2026-11-11), experiments on hold: the branch was checked for publication
+(secrets-scan clean, nothing under private/ tracked, no personal data beyond Raj's name and
+GitHub noreply email in files or history, third-party data limited to licensed outcome snapshots
+with attribution and mock fixtures, no third-party benchmark flaw disclosed); `make lint
+typecheck test demo` was rerun; README.md gained a one-paragraph pitch and a Status section that
+lists the passing gates and the experiments still to run. Preregistrations 0004 to 0006 are
+frozen (4907a03); README.md and docs/REPORT.md trace every number to an artifact (D-035). No
+confirmatory E0 part 2, G6, or E1 data exist yet.
 
 ## Next three actions
 
