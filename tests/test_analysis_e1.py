@@ -318,11 +318,16 @@ def test_no_outcome_is_read_before_both_arms_end(tmp_path: Path) -> None:
 
 
 def test_compute_refuses_while_an_arm_runs(tmp_path: Path) -> None:
+    from datetime import UTC, datetime
+
     prereg = write_prereg(tmp_path / "prereg.md")
     recs = [r for r in fake_records(str(prereg)) if r["phase"] == "e1"][:-1]
     (tmp_path / "local.jsonl").write_text("".join(json.dumps(r) + "\n" for r in recs))
+    # The clock is pinned inside the arm's 7 days (the fixture's runs start in early November
+    # 2026), so the check does not depend on the date the suite runs.
+    inside = datetime(2026, 11, 6, 12, tzinfo=UTC)
     with pytest.raises(ValueError, match="local arm has not ended"):
-        a.compute(prereg, tmp_path)
+        a.compute(prereg, tmp_path, now=inside)
 
 
 def test_sampling_table_pairs_replicates_with_their_runs() -> None:
