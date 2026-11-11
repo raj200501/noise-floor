@@ -65,7 +65,11 @@ Local model runs: pilot p1 24, screening s2 11 (exploratory, suite v1), s3 84 (s
    where `make doctor` shows the guard clean, following docs/PLAN.md ("Claude arm on Raj's
    machine"), starting with `python -m noisefloor.claude_arm smoke`. The daily cap is budget.toml's
    cap times the smaller of its `cap_share` (0.2) and `CAP_SHARE`: 6 runs a day, about 30 days
-   for the 180 planned runs; only Raj can raise `cap_share` in budget.toml.
+   for the 180 planned runs; only Raj can raise `cap_share` in budget.toml. Timing: the runner
+   needs a clone with the G6 and E0 part 2 artifacts banked (expected around 2026-11-13), and
+   the slice starts no run 45 days after the freeze of 0004 (from 2026-12-26). At 6 runs a day
+   the 150 Claude-tier runs that G7 needs take 25 days, so start by 2026-12-01 (by 2026-11-26
+   for all 180).
 2. raise-v1-public: its web page returns a proxy 403 here, so it is dropped from the verified
    references; its integrity tools were ported from a clone with Apache-2.0 attribution.
    Optional: check the reference by hand.
