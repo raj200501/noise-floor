@@ -3,7 +3,7 @@
 **How much of a leaderboard gap is the model, and how much is noise?**
 
 On Terminal-Bench 2.0, the top two submissions differ by <!-- claim:e2.tb2.top.diff -->+0.018 in task
-success (95% paired CI <!-- claim:e2.tb2.top.lo -->-0.041 to <!-- claim:e2.tb2.top.hi -->+0.077), only
+success (95% paired CI [<!-- claim:e2.tb2.top.lo -->-0.041, <!-- claim:e2.tb2.top.hi -->+0.077]), only
 <!-- claim:e2.tb2.adjacent.supported -->2 of <!-- claim:e2.tb2.adjacent.pairs -->65 adjacent pairs on
 the board are statistically separated, and <!-- claim:e2.tb2.first -->15 of its
 <!-- claim:e2.tb2.entries -->66 entries could plausibly rank first. The board's own design detects
@@ -28,7 +28,7 @@ result existed: [`prereg/0001`](prereg/0001-e2-leaderboard-reanalysis.md), amend
 [`prereg/0002`](prereg/0002-e2-amend-epoch-reference-rule.md); `make prereg-verify` checks that
 each plan predates the artifacts that cite it.
 
-## Quickstart (about a minute; after setup, nothing touches the network)
+**Quickstart** (about a minute; after setup, nothing touches the network):
 
 ```bash
 git clone https://github.com/raj200501/noise-floor && cd noise-floor
@@ -37,7 +37,9 @@ make demo     # offline demo on recorded fixtures, checked against its golden ou
 uv run python docs/examples/01_compare_two_models.py
 ```
 
-On your own results (one row per run: model, task, run, outcome):
+## Use it on your own benchmark or agent
+
+Give evalstats one row per run (model, task, run, outcome):
 
 ```python
 from evalstats import paired_difference, read_csv

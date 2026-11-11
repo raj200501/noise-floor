@@ -505,3 +505,11 @@ def test_noise_floor_artifact_is_current_and_follows_its_formula() -> None:
     z = float(stats.norm.ppf(0.975) + stats.norm.ppf(0.8))
     assert math.isclose(floor["median_mde"], z * 0.1, rel_tol=1e-9)
     assert floor["n_gap_at_least_mde"] == 0 and floor["median_abs_gap"] == 0.02
+
+
+def test_first_screen_interval_reads_the_rendered_text() -> None:
+    marked = "differ by (95% CI [<!-- claim:a -->-0.041, <!-- claim:b -->+0.077])"
+    assert ship_check.first_screen_interval(marked)
+    assert ship_check.first_screen_interval("gap 0.02 (CI [0.01, 0.03])")
+    assert not ship_check.first_screen_interval("gap 0.02, CI from 0.01 to 0.03")
+    assert not ship_check.first_screen_interval("range [0.01, 0.03] with no interval named")

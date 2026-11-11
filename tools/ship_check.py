@@ -1211,6 +1211,18 @@ def _strip_code(text: str) -> str:
     return re.sub(r"```.*?```", "", text, flags=re.S)
 
 
+def first_screen_interval(text: str) -> bool:
+    """True if ``text`` shows a bracketed interval and names it a CI, as rendered.
+
+    Claim markers (``<!-- claim:id -->``, docs/INTEGRITY.md) do not render, so they are
+    removed first; a signed bound (``+0.077``) is an interval end like any other.
+    """
+    visible = re.sub(r"<!--.*?-->", "", text, flags=re.S)
+    interval = r"\[\s*[-+]?\d[\d.]*%?\s*,\s*[-+]?\d[\d.]*%?\s*\]"
+    named = re.search(r"\bCI\b|confidence interval", visible) is not None
+    return re.search(interval, visible) is not None and named
+
+
 def g13(ctx: Ctx) -> str:
     readme_path = rel(ctx, "README.md")
     need(readme_path.exists(), "missing README.md")
@@ -1238,12 +1250,7 @@ def g13(ctx: Ctx) -> str:
         re.search(r"^\|.*\|\s*\n\|[\s:|-]+\|", first_screen, re.M) is not None,
         "no headline table on the first screen",
     )
-    interval = r"\[\s*-?\d[\d.]*%?\s*,\s*-?\d[\d.]*%?\s*\]"
-    need(
-        re.search(interval, first_screen) is not None
-        and re.search(r"\bCI\b|confidence interval", first_screen) is not None,
-        "no confidence interval in the first-screen finding",
-    )
+    need(first_screen_interval(first_screen), "no confidence interval in the first-screen finding")
     need(
         "quickstart" in first_screen.lower() and "```" in first_screen,
         "no quickstart on the first screen",
