@@ -114,51 +114,97 @@ because its runs have wall-clock limits.
   batch ends) and resumes only with `--amendment` naming a frozen amendment of prereg 0004 that
   says how the affected runs are handled and names the stop's time in a ```json defect-resume```
   block. The day-7 stop does not resume.
+- Operating rules (D-036). G6 and E0 part 2 are relaunched only through
+  `tools/e0g6_driver.sh` (a preflight first; it stops at the first step that fails) and watched
+  by `tools/wait_e0g6.sh`. The local arm launches only if the fast ship-check at the banking
+  commit prints G5 PASS and G6 PASS. It is launched between 21:00 and 23:45 UTC from a fresh
+  shell, after every commit: `mkdir -p runs/e1 && setsid nohup .venv/bin/python -m
+  noisefloor.e1 local prereg/0004-e1-factorial.md >> runs/e1/log.txt 2>&1 < /dev/null & echo
+  $! > runs/e1/pid`. Then `bash tools/wait_e1.sh` runs as a harness-tracked background task,
+  restarted first on every wake-up, with its two-hour limit kept off 23:45 to 00:30 UTC on
+  launch night, and an hourly check-in fires into the session. Nothing in git changes until the
+  first batch is banked. During batches a check-in only reads and commits; CPU-heavy work waits
+  until `python3 tools/runcheck.py e1-gap --need <seconds>` prints `E1-GAP: OPEN`, and every
+  shell command starts with `echo 19 > /proc/self/autogroup; echo 1000 >
+  /proc/self/oom_score_adj`. After a restart or a stop the relaunch comes first: `python3
+  tools/runcheck.py e1-relaunch --rotate`, a note for any `aborted.json` it lists, the same
+  launch command, and `python -m noisefloor.e1 note local --reason "..."` for the interruption.
+- The E1 analysis runs only after both arms have ended (prereg 0004), that is, after Raj's end
+  point for the Claude slice is in this repository; the local arm alone yields no E1 result.
 
 ## Claude arm on Raj's machine (G7)
 
 The Claude tiers of E1 run through headless Claude Code on a machine where the billing guard is
-clean (D-004, D-019). This hosted session cannot run them by design. Steps for Raj:
+clean (D-004, D-019). This hosted session cannot run them by design. As prereg 0004 says, the
+E1 analysis waits until both arms have ended, so the analysis (which also writes E3 on E1), the
+post-E1 check, the report's E1 sections, and the final review all wait for this slice's end
+point (D-036 item 2). Steps for Raj:
 
-1. Clone the repository (one clone only) at or after the commit that froze prereg/0004, with
-   the G6 and E0 part 2 artifacts banked, then `make setup` and `make doctor`. Its `billing guard` row must read `clean`: no `ANTHROPIC_API_KEY`,
-   `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_USE_*`, or `apiKeyHelper` in any
-   user, project, or managed settings file. The `claude` CLI must be logged in to the Max plan
-   (check with `/status` inside `claude`). Turn off paid extra usage in the plan settings for the
-   duration of the arm; the client stops at once and refuses further runs if the CLI reports
-   extra usage in use or a refused plan limit.
-2. Smoke check (one exploratory run, counts as one `agent_run`):
-   `uv run python -m noisefloor.claude_arm smoke --tier claude-haiku`. It must end with
-   `SMOKE: PASS`, which means the child reported the plan login (`apiKeySource none`), only the
-   file tools Read, Glob, Grep, Write, and Edit, no MCP servers, and no memory files. Anything
-   else prints `SMOKE: CHECK <what>`: stop and report it.
-3. Run the slice with `uv run python -m noisefloor.e1 claude prereg/0004-e1-factorial.md`
-   from that clone (the runner refuses a plan, pins, or tasks that differ from the frozen ones,
-   a missing SMOKE: PASS, and uncommitted changes under `src/`; do not pull commits that change
-   `src/` while the slice runs, or the slice stops until a resume accepts the new code as a
-   deviation). It is resumable: rerun the same command each day. Daily caps are the
-   budget.toml caps times the smaller of budget.toml's `cap_share` (0.2) and `CAP_SHARE`, so
-   at most 6 runs a day (about 30 days for 180 runs); a faster slice needs `cap_share` raised
-   in budget.toml by Raj (Claude never raises a cap). The turn cap per run is
-   `claude_agent_max_turns` times that share (8 at 0.2); a run whose cap would be below its
-   planned 8 steps is refused, so do not set `CAP_SHARE` below 0.2.
-4. The slice ends when every planned run of the tiers still served is banked or 45 days after
-   the freeze, whichever comes first; the runner then records an end point (run it once on or
-   after day 45 if the slice has not finished; it records the end whatever stop is open), and
-   its outcomes are not analyzed before then.
-   An early end is `uv run python -m noisefloor.e1 end claude --reason "..."`, a deviation. Do
-   not update Claude Code while it runs (its children run with `DISABLE_AUTOUPDATER=1`), and
-   run the smoke check on the version the slice will use: a first run on a version no smoke run
-   passed on, or a later new version, stops the slice until a smoke run on it prints SMOKE: PASS
-   and
+1. Clone the branch `claude/gifted-darwin-k7q99b` (one clone only) at or after the commit that
+   runs `e0_validity` (STATUS.md names it when the local arm starts), and check that
+   `artifacts/g6/recovery.json` and `artifacts/e0/coverage-0005.json` exist. The slice needs
+   macOS or Linux (on Windows, WSL). Then `make setup` and `make doctor`. Its `billing guard`
+   row must read `clean`: no `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`,
+   `CLAUDE_CODE_USE_*`, or `apiKeyHelper` in any user, project, or managed settings file. The
+   doctor does not read settings `env` blocks, so also check that `env | grep '^ANTHROPIC_'`
+   prints nothing and that no settings file has an `env` block with `ANTHROPIC_*` or
+   `CLAUDE_CODE_USE_*` entries (they could remap the model aliases). The `claude` CLI must be
+   logged in to the Max plan (check with `/status` inside `claude`). Turn off paid extra usage
+   in the plan settings, and turn off auto-update for interactive use too
+   (`DISABLE_AUTOUPDATER=1` in the shell profile or in the `env` block of
+   `~/.claude/settings.json`) until the end point: each new CLI version stops the slice until a
+   smoke run on it passes.
+2. Smoke check (one exploratory run that counts as one of that UTC day's `agent_run`s, so run it
+   the day before the first slice day, or expect one run fewer that day):
+   `uv run python -m noisefloor.claude_arm smoke --tier claude-haiku`. It exits 0 only when its
+   last line is `SMOKE: PASS`: the child reported the plan login (`login: OK 'none'`, with the
+   quotes), only the file tools Read, Glob, Grep, Write, and Edit, no MCP servers, no memory
+   files, and a model ID (a Haiku model) and CLI version. `SMOKE: CHECK <what>` or
+   `SMOKE: NOT RUN ...` (for example a login that is not the plan's, which the stream refuses)
+   exits 1: stop and report it. The smoke writes `artifacts/pilot/claude-smoke.jsonl`, the
+   record that the slice started after a pass.
+3. Run the slice with `uv run python -m noisefloor.e1 claude prereg/0004-e1-factorial.md` from
+   that clone once in every UTC day (a UTC-timed cron or launchd job works: the cap counts per
+   UTC date, and a day without a call is lost). It is resumable. The runner refuses a plan,
+   pins, or tasks that differ from the frozen ones, a missing SMOKE: PASS, and uncommitted
+   changes under `src/` (if it says to commit first, run `git restore src uv.lock
+   pyproject.toml` instead: committing an accidental edit records a code change). Do not merge
+   or pull the session branch into the slice clone before the end point: this session pushes
+   rows to it, a merged change under `src/` stops the slice until a resume accepts it as a
+   deviation, and a change to a pinned file (for example `src/noisefloor/e1.py`) makes every
+   later call refuse, the one that records the end included. Push mid-slice backups to a
+   separate branch (for example `claude-slice`), which this session neither merges nor reads
+   before the end. Daily caps are the budget.toml caps times the smaller of budget.toml's
+   `cap_share` (0.2) and `CAP_SHARE`: at most 6 runs a day (about 30 days for 180 runs). A
+   faster slice needs `cap_share` raised in budget.toml by Raj (Claude never raises a cap; at
+   0.5 the cap is 15 runs a day); then commit budget.toml with the ledger and keep it at the
+   highest value used, because `make budget` checks every past day against the current file.
+   The turn cap per run is the smaller of the planned 8 steps and `claude_agent_max_turns`
+   times that share (8 at 0.2, so a raise never changes it); a run whose cap would be below its
+   planned steps is refused, so do not set `CAP_SHARE` below 0.2. Read each day's output: a
+   `model calls refused (...)` line that names paid extra usage or an API-key login means do
+   not run again until it is fixed, because the refusal stops only that day's call.
+4. The slice ends when every planned run of the tiers still served is banked, or at
+   2026-12-26T04:21:42Z (45 days after the freeze of 0004 at 2026-11-11T04:21:42Z), whichever
+   comes first. If it has not finished by then, run the command once at or after that instant
+   (on 2026-12-26 after 04:21:42 UTC, not earlier that day): it records the end point whatever
+   stop is open and prints `e1 Claude slice: ended (45 days after the freeze, stopped or not)`.
+   Check that the last row of `artifacts/e1/stops-claude.jsonl` has kind `end_point`. An early
+   end is `uv run python -m noisefloor.e1 end claude --reason "..."`, a deviation. Run the
+   smoke check on the version the slice will use: a first run on a version no smoke run passed
+   on, or a later new version, stops the slice until a smoke run on it prints SMOKE: PASS and
    `uv run python -m noisefloor.e1 resume claude --note "<version change>"` accepts it as a
    deviation. If a tier is served by a model ID other than its first run's, that tier starts no
-   further run and the others go on. A Claude Code child that did not start clean, or three
-   infra_error runs in a row (in banking order, also across a pair), stop the slice for
-   repair. Any stop prints its reason and the
-   resume command (exit code 3). Stops, resumes, and ends of the slice are recorded only on
-   this machine (the commands refuse where the billing guard is not clean).
-5. Commit `artifacts/e1/claude.jsonl`, `artifacts/e1/stops-claude.jsonl`, and
+   further run and the others go on (early in the slice that can leave fewer than the 150
+   Claude-tier runs G7 needs). A Claude Code child that did not start clean, three infra_error
+   runs in a row (in banking order, also across a pair), or an infra_error share over the
+   limit stop the slice for repair. Exit code 3 means a stop is open or the slice has ended:
+   read the last row of `artifacts/e1/stops-claude.jsonl` (`end_point` means done); the resume
+   command is printed on the next call. Stops, resumes, and ends of the slice are recorded only
+   on this machine (the commands refuse where the billing guard is not clean).
+5. After the end point, commit `artifacts/e1/claude.jsonl`, `artifacts/e1/stops-claude.jsonl`,
    `artifacts/usage/ledger-claude.jsonl` (tokens and `plan_equivalent_usd`, an API-price
-   estimate, never cash). These files are written only on Raj's machine, so they merge with
-   this session's work without conflicts; push to the session branch or send the files back.
+   estimate, never cash), and `artifacts/pilot/claude-smoke.jsonl`, plus budget.toml if
+   `cap_share` was raised. These files are written only on Raj's machine, so they merge with
+   this session's work without conflicts: fetch, merge the session branch, push, and tell this
+   session. The E1 analysis and everything after it start then.

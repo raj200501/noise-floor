@@ -808,3 +808,84 @@ analysis-code pin fixes the corrected code; none rests on E1 data, which do not 
 6. The policy-bounds interval of a success rate is cut to [0, 1] (a reviewer saw an upper end of
    1.001 in the Terminal-Bench report); E2 and E3 are re-banked with that one change, recorded in
    CORRECTIONS.md.
+
+## D-036 2026-11-11 Operating rules for the validation runs and E1, from a pre-mortem (before acting on them)
+A read-only pre-mortem (five lenses, each finding checked by an adversarial verifier) of the G6
+and E0 part 2 runs, their banking, the E1 local arm, resources, and the Claude runbook found
+procedure gaps and no defect that changes a result. These rules hold from now on. None changes
+`src/`, a preregistration, or a gate; the checks live in `tools/runcheck.py`,
+`tools/e0g6_driver.sh`, `tools/wait_e0g6.sh`, and `tools/wait_e1.sh`.
+1. Launch condition. Neither arm reads coverage verdicts before it starts (`require_validation`
+   checks that the artifacts exist, the analysis code, and the list of failing cells), and the
+   first confirmatory run closes the preregistered route for replacing a failing method (0004,
+   0005). So the local arm launches only when the fast ship-check at the banking commit prints
+   G5 PASS and G6 PASS, with `src/evalstats/data/validity.json` and
+   `artifacts/headline_cells.json` committed. Otherwise no arm starts, Raj is asked not to start
+   the Claude slice, the hold is recorded, and amendments of 0003, 0004 (an analysis-code block),
+   and for a GLMM kind 0006 are frozen before any confirmatory run.
+2. The E1 analysis waits for both arms (prereg 0004: it "refuses to run until both arms have
+   ended"). The local arm alone yields no E1 result: the build, E3 on E1 (G8), the post-E1 check
+   (G7), the report's E1 sections, and the final review (G12) start once Raj's end point for the
+   Claude slice is in this repository. When the local arm has ended and nothing else remains,
+   STATUS reads BLOCKED ON RAJ. `python -m noisefloor.e1 claude` is never run in this hosted
+   session: it can write the slice's stop log before the billing guard refuses a call.
+3. CPU and memory during E1, an interpretation of brief 10.2 steps 1 and 4. E1 runs have
+   wall-clock limits, every shell command gets a scheduler autogroup with the same weight as the
+   model server (D-024), and a Qwen3-4B server at concurrency 2 leaves about 4 GB of memory.
+   While the local arm runs a batch, a loop iteration or heartbeat is the check on a background
+   run: it reads the process, the log, `free -m`, and `df`, and commits banked rows. The fast
+   ship-check, tests, lint, typecheck, `make ci` or `make prepush`, R, report builds,
+   simulations, and workflows run only after `python3 tools/runcheck.py e1-gap --need <s>`
+   prints `E1-GAP: OPEN` (the arm waits between blocks and the job ends before the next 00:00
+   or 12:00 UTC boundary less 10 minutes), or after the arm ends. During the arm every shell
+   command starts with `echo 19 > /proc/self/autogroup; echo 1000 > /proc/self/oom_score_adj`,
+   so it yields the CPU and is the process killed if memory runs out. The arm itself is launched
+   from a fresh shell with `setsid`, so its autogroup keeps nice 0.
+4. Launch window and keep-alive. The arm is launched between 21:00 and 23:45 UTC, after the
+   RELEASE-READY update and every commit. The launch checks run once, so nothing in git changes
+   until the first batch is banked; a change in that window means kill and relaunch. The
+   waiter `tools/wait_e1.sh` runs as a harness-tracked task, restarted first on every wake-up,
+   and its two-hour limit must not fall between 23:45 and 00:30 UTC on launch night; an hourly
+   scheduled check-in fires into this session while the arm runs; after a restart or stop the
+   relaunch comes before anything else. If the arm dies in its first batch and cannot be
+   relaunched before 00:15 UTC, the runner waits for the next 00:00 UTC and the first batch's
+   completed runs become a day of their own; that is recorded with `python -m noisefloor.e1 note
+   local` and reported as the off-plan schedule 0004 describes.
+5. Relaunching the local arm: `python3 tools/runcheck.py e1-relaunch` refuses while an arm,
+   batch runner, or model server is alive and lists each unbanked workspace; `--rotate` moves
+   aside the output of a workspace from which nothing would be salvaged, so the retry does not
+   replay the cached model replies of the killed attempt (0004: interrupted runs run again from
+   the beginning). An `aborted.json` it lists is recorded with `e1 note local`. Then the same
+   launch command.
+6. Relaunching G6 and E0 part 2: only through `tools/e0g6_driver.sh`, which runs `python3
+   tools/runcheck.py e0g6-preflight` first (no other driver or study process; no uncommitted
+   change under `src/`, `uv.lock`, or `pyproject.toml`; a cut final line in a raw row file is
+   removed and printed, which 0005 and 0006 allow, and noted in docs/LOG.md; every line is a JSON
+   object; the environment is the one the rows recorded) and stops at the first step that
+   fails. The running `runs/e0g6/driver.sh` (git-ignored) goes on to the end. The waiter
+   `tools/wait_e0g6.sh` also exits when no raw row file has grown for 45 minutes.
+7. Nothing under `src/` changes in the main checkout from now until both arms have ended, apart
+   from the `e0_validity` commit: rows from a dirty tree are refused only at banking, and an
+   uncommitted file under `src/` makes the E1 arm exit at its next batch boundary. Fixes are
+   drafted in a separate worktree outside the checkout.
+8. Before banking, completeness is read from the raw rows, not the log: every G6 seed, every
+   replicate index of every 0005 cell, and no step exit after the last start line. The bank
+   commands are exactly those in STATUS.md (`e0_run bank` with 0003 first and `--only`). The
+   generator strings that `recovery.json` and `coverage-0005.json` record are not runnable as
+   written; fixing them would change pinned files, so they are documented here. `e0_validity`
+   also rewrites `artifacts/headline_cells.json`, so the REPORT claim that counts headline cells
+   is updated in the same commit, with a CORRECTIONS entry if its number changes.
+9. Review flow (G12). The brief sends non-blocking issues to docs/REVIEW_LOG.md and lets a
+   reviewed commit differ from HEAD only in `artifacts/review/`, STATUS.md, and docs/LOG.md, so a
+   reviewer that appends to REVIEW_LOG.md makes its own review stale. The reviewer now writes
+   only `artifacts/review/latest.json` and reuses the id of an issue the log already lists; the
+   main session copies new non-blocking issues into the log in the first commit of the next
+   final-sequence turn and reviews again. The brief says where the issues go, not who writes them.
+10. Deferred changes under `src/`: rotating the output of any unbanked workspace in
+   `orchestrate._prepare`; treating a salvaged workspace that has an `aborted.json` as a failed
+   batch; a client latch after a paid-extra-usage refusal; a guard in `report.e1_mde` for a fit
+   that is not estimable; refusing to start the validation runs from a dirty tree. Each waits
+   until both arms have ended (a commit under `src/` during an arm records a code change) unless
+   a later entry says otherwise. Changes in pinned files (counting a started first batch as the
+   arm's start, re-raising a missing R in `recover`, comparing E0's environment with G6's) would
+   need a frozen amendment of 0004 with an analysis-code block and are not planned.

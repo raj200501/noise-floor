@@ -53,9 +53,16 @@ per-task results; and leaderboard confidence reports. The full brief is docs/BUI
 - `make secrets-scan`, `make budget`, `make review` (reviewer subagent fallback here)
 - `python tools/ship_check.py --fast` each iteration; the full `make ship-check` only in the
   final sequence (section 10.6). Only a full run counts.
+- While the E1 local arm runs (D-036): CPU-heavy work (the fast ship-check, tests, lint,
+  typecheck, `make ci` or `prepush`, R, report builds, workflows) waits until `python3
+  tools/runcheck.py e1-gap --need <seconds>` prints `E1-GAP: OPEN`; otherwise a check-in only
+  reads and commits rows. Shell commands start with `echo 19 > /proc/self/autogroup; echo 1000 >
+  /proc/self/oom_score_adj`. After a restart, relaunch first (`tools/runcheck.py e1-relaunch`,
+  `tools/e0g6_driver.sh`) and restart the waiter (`tools/wait_e1.sh` or `tools/wait_e0g6.sh`).
 
 ## Loop Protocol (section 10.2, short form)
 
-Orient (STATUS.md, fast ship-check), choose one thing (critical-path failing gate first),
-build test-first, verify, bank with provenance, review milestones, record, commit, raise the bar.
+Orient (STATUS.md, fast ship-check unless an E1 batch runs), choose one thing (critical-path
+failing gate first), build test-first, verify, bank with provenance, review milestones, record,
+commit, raise the bar.
 After three failed attempts at one problem, record it under Blocked and switch.

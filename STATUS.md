@@ -18,12 +18,12 @@ Last fast ship-check (does not count) at 3ad6ea2: 9/14 (G1 to G4, G9 to G11, G13
 | G4 Offline demo | PASS | runs in a network namespace in seconds, matches golden |
 | G5 Library validity | FAIL | part 1 passes; E0 part 2 (0005, frozen) queued after G6 in `runs/e0g6/driver.sh` |
 | G6 Orchestrator validity | FAIL | 0006 frozen; running (`runs/e0g6/driver.sh`, resumable per dataset) |
-| G7 Factorial study | FAIL | 0004 frozen (85 local tasks, 4 days); local arm after G6 and E0 part 2; Claude slice needs Raj |
-| G8 Leaderboards and bounds | FAIL | E2 and both reports done; E3 on E1 comes with the E1 analysis |
+| G7 Factorial study | FAIL | 0004 frozen (85 local tasks, 4 days); local arm after G5 and G6 pass; Claude slice needs Raj; analysis after both arms |
+| G8 Leaderboards and bounds | FAIL | E2 and both reports done; E3 on E1 comes with the E1 analysis, after the Claude slice ends |
 | G9 Library shipped | PASS | wheel installs in a clean venv; 5 examples run; API reference generated |
 | G10 Claim integrity | PASS | README and REPORT pass claimcheck and freshness (260 claim markers) |
 | G11 Preregistration integrity | PASS | 6 preregistrations frozen, artifacts predated by them |
-| G12 Independent review | FAIL | `make review` after E1 |
+| G12 Independent review | FAIL | `make review` after the E1 analysis (after the Claude slice ends) |
 | G13 Documentation | PASS | README per section 11; REPORT within the word range with all sections; 24 references verified |
 | G14 Hygiene | PASS | secrets-scan clean; cash_usd = 0, caps respected; tree clean |
 
@@ -37,21 +37,36 @@ never force). The Needs Raj list had no "move main" item, so nothing was dropped
 
 The container restarted at 21:04 UTC and killed the G6 run after its first rows; the driver was
 relaunched at 21:07 UTC with 4 workers at bbe8e62 (`src/` unchanged, same environment hash) and
-resumes per dataset. README.md now says plainly that the Claude slice of E1 is pending. No `src/`
-change until G6 and E0 part 2 are banked: their rows refuse a dirty or changed `src/`.
+resumes per dataset; a harness-tracked waiter has kept the container up since (no gap in its
+minute log). README.md says plainly that the Claude slice of E1 is pending. No `src/` change
+until both arms end, apart from the `e0_validity` commit: rows from a changed `src/` are refused
+at once, rows from a dirty one only at banking.
+
+A read-only pre-mortem (a five-lens workflow, each finding checked by an adversarial verifier)
+of the validation runs, their banking, the E1 arm, resources, and the Claude runbook found
+procedure gaps and no defect that changes a result. D-036 records the operating rules;
+`tools/runcheck.py` (relaunch preflight, E1 gap test, E1 relaunch check), `tools/e0g6_driver.sh`,
+and the waiters `tools/wait_e0g6.sh` and `tools/wait_e1.sh` implement them, and the Claude runbook
+in docs/PLAN.md is corrected. Two consequences: the local arm launches only if G5 and G6 pass at
+the banking commit, and, as prereg 0004 says, the E1 analysis waits for both arms, so E3 on E1
+(G8), the post-E1 check (G7), and the final review (G12) wait for the end of the Claude slice.
 
 ## Next three actions
 
-1. Keep G6 and E0 part 2 running (`runs/e0g6/driver.sh`, a little over 40 hours on 4 workers;
-   relaunch after any container restart), commit and push raw rows at check-ins.
-2. When both have written every row: bank G6 (`python -m noisefloor.recovery g6-bank
-   prereg/0006-g6-recovery.md`) and E0 part 2 (`python -m noisefloor.e0_run bank
-   prereg/0003-e0-coverage-grid-part1.md prereg/0005-e0-glmm-cells.md --only
-   prereg/0005-e0-glmm-cells.md`), run `python -m noisefloor.e0_validity`, commit, fast
-   ship-check; on G5 and G6 passing, update main (RELEASE-READY).
-3. Launch the E1 local arm at the next 00:00 UTC (`python -m noisefloor.e1 local
-   prereg/0004-e1-factorial.md`, at least 4 UTC days, with check-ins); after it: the E1
-   analysis, the post-E1 check, E3 on E1, the report's E1 sections, and `make review`.
+1. Keep G6 and E0 part 2 running (a little over 40 hours on 4 workers in all): `bash
+   tools/wait_e0g6.sh` as a background task, restarted first on every wake-up; relaunch only with
+   `WORKERS=4 setsid nohup bash tools/e0g6_driver.sh >> runs/e0g6/nohup.out 2>&1 < /dev/null &`;
+   commit and push raw rows at check-ins.
+2. When the driver has ended: check completeness from the raw rows (D-036 item 8), bank G6
+   (`python -m noisefloor.recovery g6-bank prereg/0006-g6-recovery.md`) and E0 part 2 (`python
+   -m noisefloor.e0_run bank prereg/0003-e0-coverage-grid-part1.md prereg/0005-e0-glmm-cells.md
+   --only prereg/0005-e0-glmm-cells.md`), run `python -m noisefloor.e0_validity`, update the
+   REPORT claim that counts headline cells, commit, fast ship-check. If G5 and G6 pass, update
+   main (RELEASE-READY); if either fails, hold E1 and freeze amendments first (D-036 item 1).
+3. If G5 and G6 pass, launch the E1 local arm between 21:00 and 23:45 UTC as docs/PLAN.md
+   ("Operating rules") says, with `tools/wait_e1.sh` and an hourly check-in; during batches,
+   check-ins only (`tools/runcheck.py e1-gap`). When the arm ends, the analysis waits for the
+   Claude slice: STATE BLOCKED ON RAJ unless other work remains.
 
 ## Usage to date
 
@@ -60,16 +75,20 @@ Local model runs: pilot p1 24, screening s2 11 (exploratory, suite v1), s3 84 (s
 
 ## Needs Raj
 
-1. Claude subject arm (G7 needs at least 150 Claude-tier runs): the billing guard blocks Claude
-   children in this hosted session by design. When E1 is preregistered, run the arm on a machine
-   where `make doctor` shows the guard clean, following docs/PLAN.md ("Claude arm on Raj's
-   machine"), starting with `python -m noisefloor.claude_arm smoke`. The daily cap is budget.toml's
-   cap times the smaller of its `cap_share` (0.2) and `CAP_SHARE`: 6 runs a day, about 30 days
-   for the 180 planned runs; only Raj can raise `cap_share` in budget.toml. Timing: the runner
-   needs a clone with the G6 and E0 part 2 artifacts banked (expected around 2026-11-13), and
-   the slice starts no run 45 days after the freeze of 0004 (from 2026-12-26). At 6 runs a day
-   the 150 Claude-tier runs that G7 needs take 25 days, so start by 2026-12-01 (by 2026-11-26
-   for all 180).
+1. Claude subject arm (G7 needs at least 150 Claude-tier runs). The billing guard blocks Claude
+   children in this hosted session by design, so the slice runs on Raj's machine, following
+   docs/PLAN.md ("Claude arm on Raj's machine"), starting with `python -m noisefloor.claude_arm
+   smoke`. As preregistered, the E1 analysis waits until both arms have ended, so E3 on E1 (G8),
+   the post-E1 check (G7), and the final review (G12) all wait for the slice's end point. Start
+   on the first day the banked G6 and E0 part 2 artifacts are pushed (expected around 2026-11-13
+   or 14), from the branch `claude/gifted-darwin-k7q99b` at or after the `e0_validity` commit.
+   The daily cap is budget.toml's cap times the smaller of `cap_share` (0.2) and `CAP_SHARE`: 6
+   runs a UTC day, and the smoke run takes one of its day's runs. All 180 planned runs then need
+   31 UTC days and the 150 that G7 needs 26, so start by 2026-11-25 for all 180 and by
+   2026-11-30 for 150; the slice starts no run from 2026-12-26T04:21:42Z on. Only Raj can raise
+   `cap_share` in budget.toml (0.5 gives 15 runs a day); a raised value ships with the ledger and
+   stays at the highest value used. Push mid-slice backups to a separate branch, and merge the
+   session branch into the slice clone only after the end point.
 2. raise-v1-public: its web page returns a proxy 403 here, so it is dropped from the verified
    references; its integrity tools were ported from a clone with Apache-2.0 attribution.
    Optional: check the reference by hand.

@@ -42,9 +42,13 @@ Output, in this order:
     "blocking": [{"id": "B<n>", "title": "...", "where": "file:line or artifact",
                   "evidence": "..."}],
     "non_blocking": [{"id": "N<n>", "title": "..."}]}
-2. Append each non-blocking issue (id and title, dated) to docs/REVIEW_LOG.md.
+   For a non-blocking issue that docs/REVIEW_LOG.md already lists, reuse its id; give a new
+   issue the next free id. Do not edit docs/REVIEW_LOG.md: the reviewed commit may differ from
+   HEAD only in artifacts/review/, STATUS.md, and docs/LOG.md, so the main session copies new
+   non-blocking issues into the log before the next review (DECISIONS.md D-036 item 9).
+2. List the non-blocking issues the log does not list yet (id and title).
 3. End your reply with `REVIEW: SHIP` or `REVIEW: BLOCK`, followed (for BLOCK) by a numbered list
    of blocking issues, each with its evidence.
 
-Never edit code, tests, preregistrations, artifacts other than artifacts/review/latest.json, or
-any gate. Never run experiments or call models.
+Never edit code, tests, preregistrations, docs/REVIEW_LOG.md, artifacts other than
+artifacts/review/latest.json, or any gate. Never run experiments or call models.

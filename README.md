@@ -130,7 +130,10 @@ until both studies finish, and nothing in this README presents them as results.
 this repository is built, whose billing guard blocks Claude children by design, so the slice
 waits for a run on Raj's machine that follows the runbook in [docs/PLAN.md](docs/PLAN.md)
 ("Claude arm on Raj's machine"). Until it runs there are no Claude results, and G7, which
-requires Claude-tier runs, cannot pass. The local arm of E1 runs here once G5 and G6 pass.
+requires Claude-tier runs, cannot pass. The local arm of E1 runs here once G5 and G6 pass, but
+as preregistered the E1 analysis runs only after both arms have ended. So E1 reports no result
+from either arm until the slice ends, and E3 on E1 (G8) and the review of the finished study
+(G12) wait for that too.
 
 ## How it works
 
