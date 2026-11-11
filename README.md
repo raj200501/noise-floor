@@ -10,7 +10,7 @@ the board are statistically separated, and <!-- claim:e2.tb2.first -->15 of its
 a gap of <!-- claim:nf.tb2.mde -->0.097 with 80% power (median over adjacent pairs), while the median
 adjacent gap is <!-- claim:nf.tb2.gap -->0.007: most of the ordering sits below the noise floor.
 
-![Terminal-Bench entries: success rate of each submission with its task-clustered interval](docs/figures/e2-tb2-scores.svg)
+![Terminal-Bench adjacent pairs: each gap between neighbouring entries with its paired interval; nearly all cross zero](docs/figures/e2-tb2-gaps.svg)
 
 | Leaderboard (confidence report) | Entries | Tasks | Adjacent pairs separated | Median rank-interval width | Could rank first | Detectable gap* | Median adjacent gap* |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -83,8 +83,8 @@ resolve.
 
 | Result | Finding | Artifact | Plan |
 |---|---|---|---|
-| Terminal-Bench 2.0 reanalysis | <!-- claim:e2.tb2.adjacent.supported -->2 of <!-- claim:e2.tb2.adjacent.pairs -->65 adjacent pairs separated; median rank interval <!-- claim:e2.tb2.rankwidth -->35 ranks wide | [results.json](artifacts/e2/tb2/results.json) | [`prereg/0001`](prereg/0001-e2-leaderboard-reanalysis.md) |
-| SWE-bench Verified reanalysis | <!-- claim:e2.epoch.adjacent.supported -->3 of <!-- claim:e2.epoch.adjacent.pairs -->31 adjacent pairs separated; the leader's margin over second is <!-- claim:e2.epoch.top.diff -->+0.041 (CI <!-- claim:e2.epoch.top.lo -->+0.010 to <!-- claim:e2.epoch.top.hi -->+0.073) | [results.json](artifacts/e2/epoch-swebench/results.json) | [`prereg/0001`](prereg/0001-e2-leaderboard-reanalysis.md), [`prereg/0002`](prereg/0002-e2-amend-epoch-reference-rule.md) |
+| Terminal-Bench 2.0 reanalysis ([scores](docs/figures/e2-tb2-scores.svg)) | <!-- claim:e2.tb2.adjacent.supported -->2 of <!-- claim:e2.tb2.adjacent.pairs -->65 adjacent pairs separated; median rank interval <!-- claim:e2.tb2.rankwidth -->35 ranks wide | [results.json](artifacts/e2/tb2/results.json) | [`prereg/0001`](prereg/0001-e2-leaderboard-reanalysis.md) |
+| SWE-bench Verified reanalysis ([scores](docs/figures/e2-epoch-swebench-scores.svg), [gaps](docs/figures/e2-epoch-swebench-gaps.svg)) | <!-- claim:e2.epoch.adjacent.supported -->3 of <!-- claim:e2.epoch.adjacent.pairs -->31 adjacent pairs separated; the leader's margin over second is <!-- claim:e2.epoch.top.diff -->+0.041 (CI <!-- claim:e2.epoch.top.lo -->+0.010 to <!-- claim:e2.epoch.top.hi -->+0.073) | [results.json](artifacts/e2/epoch-swebench/results.json) | [`prereg/0001`](prereg/0001-e2-leaderboard-reanalysis.md), [`prereg/0002`](prereg/0002-e2-amend-epoch-reference-rule.md) |
 | Policy sensitivity (E3) | Adjacent orderings that hold under every scoring of ambiguous runs: <!-- claim:e3.tb2.identified -->1 on Terminal-Bench, <!-- claim:e3.epoch.identified -->19 on SWE-bench Verified (<!-- claim:e3.epoch.robust -->3 also with sampling error) | [bounds.json](artifacts/e3/bounds.json) | [`prereg/0001`](prereg/0001-e2-leaderboard-reanalysis.md) |
 | Library validity (E0, synthetic) | <!-- claim:e0.cells -->22 coverage cells simulated; the cells that fail the coverage rule (a small-sample bootstrap design) are flagged as unsupported and make the library warn; <!-- claim:e0.crosschecks -->22 cross-checks against statsmodels and R agree within tolerance | [coverage.json](artifacts/e0/coverage.json) | [`prereg/0003`](prereg/0003-e0-coverage-grid-part1.md) |
 | Factorial study (E1) | Preregistered and frozen; not yet run, so no results | n/a | [`prereg/0004`](prereg/0004-e1-factorial.md), [`prereg/0005`](prereg/0005-e0-glmm-cells.md), [`prereg/0006`](prereg/0006-g6-recovery.md) |

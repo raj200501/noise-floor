@@ -63,7 +63,10 @@ def test_build_check_and_skip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, c
     monkeypatch.setattr(report, "FIGURES", tmp_path / "docs" / "figures")
     assert report.main(["--check"]) == 1
     assert report.main([]) == 0
-    skipped = "skipped ['e1-shares.svg', 'e1-mde.svg', 'e2-epoch-swebench-scores.svg']"
+    skipped = (
+        "skipped ['e1-shares.svg', 'e1-mde.svg', 'e2-epoch-swebench-scores.svg', "
+        "'e2-tb2-gaps.svg', 'e2-epoch-swebench-gaps.svg']"
+    )  # the fixture has no adjacent pairs, so neither board gets a gap figure
     assert skipped in capsys.readouterr().out
     assert report.main(["--check"]) == 0
     manifest = json.loads((tmp_path / "docs" / "figures" / "manifest.json").read_text())
@@ -156,3 +159,38 @@ def test_line_chart_end_labels() -> None:
 
     assert labels(report.line_chart(apart, **kw)) == ["a", "b", "a", "b"]  # legend + ends
     assert labels(report.line_chart(close, **kw)) == ["a", "b"]  # legend only
+
+
+def test_gap_figure_marks_the_separated_pairs(tmp_path, monkeypatch) -> None:
+    import json
+
+    from noisefloor import report
+
+    pairs = [
+        {
+            "higher": "a",
+            "lower": "b",
+            "difference": 0.0001,
+            "lo": -0.05,
+            "hi": 0.05,
+            "supported": False,
+        },
+        {
+            "higher": "b",
+            "lower": "c",
+            "difference": 0.08,
+            "lo": 0.02,
+            "hi": 0.14,
+            "supported": True,
+        },
+    ]
+    results = {"prereg": "p", "sets": {"primary": {"level": 0.95, "q1": {"pairs": pairs}}}}
+    board = tmp_path / "artifacts" / "e2" / "x"
+    board.mkdir(parents=True)
+    (board / "results.json").write_text(json.dumps(results))
+    monkeypatch.setattr(report, "REPO", tmp_path)
+    made = report.e2_gaps("x")
+    assert made is not None
+    svg, _sources = made
+    assert "1 of 2 intervals exclude zero" in svg and "+0.080 separated" in svg
+    assert ">0.000<" in svg  # a gap that rounds to zero carries no sign

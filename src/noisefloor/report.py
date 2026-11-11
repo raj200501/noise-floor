@@ -375,11 +375,60 @@ def e2_scores(board: str) -> tuple[str, list[Path]] | None:
     return svg, [path]
 
 
+def _signed(value: float) -> str:
+    """A difference to 3 decimals with its sign, and 0.000 for one that rounds to zero."""
+    return "0.000" if abs(value) < 0.0005 else f"{value:+.3f}"
+
+
+def e2_gaps(board: str) -> tuple[str, list[Path]] | None:
+    """Every adjacent pair's gap with its 95% paired, task-clustered interval, in rank order.
+
+    A pair is separated (prereg 0001, question 1) when its interval excludes zero; the zero
+    line is the plot's reference.
+    """
+    path = REPO / "artifacts" / "e2" / board / "results.json"
+    if not path.exists():
+        return None
+    data = json.loads(path.read_text())
+    primary = data["sets"]["primary"]
+    pairs = (primary.get("q1") or {}).get("pairs") or []
+    if not pairs:  # results without adjacent pairs have no gap figure
+        return None
+    rows = [
+        Row(
+            label=f"{i + 1} vs {i + 2}: {short_label(str(p['higher']))}",
+            estimate=float(p["difference"]),
+            lo=float(p["lo"]),
+            hi=float(p["hi"]),
+            note=_signed(float(p["difference"])) + (" separated" if p["supported"] else ""),
+        )
+        for i, p in enumerate(pairs)
+    ]
+    level = round(100 * float(primary["level"]))
+    reach = max(max(abs(r.lo or 0.0), abs(r.hi or 0.0)) for r in rows)
+    bound = math.ceil(reach * 20) / 20  # the next multiple of 0.05
+    separated = sum(1 for p in pairs if p["supported"])
+    svg = interval_chart(
+        rows,
+        title=f"{BOARDS.get(board, board)}: each adjacent gap with its {level}% paired interval",
+        subtitle=(
+            f"{separated} of {len(rows)} intervals exclude zero; paired on shared tasks, "
+            f"clustered by task; analysis plan {data['prereg']}."
+        ),
+        axis_label="difference in success rate, higher-ranked minus lower-ranked entry",
+        domain=(-bound, bound),
+        tick_format=lambda v: f"{v:+.2f}" if v else "0",
+    )
+    return svg, [path]
+
+
 FIGURES_BUILDERS: dict[str, Callable[[], tuple[str, list[Path]] | None]] = {
     "e1-shares.svg": e1_shares,
     "e1-mde.svg": e1_mde,
     "e2-tb2-scores.svg": lambda: e2_scores("tb2"),
     "e2-epoch-swebench-scores.svg": lambda: e2_scores("epoch-swebench"),
+    "e2-tb2-gaps.svg": lambda: e2_gaps("tb2"),
+    "e2-epoch-swebench-gaps.svg": lambda: e2_gaps("epoch-swebench"),
 }
 
 
