@@ -8,7 +8,7 @@ docs/LOG.md.
 
 ## Gates
 
-Last fast ship-check (does not count) at c39565e: 7/14 (G2 failed on two test-only `type: ignore` lines, fixed in 22f7de8).
+Last fast ship-check (does not count) at 0c851c3: 7/14 (G1 to G4, G9, G11, G14 pass).
 
 | Gate | Status | Evidence / next step |
 |------|--------|----------------------|
@@ -16,7 +16,7 @@ Last fast ship-check (does not count) at c39565e: 7/14 (G2 failed on two test-on
 | G2 Static quality | PASS | ruff, ruff format, mypy --strict clean; every `type: ignore` has a reason |
 | G3 CI parity | PASS | ci.yml runs `make ci` on 3.11 and 3.12; `make prepush` passes before every push |
 | G4 Offline demo | PASS | runs in a network namespace in seconds, matches golden |
-| G5 Library validity | PASS (part 1) | E0 part 2 (0005, frozen) cells must run and pass |
+| G5 Library validity | FAIL | part 1 passes; E0 part 2 (0005, frozen) must run and pass (`runs/e0g6/driver.sh`) |
 | G6 Orchestrator validity | FAIL | 0006 frozen; 200 datasets to run (`runs/e0g6/driver.sh`) |
 | G7 Factorial study | FAIL | 0004 frozen (85 local tasks, 4 days); local arm after G6 and E0 part 2; Claude slice needs Raj |
 | G8 Leaderboards and bounds | FAIL | E2 and both reports done; E3 on E1 comes with the E1 analysis |
