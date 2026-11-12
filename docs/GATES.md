@@ -49,7 +49,15 @@ dead proxies (evidence says `env-only`), plus `UV_OFFLINE=1`, `NOISEFLOOR_OFFLIN
   is the last one written for it. Every line of a counted index carries, for a grouped cell,
   `e0_glmm_seed(group, i)`, and, for an artifact banked with stamps, that artifact's environment
   and analysis code from a clean `src/`, stamped at or after the plan's `frozen_at`; an
-  amendment's artifact must name both as 16-hex strings (D-039, D-040, D-041). Limitation: the three simultaneous rank cells (`R-*-sim`) record the
+  amendment's artifact must name both as 16-hex strings (D-039, D-040, D-041). For a grouped
+  cell whose component has a planted value its group's configuration fixes (the preregistration's
+  ` ```json recovery-config ` `planted` object with the cell's `params.planted` overrides
+  replacing whole top-level keys, as `noisefloor.recovery.run_e0_glmm` builds it, read by
+  `g6_planted_truths`: the task variance plus half of each task-by-factor variance, the
+  model-by-task and model variances, each two-level factor's effect squared over four, and a zero
+  share for a factor planted at 0), every counted line's `truth` must equal that value within
+  1e-12, while a component set by a dataset's own draws stays unchecked (N22, D-041).
+  Limitation: the three simultaneous rank cells (`R-*-sim`) record the
   simulator's own joint verdict per replicate (`hit`, with no truth or interval), so G5 counts
   those verdicts rather than recounting them from ranks (D-040).
 - Replicates at least 2,000 per cell, or 500 when `interval_type` is a bootstrap (`bootstrap`,
@@ -92,7 +100,8 @@ equals the recomputed mean of estimate minus planted. Each banked dataset equals
 artifact's environment and analysis code from a clean `src/` and with a stamp time at or after
 the preregistration's `frozen_at`; datasets carry `converged` and `error` as their raw rows do;
 and every dataset's planted value
-for a component the recovery-config fixes (the task, model-by-task, and model variances, each
+for a component the recovery-config fixes (the task variance plus half of each planted
+task-by-factor variance, the model-by-task and model variances, each
 two-level factor's contribution, effect squared over four, and a zero share for a factor planted
 at 0) is that value (D-039, D-041).
 

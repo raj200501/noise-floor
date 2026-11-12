@@ -75,10 +75,13 @@ so a file moved into artifacts/review/ hid that it left the reviewed code. Fixed
 - N21: the README's new safeguard bullet said every interval method behind the results was
   coverage-checked; it now names the one without a cell (the bounded-difference interval behind
   E3's robust counts). Fixed.
-- N22: G5 takes a grouped GLMM line's truth from the line and does not compare it with the
-  planted values prereg 0005's recovery-config fixes, as G6 now does (N6). Latent: no 0005 cell
-  is banked. Open: added with the G5 counterpart of `g6_planted_truths` before E0 part 2 is
-  banked (D-041).
+- N22: G5 took a grouped GLMM line's truth from the line and did not compare it with the
+  planted values prereg 0005's recovery-config fixes, as G6 does (N6). Fixed before E0 part 2 is
+  banked: each counted line of a grouped cell whose component the config fixes (16 cells: 9 in
+  e1, 7 in e1-het; the local-arm groups have none) must carry that value to 1e-12, with the
+  group's overrides applied as the study applies them; checked against the real rows so far and
+  by two independent verifiers (D-041 item 7). The G6 task truth now adds half of each planted
+  task-by-factor variance, as the study does (0006 plants none).
 - N23: no gate checked that stamped raw rows were made after their preregistration froze. G6
   and G5 now require it (stamp time at or after the plan's `frozen_at`); all current G6 rows
   pass. Fixed (D-041).

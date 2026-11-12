@@ -652,6 +652,229 @@ def test_raw_covered_ties_lines_to_seeds_and_stamps(tmp_path: Path) -> None:
         ship_check.raw_covered(ctx, "G-x", 4, **kw)
 
 
+PREREG_0005 = "prereg/0005-e0-glmm-cells.md"
+
+
+def test_g6_planted_truths_add_half_of_each_task_by_factor_variance() -> None:
+    """The task truth is the study's (G6 verifier), and every truth named matches the study.
+
+    Each value equals ``noisefloor.recovery``'s planted value on a dataset simulated from
+    prereg 0005's recovery-config, with and without group e1-het's task-by-factor variances.
+    """
+    import math
+
+    from noisefloor import recovery
+
+    het = {"harness": 0.25, "steps": 0.25, "timeout": 0.25}
+    planted = {
+        "task_var": 4.0,
+        "model_task_var": 0.5,
+        "model": [0.6, 0.0, -0.6],
+        "factors": {"harness": 0.5, "concurrency": 0.0},
+        "interactions": het,
+    }
+    assert ship_check.g6_planted_truths({"planted": planted}) == pytest.approx(
+        {
+            "task": 4.0 + 0.75 / 2,
+            "model:task": 0.5,
+            "model": 0.24,
+            "harness": 0.5**2 / 4,
+            "concurrency": 0.0,
+            "share:concurrency": 0.0,
+        }
+    )
+    assert ship_check.g6_planted_truths({"planted": {"task_var": 4.0}}) == {"task": 4.0}
+    config = ship_check.prereg_block(_ctx(TOOLS.parent), PREREG_0005, "recovery-config")
+    analyzed = ["task", "model:task", *recovery.FIXED_TERMS]
+    for inter in ({}, het):
+        block = {**config, "planted": {**config["planted"], "interactions": inter}}
+        design, plants, _ = recovery.config_from(block)
+        values = recovery.planted_values(design, plants, recovery.simulate(design, plants, 11))
+        values.update(recovery.planted_shares(values, analyzed))
+        truths = ship_check.g6_planted_truths(block)
+        named = {"task", "model:task", "model", *recovery.TWO_LEVEL, "share:concurrency"}
+        assert set(truths) == named
+        for name, value in truths.items():
+            assert math.isclose(values[name], value, abs_tol=1e-12), name
+
+
+def test_raw_covered_checks_the_truth_a_config_fixes(tmp_path: Path) -> None:
+    """Review N22: with ``truth``, every counted line must carry that planted value."""
+    import json
+
+    raw = tmp_path / "artifacts" / "e0" / "raw"
+    raw.mkdir(parents=True)
+
+    def write(truths: list[float | None]) -> None:
+        rows = [
+            {"i": i, "seed": ship_check.e0_glmm_seed("g", i), "lo": 0.0, "hi": 1.0, "truth": t}
+            for i, t in enumerate(truths)
+        ]
+        (raw / "G-x.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+
+    ctx = _ctx(tmp_path)
+    write([0.04000000000000001, 0.04, 0.04])  # the study's float, within 1e-12 of 0.04
+    assert ship_check.raw_covered(ctx, "G-x", 3, group="g", truth=0.04) == 3
+    write([0.04, 0.05, 0.04])
+    with pytest.raises(ship_check.GateError, match=r"cell G-x: replicate 1 .*planted.* 0\.04 "):
+        ship_check.raw_covered(ctx, "G-x", 3, group="g", truth=0.04)
+    assert ship_check.raw_covered(ctx, "G-x", 3, group="g") == 3  # no fixed truth: unchecked
+    write([0.04, 0.04, None])
+    with pytest.raises(ship_check.GateError, match="replicate 2"):
+        ship_check.raw_covered(ctx, "G-x", 3, group="g", truth=0.04)
+    write([0.04, 0.04, 0.9])  # a line past the counted replicates is not checked
+    assert ship_check.raw_covered(ctx, "G-x", 2, group="g", truth=0.04) == 2
+
+
+def test_grouped_truths_apply_a_cells_overrides_to_top_level_planted_keys(tmp_path: Path) -> None:
+    """A group's planted values are the recovery-config's with the cell's overrides replacing
+    whole top-level keys, as noisefloor.recovery.run_e0_glmm builds them (review N22)."""
+    import json
+
+    planted = {
+        "model": [0.6, 0.0, -0.6],
+        "factors": {"harness": 0.5, "concurrency": 0.0},
+        "day": [0.0, 0.1],
+        "task_var": 4.0,
+        "model_task_var": 0.5,
+        "interactions": {},
+    }
+    (tmp_path / "prereg").mkdir()
+    config = "```json recovery-config\n" + json.dumps({"planted": planted}) + "\n```\n"
+    (tmp_path / "prereg" / "0005-x.md").write_text(config)
+
+    def cell(cid: str, group: str | None, component: str, **over: object) -> dict[str, object]:
+        params: dict[str, object] = {"component": component}
+        if group is not None:
+            params["group"] = group
+        if over:
+            params["planted"] = over
+        return {"cell": cid, "params": params}
+
+    eq = [0.3, 0.3, -0.3]
+    cells = [
+        cell("G-a-task", "a", "task"),
+        cell("H-a-concurrency", "a", "share:concurrency"),
+        cell("G-a-day", "a", "day"),  # set by each dataset's batches: not fixed
+        cell("G-b-task", "b", "task", interactions={"harness": 0.25, "steps": 0.25}),
+        cell("G-c-model", "c", "model", model=eq),
+        cell("G-c-harness", "c", "harness", model=eq),
+        cell("G-d-harness", "d", "harness", factors={"harness": 0.2}),
+        cell("H-d-concurrency", "d", "share:concurrency", factors={"harness": 0.2}),
+        cell("L-e-score", "e", "score:m0"),
+        cell("S-f", None, "task"),  # not a grouped cell
+    ]
+    truths = ship_check.grouped_truths(_ctx(tmp_path), "prereg/0005-x.md", cells)
+    assert truths == pytest.approx(
+        {
+            "G-a-task": 4.0,
+            "H-a-concurrency": 0.0,
+            "G-b-task": 4.25,
+            "G-c-model": 0.08,
+            "G-c-harness": 0.0625,
+            "G-d-harness": 0.01,  # the override replaced factors, concurrency with it
+        }
+    )
+    # A grid without grouped cells needs no recovery-config (the base grid has none).
+    assert ship_check.grouped_truths(_ctx(tmp_path), "prereg/none.md", cells[-1:]) == {}
+
+
+def test_g5_hands_each_grouped_cell_its_fixed_truth(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """G5 passes raw_covered the truth a grouped cell's config fixes, and None otherwise (N22)."""
+    import json
+
+    def entry(cid: str, kind: str, reps: int, **params: str) -> dict[str, object]:
+        cell: dict[str, object] = {"cell": cid, "method": "m", "interval_type": kind}
+        cell.update(nominal=0.95, replicates=reps)
+        return {**cell, "params": params} if params else cell
+
+    base = [entry("S-a", "t", 2000)]
+    glmm = [
+        entry("G-e1-task", "parametric_bootstrap", 500, group="e1", component="task"),
+        entry("G-e1-day", "parametric_bootstrap", 500, group="e1", component="day"),
+    ]
+    config = {"planted": {"task_var": 4.0, "interactions": {"harness": 0.5}}}
+    pre = tmp_path / "prereg"
+    pre.mkdir()
+    (pre / "0003-grid.md").write_text("```json e0-grid\n" + json.dumps(base) + "\n```\n")
+    (pre / "0005-glmm.md").write_text(
+        "---\namends: 0003\n---\n```json e0-grid\n" + json.dumps(glmm) + "\n```\n\n"
+        "```json recovery-config\n" + json.dumps(config) + "\n```\n"
+    )
+    chain = [
+        {"file": f"prereg/{name}", "frozen_at": "2026-11-11T00:00:00Z"}
+        for name in ("0003-grid.md", "0005-glmm.md")
+    ]
+    (pre / "CHAIN.jsonl").write_text("".join(json.dumps(e) + "\n" for e in chain))
+    e0 = tmp_path / "artifacts" / "e0"
+    e0.mkdir(parents=True)
+    stamps = {"environment": {"env": "e" * 16}, "analysis_code": "a" * 16}
+    for art, prereg, cells in (
+        ("coverage.json", "prereg/0003-grid.md", base),
+        ("coverage-0005.json", "prereg/0005-glmm.md", glmm),
+    ):
+        banked = [{**c, "covered": c["replicates"]} for c in cells]
+        extra = stamps if art != "coverage.json" else {}
+        (e0 / art).write_text(json.dumps({"prereg": prereg, "cells": banked, **extra}))
+    seen: dict[str, object] = {}
+
+    def recount(ctx: object, cell: str, reps: int, **kw: object) -> int:
+        seen[cell] = kw.get("truth")
+        return reps
+
+    monkeypatch.setattr(ship_check, "check_prereg_link", lambda *args: None)
+    monkeypatch.setattr(ship_check, "raw_covered", recount)
+    with pytest.raises(ship_check.GateError, match="names no headline cells"):  # after the cells
+        ship_check.g5(_ctx(tmp_path))
+    assert seen == {"S-a": None, "G-e1-task": 4.25, "G-e1-day": None}
+
+
+def test_e1_raw_lines_carry_the_planted_values_0005_fixes() -> None:
+    """Review N22 on the real rows: a grouped cell's lines carry the truth prereg 0005 fixes.
+
+    The checked cells are pinned for every group (the local-arm groups have none). Only each
+    line's ``truth`` is read, never an estimate or an interval; a cell whose raw file the running
+    study has not started yet is skipped, and a final line not yet finished (no newline) is left
+    out.
+    """
+    import json
+
+    repo = TOOLS.parent
+    ctx = _ctx(repo)
+    grid = ship_check.prereg_block(ctx, PREREG_0005, "e0-grid")
+    grouped = [c for c in grid if (c.get("params") or {}).get("group")]
+    fixed = ship_check.grouped_truths(ctx, PREREG_0005, grouped)
+    names = ("task", "model_task", "model", "harness", "timeout", "steps", "temperature")
+    het = ("model", "harness", "timeout", "steps", "temperature")
+    assert sorted(fixed) == sorted(
+        [
+            *(f"G-e1-{n}" for n in names),
+            "G-e1-concurrency",
+            "H-e1-concurrency",
+            *(f"G-het-{n}" for n in het),
+            "G-het-concurrency",
+            "H-het-concurrency",
+        ]
+    )
+    checked = 0
+    for cid, value in sorted(fixed.items()):
+        path = repo / "artifacts" / "e0" / "raw" / f"{cid}.jsonl"
+        if not path.exists():
+            continue
+        *complete, _ = path.read_text().split("\n")
+        for number, line in enumerate(complete, 1):
+            if line.strip():
+                truth = json.loads(line)["truth"]
+                assert truth is not None and abs(truth - value) <= 1e-12, (
+                    f"{cid} line {number}: truth {truth}, planted {value}"
+                )
+                checked += 1
+    if checked == 0:
+        pytest.skip("no raw lines yet for any grouped cell with a fixed truth")
+
+
 def test_junit_skips_flag_r_backed_tests(tmp_path: Path) -> None:
     report = tmp_path / "junit.xml"
     report.write_text(

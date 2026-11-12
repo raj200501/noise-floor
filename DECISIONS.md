@@ -1031,3 +1031,11 @@ each one stricter than before (docs/GATES.md):
    the banking sequence in PLAN also runs `python tools/validity_summary.py`; and the G10
    contract names which derived files its rebuild checks cover and which other gates cover the
    rest.
+7. N22 is done (item 3): `grouped_truths` builds each grouped cell's planted configuration as
+   `run_e0_glmm` does (0005's recovery-config with the cell's overrides replacing whole
+   top-level keys), and G5 requires every counted line of a cell whose component that
+   configuration fixes to carry the value to 1e-12 absolute; `g6_planted_truths` adds half of each
+   planted task-by-factor variance to the task truth, as `recovery.planted_values` does. Both
+   planted-value comparisons (G5 and G6) are now absolute only. A workflow implemented it test
+   first and two independent verifiers found no false pass or false fail on the real rows or in
+   the study's formulas for all eight groups.

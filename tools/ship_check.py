@@ -592,13 +592,15 @@ def raw_covered(
     env: str | None = None,
     code: str | None = None,
     frozen: Any = None,
+    truth: float | None = None,
 ) -> int:
     """Recount a cell's covered replicates from artifacts/e0/raw/<cell>.jsonl (indices < reps).
 
     The line counted for each index is the last one written for it (prereg 0005). For a grouped
     cell each counted line must carry its dataset's seed, ``e0_glmm_seed(group, i)``; with
     ``env`` and ``code`` (an artifact banked with stamps) each must name that environment and
-    analysis code from a clean ``src/`` (D-039).
+    analysis code from a clean ``src/`` (D-039); with ``truth``, the planted value the cell's
+    recovery-config fixes (:func:`grouped_truths`), each must carry it as its ``truth`` (N22).
     """
     path = rel(ctx, f"artifacts/e0/raw/{cell}.jsonl")
     need(path.exists(), f"cell {cell}: raw replicates missing")
@@ -620,6 +622,13 @@ def raw_covered(
                 row.get("seed") is not None and int(row["seed"]) == e0_glmm_seed(group, i),
                 f"cell {cell}: replicate {i} does not carry the seed of its group's dataset",
             )
+        if truth is not None:
+            value = row.get("truth")
+            need(
+                value is not None and math.isclose(float(value), truth, rel_tol=0.0, abs_tol=1e-12),
+                f"cell {cell}: replicate {i} has truth {value}, not the planted value "
+                f"{truth:.12g} its recovery-config fixes",
+            )
         if env is not None or code is not None:
             stamp = row.get("stamp") or {}
             need(
@@ -638,10 +647,10 @@ def raw_covered(
     def covered(row: dict[str, Any]) -> bool:
         if row.get("hit") is not None:
             return bool(row["hit"])
-        lo, hi, truth = row.get("lo"), row.get("hi"), row.get("truth")
-        if lo is None or hi is None or truth is None:
+        lo, hi, planted = row.get("lo"), row.get("hi"), row.get("truth")
+        if lo is None or hi is None or planted is None:
             return False
-        return float(lo) <= float(truth) <= float(hi)
+        return float(lo) <= float(planted) <= float(hi)
 
     return sum(covered(rows[i]) for i in range(reps))
 
@@ -827,11 +836,37 @@ def frozen_headline_cells(ctx: Ctx, grids: list[tuple[str, str]]) -> set[str]:
     return cells - retired
 
 
+def grouped_truths(ctx: Ctx, prereg: str, cells: Iterable[dict[str, Any]]) -> dict[str, float]:
+    """The grouped cells of ``prereg`` whose recovery-config fixes their planted value, with it.
+
+    A group's datasets use the recovery-config's ``planted`` object updated with the cell's
+    ``params.planted`` overrides, whole top-level keys replaced, as
+    ``noisefloor.recovery.run_e0_glmm`` builds it. A cell gets the value that
+    :func:`g6_planted_truths` gives its component on that object; a component whose value depends
+    on a dataset's own draws (day, block, most shares, MDE and local-arm rows) gets none (N22).
+    """
+    grouped = [c for c in cells if (c.get("params") or {}).get("group") is not None]
+    if not grouped:
+        return {}
+    config = prereg_block(ctx, prereg, "recovery-config")
+    need(isinstance(config, dict), f"{prereg} recovery-config block is not an object")
+    planted = config.get("planted") or {}
+    out: dict[str, float] = {}
+    for c in grouped:
+        params = c["params"]
+        truths = g6_planted_truths({"planted": {**planted, **(params.get("planted") or {})}})
+        component = str(params.get("component"))
+        if component in truths:
+            out[str(c["cell"])] = truths[component]
+    return out
+
+
 def g5(ctx: Ctx) -> str:
     grids = e0_grids(ctx)
     planned: dict[str, Any] = {}
     cells: dict[str, Any] = {}
     stamped: dict[str, tuple[Any, Any, Any]] = {}  # cell -> (env, analysis code, plan frozen at)
+    truths: dict[str, float] = {}  # grouped cell -> the planted value its config fixes (N22)
     for prereg, art in grids:
         data = load_json(rel(ctx, art))
         need(data.get("prereg") == prereg, f"{art} cites {data.get('prereg')}, not {prereg}")
@@ -845,6 +880,7 @@ def g5(ctx: Ctx) -> str:
         need(set(got) == set(mine), f"{art} cells differ from the frozen grid of {prereg}")
         planned.update(mine)
         cells.update(got)
+        truths.update(grouped_truths(ctx, prereg, block))
         banked_env = (data.get("environment") or {}).get("env")
         if amends(ctx, prereg) is not None:
             # An amendment's cells ran with stamps on every line (prereg 0005), so its artifact
@@ -878,6 +914,7 @@ def g5(ctx: Ctx) -> str:
             env=env,
             code=code,
             frozen=frozen,
+            truth=truths.get(cid),
         )
         need(
             covered == int(cell["covered"]),
@@ -973,17 +1010,21 @@ def g5(ctx: Ctx) -> str:
 
 
 def g6_planted_truths(config: dict[str, Any]) -> dict[str, float]:
-    """Planted values a G6 recovery-config fixes for every dataset (prereg 0006).
+    """Planted values a recovery-config fixes for every dataset (prereg 0006; G5 grouped cells).
 
-    The task and model-by-task variances as given; the model variance as the population variance
-    of the planted model effects; each two-level fixed factor's contribution as effect^2 / 4 (a
-    balanced design), with a share of 0 for a factor planted at 0. Components whose planted value
-    depends on a dataset's own draws (day, block, per-model and MDE rows) are not listed.
+    The task variance plus half of each planted task-by-factor variance; the model-by-task
+    variance as given; the model variance as the population variance of the planted model
+    effects; each two-level fixed factor's contribution as effect^2 / 4 (a balanced design), with
+    a share of 0 for a factor planted at 0. Components whose planted value depends on a dataset's
+    own draws (day, block, per-model and MDE rows) are not listed.
     """
     planted = config.get("planted") or {}
     out: dict[str, float] = {}
     if "task_var" in planted:
-        out["task"] = float(planted["task_var"])
+        # The task truth of noisefloor.recovery.planted_values (src/noisefloor/recovery.py line
+        # 388): the analysis model's task term carries half of each task-by-factor variance.
+        inter = planted.get("interactions") or {}
+        out["task"] = float(planted["task_var"]) + sum(float(v) for v in inter.values()) / 2
     if "model_task_var" in planted:
         out["model:task"] = float(planted["model_task_var"])
     model = [float(x) for x in planted.get("model", [])]
@@ -1081,7 +1122,9 @@ def g6(ctx: Ctx) -> str:
         if name in names:
             need(
                 all(
-                    math.isclose(float(d["components"][name]["planted"]), value, abs_tol=1e-12)
+                    math.isclose(
+                        float(d["components"][name]["planted"]), value, rel_tol=0.0, abs_tol=1e-12
+                    )
                     for d in datasets
                 ),
                 f"{name} planted value differs from the recovery-config's {value:g}",
