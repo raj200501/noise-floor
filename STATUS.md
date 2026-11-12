@@ -87,7 +87,8 @@ Local model runs: pilot p1 24, screening s2 11 (exploratory, suite v1), s3 84 (s
    The daily cap is budget.toml's cap times the smaller of `cap_share` (0.2) and `CAP_SHARE`: 6
    runs a UTC day, and the smoke run takes one of its day's runs. All 180 planned runs then need
    31 UTC days and the 150 that G7 needs 26, so start by 2026-11-25 for all 180 and by
-   2026-11-30 for 150; the slice starts no run from 2026-12-26T04:21:42Z on. Only Raj can raise
+   2026-11-30 for 150 (with no run slot lost to an infra_error, an excluded run, or a refusal;
+   earlier is safer); the slice starts no run from 2026-12-26T04:21:42Z on. Only Raj can raise
    `cap_share` in budget.toml (0.5 gives 15 runs a day); a raised value ships with the ledger and
    stays at the highest value used. Push mid-slice backups to a separate branch, and merge the
    session branch into the slice clone only after the end point.

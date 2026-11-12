@@ -930,3 +930,27 @@ procedure gaps and no defect that changes a result. These rules hold from now on
    docs/REVIEW_LOG.md, so the final review is likely to raise none. With D-036 item 9 a review
    that raises a new non-blocking issue reads `REVIEW: STALE`; at final-sequence step 2 that
    ends the turn as a BLOCK does, and the sequence starts again in a later turn.
+
+## D-038 2026-11-12 Last findings of the D-036 pre-mortem
+The verifiers checked the remaining findings against the branch after D-036 and D-037; most were
+already fixed. Four small ones are applied here (docs and `tools/` only):
+1. The E1 slot estimate is low. The dry run behind prereg 0004's `duration_estimate` ran no
+   violation-family task, the slowest family in screening, so slots may run about 10.5 to 12
+   hours and leave gaps between blocks of about an hour or none, not 2.2 to 2.5 hours. Nothing in
+   the design changes: a batch that cannot start in its block moves to the same block of the
+   next day and is reported as off its planned slot, as 0004 says. Pushes are planned for short
+   gaps, and after day 1 the slots are re-forecast from the timestamps in `runs/e1/alive.txt`.
+2. `tools/runcheck.py e1-gap` read the first-batch wait line as a gap up to the moment the
+   runner process starts. It now reports BUSY from 00:00 to 00:15 UTC while that line is the
+   last one.
+3. A dirty tree during an arm. The runner logs "commit first" and exits without a stop row, and
+   committing the change records a code change. `git restore` of the paths alone leaves staged
+   edits and untracked files, which the runner's check also counts. So the remedy in PLAN for
+   both arms is `git restore --staged --worktree -- src uv.lock pyproject.toml`, then `git clean
+   -n -- src` and removing what it lists, never a commit. `tools/runcheck.py e1-relaunch`
+   refuses a dirty tree, and `.gitignore` now ignores `.DS_Store` and editor swap files, which
+   would otherwise count as untracked files under `src/` on Raj's machine.
+4. The client latch after a paid-extra-usage refusal (D-036 item 10) would help only before the
+   slice starts, and landing it then would add a second change under `src/` to the window that
+   D-034 item 12 keeps for `e0_validity`. It is dropped. Rule 5 rests on the runbook instead:
+   extra usage off for the whole slice, and no further call after a refusal that names it.

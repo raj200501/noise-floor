@@ -91,6 +91,11 @@ def test_gap_reads_the_block_and_the_first_batch_wait(tmp_path: Path) -> None:
     evening = _ts("2026-11-13T22:00:00")
     first = _log(tmp_path, "e1 local arm: the first batch starts at 00:00 UTC, in 7200 s", evening)
     assert rc.gap([ARM], first, evening) == (0, "E1-GAP: OPEN 6600 s")
+    # At 00:00 it wakes and starts the first batch before any runner process exists.
+    midnight = _ts("2026-11-14T00:00:01")
+    due = _log(tmp_path, "e1 local arm: the first batch starts at 00:00 UTC, in 600 s", midnight)
+    code, line = rc.gap([ARM], due, midnight)
+    assert code == 1 and "first batch is due" in line
 
 
 def _workspace(work: Path, name: str, rows: list[dict[str, object]], **notes: object) -> Path:
@@ -130,6 +135,8 @@ def test_relaunch_rotates_replay_prone_outputs_only(tmp_path: Path) -> None:
     assert (keep / "out" / "results.jsonl").exists()
     assert (done / "out").exists()
     assert rc.relaunch([ARM], work, True, now).problems  # never while an arm is alive
+    dirty = rc.relaunch([], work, False, now, porcelain="?? src/noisefloor/.e1.py.swp\n")
+    assert any("never commit" in p for p in dirty.problems)
 
 
 def test_relaunch_counts_lines_and_never_parses_records(tmp_path: Path) -> None:

@@ -30,3 +30,9 @@ dist/
 models/
 # E1 arm locks (noisefloor.e1.arm_lock)
 artifacts/e1/.*.lock
+
+# Editor and desktop droppings (a stray file under src/ would make the E1 runners refuse)
+.DS_Store
+*.swp
+*.swo
+*~

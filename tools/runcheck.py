@@ -245,6 +245,9 @@ def gap(procs: Sequence[Proc], log: Path, now: float, need: float = 0.0) -> tupl
     if match is None:
         return 1, "E1-GAP: BUSY (the last log line is not a wait between blocks)"
     block = 1 if datetime.fromtimestamp(now, UTC).hour < 12 else 2
+    if match.group("block") is None and int(now) % 86_400 <= GRACE_S:
+        # The arm wakes at 00:00 for its first batch and starts it without a log line.
+        return 1, "E1-GAP: BUSY (the first batch is due now: it starts by 00:15 UTC)"
     if match.group("block") is not None and int(match.group("block")) != block:
         return 1, f"E1-GAP: BUSY (the log waits in block b{match.group('block')}, now b{block})"
     left = (int(now) // BLOCK_S + 1) * BLOCK_S - now - MARGIN_S
@@ -263,7 +266,12 @@ def complete_lines(results: Path) -> int:
 
 
 def relaunch(
-    procs: Sequence[Proc], work: Path, nothing_banked: bool, now: float, rotate: bool = False
+    procs: Sequence[Proc],
+    work: Path,
+    nothing_banked: bool,
+    now: float,
+    rotate: bool = False,
+    porcelain: str = "",
 ) -> Report:
     """The e1-relaunch checks and, with ``rotate``, the rotation of replay-prone outputs.
 
@@ -277,6 +285,14 @@ def relaunch(
     if alive:
         rep.problems.append("alive: " + ", ".join(alive) + "; do not relaunch")
         return rep
+    if porcelain.strip():
+        # The arm exits at its next batch boundary while src/ is dirty, and committing the
+        # change records a code change: restore it instead (DECISIONS.md D-036 item 7, D-038).
+        rep.problems.append(
+            "uncommitted changes under src/, uv.lock or pyproject.toml: restore them, never "
+            "commit (git restore --staged --worktree -- src uv.lock pyproject.toml; git clean "
+            "-n -- src, then remove what it lists)"
+        )
     for ws in sorted(work.glob("e1-day*")):
         out = ws / "out"
         if (ws / ".banked").exists() or not out.is_dir():
@@ -324,7 +340,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         work = Path(os.environ.get("NOISEFLOOR_WORK", Path.home() / ".cache/noisefloor/work"))
         artifact = REPO / "artifacts/e1/local.jsonl"  # its size only: no record is read
         empty = not artifact.exists() or artifact.stat().st_size == 0
-        rep = relaunch(processes(), work, empty, time.time(), args.rotate)
+        dirty = _git("status", "--porcelain", "--", "src", "uv.lock", "pyproject.toml")
+        rep = relaunch(processes(), work, empty, time.time(), args.rotate, dirty)
         verdict = "RELAUNCH: FAIL" if rep.problems else "RELAUNCH: OK"
     else:
         rep = preflight(

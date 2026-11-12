@@ -83,7 +83,11 @@ because its runs have wall-clock limits.
 - The first batch starts within 15 minutes after 00:00 UTC (launched later, the runner waits).
   A batch of slot day k, block b starts only in block b of the arm's day k or later, so the arm
   takes at least four UTC days (8 slots of 9 to 10 hours at the dry run's rates, `e1-design`
-  `duration_estimate`); slots that overrun move to the same block of the next day.
+  `duration_estimate`); slots that overrun move to the same block of the next day. The dry run
+  had no violation-family runs (the slowest family in screening), so slots may run about 10.5
+  to 12 hours, leaving gaps between blocks of about an hour or none (D-038): plan pushes for
+  short gaps, and after day 1 re-forecast from the timestamps in `runs/e1/alive.txt` (counts
+  and times only, never outcomes).
 - Banked runs are committed after each check-in and pushed (after `make prepush`, which needs
   the CPU) at the next gap between blocks; pushes happen only while the arm waits between
   blocks. The same holds for tests,
@@ -108,8 +112,13 @@ because its runs have wall-clock limits.
   `artifacts/e1/stops-local.jsonl` (reported as a deviation), and the runner exits with code 3
   until `python -m noisefloor.e1 resume local --note "<repair>"` records the repair. A batch
   that banks nothing because its calls were refused, or new run code (a commit under `src/`, a
-  new lock, or another llama-server build, its binary or shared libraries), also stops the arm; uncommitted changes under
-  `src/` block every batch until they are committed. A defect found during the arm is recorded
+  new lock, or another llama-server build, its binary or shared libraries), also stops the arm.
+  While `src/`, `uv.lock`, or `pyproject.toml` has uncommitted changes (staged edits and
+  untracked files included), the runner logs "commit first" at its next batch boundary and
+  exits without a stop row; do not commit (that records a code change and needs a resume, a
+  deviation): run `git restore --staged --worktree -- src uv.lock pyproject.toml`, list
+  untracked files with `git clean -n -- src` and remove them, then relaunch (D-038;
+  `tools/runcheck.py e1-relaunch` refuses a dirty tree). A defect found during the arm is recorded
   with `python -m noisefloor.e1 stop local --reason "..."` (it takes effect when the running
   batch ends) and resumes only with `--amendment` naming a frozen amendment of prereg 0004 that
   says how the affected runs are handled and names the stop's time in a ```json defect-resume```
@@ -170,8 +179,10 @@ point (D-036 item 2). Steps for Raj:
    that clone once in every UTC day (a UTC-timed cron or launchd job works: the cap counts per
    UTC date, and a day without a call is lost). It is resumable. The runner refuses a plan,
    pins, or tasks that differ from the frozen ones, a missing SMOKE: PASS, and uncommitted
-   changes under `src/` (if it says to commit first, run `git restore src uv.lock
-   pyproject.toml` instead: committing an accidental edit records a code change). Do not merge
+   changes under `src/` (if it says to commit first, do not: committing an accidental edit
+   records a code change; run `git restore --staged --worktree -- src uv.lock pyproject.toml`,
+   list untracked files with `git clean -n -- src`, remove them, and run the command again;
+   for backups, stage the slice files by path, never `git add -A` or `git commit -a`). Do not merge
    or pull the session branch into the slice clone before the end point: this session pushes
    rows to it, a merged change under `src/` stops the slice until a resume accepts it as a
    deviation, and a change to a pinned file (for example `src/noisefloor/e1.py`) makes every
