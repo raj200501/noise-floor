@@ -8,8 +8,11 @@ go, then finalize and update main). History is in docs/LOG.md.
 
 ## Gates
 
-Last fast ship-check (does not count) at d9d04b2: 9/14 (G1 to G4, G9 to G11, G13, G14 pass; G5
-and G6 wait on their running studies, G7 and G8 on E1, G12 on a SHIP review). The release review of d9d04b2 returned BLOCK on B3 (fixed, D-041), so G12 waits for a later day's review.
+Last full ship-check (counts) at d2d0bca: SHIP-CHECK: FAIL 9/14. G1 to G4, G9 to G11, G13, and
+G14 pass (1,424 tests, none skipped, 97.0% line coverage); G5 and G6 wait on their running
+studies, G7 and G8 on E1, and G12 on a SHIP review (the release review of d9d04b2 returned BLOCK
+on B3, fixed in D-041; one review a UTC day). Released: main fast-forwarded to 4f54a6e (docs-only
+changes since d2d0bca; prepush, claimcheck, and freshness pass) on 2026-11-12 at 01:14 UTC.
 
 | Gate | Status | Evidence / next step |
 |------|--------|----------------------|
@@ -32,8 +35,8 @@ and G6 wait on their running studies, G7 and G8 on E1, G12 on a SHIP review). Th
 
 Final-hour sprint (Raj, 2026-11-12 00:50 UTC). The README gained a block on why its numbers hold
 up. The G6 run was paused with SIGSTOP (no work lost) so the tree stays clean for a release review,
-the day's one review run (logged), and the full ship-check before main is updated; it resumes
-after. The release review returned BLOCK on B3: G12's drift check missed files moved into
+the day's one review run (logged), and the full ship-check before main is updated; it resumed at
+01:15 UTC with nothing lost. The release review returned BLOCK on B3: G12's drift check missed files moved into
 artifacts/review/. B3 is fixed, with N20 (E0 part 2 is queued after G6, not running), N21 (the
 safeguard bullet now names the one interval without a coverage cell), and N23 (raw rows must
 postdate their plan, in G5 and G6) (D-041). G12 waits for a later day's review; G5 to G8 wait
