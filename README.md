@@ -40,6 +40,20 @@ follow plans frozen before any interval, ordering test, rank set, or bound was c
 [`prereg/0002`](prereg/0002-e2-amend-epoch-reference-rule.md); `make prereg-verify` checks that
 each plan predates the artifacts that cite it.
 
+**Why these numbers hold up.** Each safeguard below is a check you can run, not a promise:
+
+- *Plans before data.* Every confirmatory analysis follows a preregistration that was frozen,
+  hashed, and committed before its data existed; `make prereg-verify` checks the order.
+- *No hand-typed numbers.* Each result number on this page carries a hidden marker that ties it
+  to a banked artifact; `make claimcheck` and `make freshness` fail if any of them drifts.
+- *Intervals tested before use.* Each interval method behind these results was checked for
+  coverage by simulation at the boards' designs, and the library warns where a check failed.
+- *Results recomputed from pinned data.* `make reproduce` rebuilds every E2 and E3 result from
+  hash-pinned snapshots, and `make ship-check` runs fourteen gates on a fresh clone.
+- *Findings published, including the unflattering ones.* The failing coverage cell, the one
+  interval without a coverage cell of its own, and every review finding and what was done about
+  it are on record ([docs/REVIEW_LOG.md](docs/REVIEW_LOG.md), [CORRECTIONS.md](CORRECTIONS.md)).
+
 **Quickstart** (about a minute; after setup, nothing touches the network):
 
 ```bash
@@ -72,12 +86,11 @@ uv run evalstats rank --help                                    # also: power, d
   default: paired and task-clustered comparisons, Wilson and cluster-robust intervals,
   bootstrap and mixed-model (GLMM) variance components, power and minimum detectable effects,
   simultaneous rank-confidence sets, and policy-sensitivity bounds for runs whose outcome is
-  ambiguous (timeouts, infrastructure errors). The interval methods behind E2 and E3
-  carry a validity record from simulation (E0), except the interval on a pair's bounded
-  difference that E3's robust counts use, which has no coverage cell of its own: using a method
-  on a design at least as small as one where it failed its coverage check emits
-  `UnsupportedDesignWarning`. The GLMM and Wilson cells (E0's second part) are running and not
-  yet banked. API reference in [docs/api](docs/api), runnable examples in
+  ambiguous (timeouts, infrastructure errors). Its intervals carry a validity record from
+  coverage simulations (E0): a method used on a design at least as small as one where it failed
+  its check emits `UnsupportedDesignWarning`. The one exception behind these results is the
+  interval on a pair's bounded difference that E3's robust counts use, which has no coverage cell
+  of its own. The GLMM and Wilson cells (E0's second part) are running and not yet banked. API reference in [docs/api](docs/api), runnable examples in
   [docs/examples](docs/examples).
 - **Confidence reports for public leaderboards** (experiments E2 and E3): each submission's score
   with an interval, every adjacent ordering tested on shared tasks, simultaneous rank intervals,
