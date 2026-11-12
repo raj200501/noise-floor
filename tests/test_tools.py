@@ -635,9 +635,13 @@ def test_raw_covered_ties_lines_to_seeds_and_stamps(tmp_path: Path) -> None:
     write([line(0), line(1), line(2), line(3, stamp={**stamp, "src_dirty": True})])
     with pytest.raises(ship_check.GateError, match="dirty"):
         ship_check.raw_covered(ctx, "G-x", 4, **kw)
-    # A later line for an index replaces an earlier one (prereg 0005), and is the one checked.
-    write([line(0, stamp={**stamp, "env": "x"}), line(0), line(1), line(2), line(3)])
+    # A later line for an index replaces an earlier one (prereg 0005) in the count, but every
+    # line is checked, as the bank checks every line it reads.
+    write([line(0, hit=False), line(0), line(1), line(2), line(3)])
     assert ship_check.raw_covered(ctx, "G-x", 4, **kw) == 4
+    write([line(0, stamp={**stamp, "env": "x"}), line(0), line(1), line(2), line(3)])
+    with pytest.raises(ship_check.GateError, match="another environment"):
+        ship_check.raw_covered(ctx, "G-x", 4, **kw)
 
 
 def test_junit_skips_flag_r_backed_tests(tmp_path: Path) -> None:

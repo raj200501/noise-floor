@@ -46,9 +46,10 @@ dead proxies (evidence says `env-only`), plus `UV_OFFLINE=1`, `NOISEFLOOR_OFFLIN
 - `artifacts/e0/raw/<cell>.jsonl` holds one line per replicate (`i`, `truth`, `lo`, `hi`,
   `estimate`, `hit`); G5 recounts each cell's coverage from it and requires the banked count to
   match. A replicate with a missing bound counts as not covered. The line counted for an index
-  is the last one written for it; for a grouped cell it carries `e0_glmm_seed(group, i)`, and for
-  an artifact banked with stamps it names that artifact's environment and analysis code from a
-  clean `src/` (D-039). Limitation: the three simultaneous rank cells (`R-*-sim`) record the
+  is the last one written for it. Every line of a counted index carries, for a grouped cell,
+  `e0_glmm_seed(group, i)`, and, for an artifact banked with stamps, that artifact's environment
+  and analysis code from a clean `src/`; an amendment's artifact must name both as 16-hex strings
+  (D-039, D-040). Limitation: the three simultaneous rank cells (`R-*-sim`) record the
   simulator's own joint verdict per replicate (`hit`, with no truth or interval), so G5 counts
   those verdicts rather than recounting them from ranks (D-040).
 - Replicates at least 2,000 per cell, or 500 when `interval_type` is a bootstrap (`bootstrap`,

@@ -602,13 +602,18 @@ def raw_covered(
     path = rel(ctx, f"artifacts/e0/raw/{cell}.jsonl")
     need(path.exists(), f"cell {cell}: raw replicates missing")
     rows: dict[int, dict[str, Any]] = {}
+    lines: list[dict[str, Any]] = []
     for line in path.read_text().splitlines():
         if line.strip():
             row = json.loads(line)
             rows[int(row["i"])] = row
+            lines.append(row)
     need(all(i in rows for i in range(reps)), f"cell {cell}: raw replicates incomplete")
-    for i in range(reps):
-        row = rows[i]
+    # Every line of a counted index is checked, as the bank checks every line it reads.
+    for row in lines:
+        i = int(row["i"])
+        if i >= reps:
+            continue
         if group is not None:
             need(
                 row.get("seed") is not None and int(row["seed"]) == e0_glmm_seed(group, i),
@@ -835,6 +840,17 @@ def g5(ctx: Ctx) -> str:
         planned.update(mine)
         cells.update(got)
         banked_env = (data.get("environment") or {}).get("env")
+        if amends(ctx, prereg) is not None:
+            # An amendment's cells ran with stamps on every line (prereg 0005), so its artifact
+            # names one environment and one analysis code, which every counted line must match.
+            for value, what in (
+                (banked_env, "environment.env"),
+                (data.get("analysis_code"), "analysis_code"),
+            ):
+                need(
+                    isinstance(value, str) and re.fullmatch(r"[0-9a-f]{16}", value) is not None,
+                    f"{art} has no 16-hex {what}",
+                )
         if banked_env is not None or data.get("analysis_code") is not None:
             stamped.update(dict.fromkeys(got, (banked_env, data.get("analysis_code"))))
     failing: list[str] = []

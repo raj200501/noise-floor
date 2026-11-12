@@ -22,9 +22,10 @@ authored tracked file (D-039). The non-blocking issues, with what was done:
 - N6: G6 now requires each banked dataset to equal its committed raw row, the raw rows to be
   exactly the preregistered seeds from one environment, analysis code, and a clean src/, and
   the planted values the recovery-config fixes to be the ones every dataset used. Fixed (D-039).
-- N7: G5 now requires each counted raw line of a grouped cell to carry its dataset's seed and,
-  for an artifact banked with stamps, each line to name that environment and analysis code from
-  a clean src/. Fixed (D-039).
+- N7: G5 now requires every raw line of a counted index to carry its dataset's seed (grouped
+  cells) and, for an artifact banked with stamps, to name that environment and analysis code
+  from a clean src/, as the bank requires; an amendment's artifact must name both. Fixed (D-039,
+  D-040).
 - N8: review ids are matched as whole ids in G12 and `make review`. Fixed.
 - N9: the G14 turn check is strict again: a run that began a turn past the cap fails it, even
   when the stream check stopped it at once. Fixed (D-039 replaces D-037 item 2).
