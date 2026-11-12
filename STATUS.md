@@ -20,8 +20,8 @@ changes since d2d0bca; prepush, claimcheck, and freshness pass) on 2026-11-12 at
 | G2 Static quality | PASS | ruff, ruff format, mypy --strict clean; every `type: ignore` has a reason |
 | G3 CI parity | PASS | ci.yml runs `make ci` on 3.11 and 3.12; `make prepush` passes before every push |
 | G4 Offline demo | PASS | runs in a network namespace in seconds, matches golden |
-| G5 Library validity | FAIL | part 1 passes; E0 part 2 (0005, frozen) queued after G6 in `runs/e0g6/driver.sh` |
-| G6 Orchestrator validity | FAIL | 0006 frozen; running (`runs/e0g6/driver.sh`, resumable per dataset) |
+| G5 Library validity | FAIL | part 1 passes; E0 part 2 (0005, frozen) running since 2026-11-12 03:36 UTC, same environment as G6 |
+| G6 Orchestrator validity | FAIL | 0006 frozen; all 200 rows written (2026-11-12 03:36 UTC, one environment, clean `src/`); banked with E0 part 2 once that finishes |
 | G7 Factorial study | FAIL | 0004 frozen (85 local tasks, 4 days); local arm after G5 and G6 pass; Claude slice needs Raj; analysis after both arms |
 | G8 Leaderboards and bounds | FAIL | E2 and both reports done; E3 on E1 comes with the E1 analysis, after the Claude slice ends |
 | G9 Library shipped | PASS | wheel installs in a clean venv; 5 examples run; API reference generated |

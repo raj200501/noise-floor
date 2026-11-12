@@ -1,0 +1,15 @@
+{
+ "c1569b433f0f5a99": {
+  "blas": "/usr/lib/x86_64-linux-gnu/blas/libblas.so.3.12.0",
+  "lapack": "3.12.0",
+  "lme4": "1.1.35.1",
+  "matrix": "1.6.5",
+  "numpy": "2.5.4",
+  "pandas": "3.1.0",
+  "python": "3.12.3",
+  "r": "R version 4.3.3 (2024-02-29)",
+  "scipy": "1.18.1",
+  "src_tree": "036a0cbba3232459efc071ba6951bb9a833c5500",
+  "uv_lock": "b916d999cc7c0de2089d39f2703f7a1f175fed85"
+ }
+}
