@@ -1039,3 +1039,23 @@ each one stricter than before (docs/GATES.md):
    planted-value comparisons (G5 and G6) are now absolute only. A workflow implemented it test
    first and two independent verifiers found no false pass or false fail on the real rows or in
    the study's formulas for all eight groups.
+
+## D-042 2026-11-12 Banking-day checks while E0 part 2 runs
+1. `python3 tools/runcheck.py e0g6-complete` is the completeness check of D-036 item 8, and
+   banking starts only after it prints `COMPLETE: YES`: no driver or study process alive; every
+   seed of 0006 with exactly one row and no row for any other seed; every replicate index of
+   every 0005 cell present, each grouped line carrying its dataset's seed
+   (`e0_glmm_seed`, restated with the standard library and pinned to it by a test); whole JSON
+   lines only; one environment and analysis code from a clean `src/` across both studies; and
+   no step exit since the driver log's last start, with its last step finished. It reads only
+   indices, seeds, and stamps, never an estimate, interval, or hit.
+2. The G6 bank command ran in a throwaway clone of 5749aab on the committed rows (all
+   preregistered seeds were written at 03:36 UTC), to find a failure in the banking path a day
+   early. It ran without error. Nothing from it was committed, and its numbers stay out of this
+   repository until G6 and E0 part 2 are banked together by the same command, as README says. E0
+   part 2 gets no interim look: its sample is fixed and no decision depends on one.
+3. No `git stash` (or any command that rewrites tracked files) in the main checkout while a
+   study appends to tracked raw row files: a stash resets them to HEAD under the running writer.
+   One stash and pop around a quick typecheck comparison on 2026-11-12 lost nothing (every file
+   of group `e1` kept contiguous indices, whole lines, and equal counts); comparisons against HEAD
+   use `git show HEAD:<path>` into the scratchpad instead.

@@ -39,7 +39,10 @@ whole run during 2026-11-13. Raw rows are committed and pushed at each check-in 
 hours); nothing is banked or read as a result until the driver ends. A harness-tracked waiter
 keeps the container up (no gap in its minute log since the 21:04 UTC restart on 2026-11-11).
 README and REPORT now say G6's rows are written and E0 part 2 is running (they had said G6 was
-running and E0 part 2 queued).
+running and E0 part 2 queued). For banking day (D-042): `python3 tools/runcheck.py e0g6-complete`
+reads completeness from the raw rows (indices, seeds, and stamps only), and the G6 bank command
+was rehearsed in a throwaway clone on the committed rows; it ran without error. Nothing was
+banked or committed from the rehearsal.
 
 Final-hour sprint (Raj, 2026-11-12 00:50 UTC). The README gained a block on why its numbers hold
 up. The G6 run was paused with SIGSTOP (no work lost) so the tree stays clean for a release review,
@@ -88,7 +91,8 @@ and a test do; D-040), plus four smaller ones, also in docs/REVIEW_LOG.md.
    tools/wait_e0g6.sh` as a background task, restarted first on every wake-up; relaunch only with
    `WORKERS=4 setsid nohup bash tools/e0g6_driver.sh >> runs/e0g6/nohup.out 2>&1 < /dev/null &`;
    commit and push raw rows at check-ins.
-2. When the driver has ended: check completeness from the raw rows (D-036 item 8), bank G6
+2. When the driver has ended: `python3 tools/runcheck.py e0g6-complete` must print `COMPLETE:
+   YES` (completeness from the raw rows, D-036 item 8; D-042), then bank G6
    (`python -m noisefloor.recovery g6-bank prereg/0006-g6-recovery.md`) and E0 part 2 (`python
    -m noisefloor.e0_run bank prereg/0003-e0-coverage-grid-part1.md prereg/0005-e0-glmm-cells.md
    --only prereg/0005-e0-glmm-cells.md`), run `python -m noisefloor.e0_validity` and `python

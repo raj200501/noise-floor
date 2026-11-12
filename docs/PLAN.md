@@ -53,7 +53,8 @@ G6 and E0 part 2 (synthetic, CPU only, Laplace bootstrap with task-jackknife ref
 85-task E1 shape (D-034 item 1): about 8 core-minutes per dataset in a timing run at 80 tasks,
 1,200 GLMM datasets (G6 200, E0 groups `e1` and `e1-het` 500 each), so a little over 40 hours on
 4 workers, plus the cheap local-arm and non-GLMM cells). Both studies write all their rows before
-either is banked; then bank both, run `python -m noisefloor.e0_validity` and `python
+either is banked; `python3 tools/runcheck.py e0g6-complete` must then print `COMPLETE: YES`
+(completeness read from the raw rows, D-036 item 8); then bank both, run `python -m noisefloor.e0_validity` and `python
 tools/validity_summary.py` (G10 checks the summaries), and commit their outputs
 (the list of failing cells under `src/evalstats/data/`) before the local arm's first batch and
 before Raj clones for the Claude slice; then the E1 local arm (both arms refuse to start before
@@ -126,7 +127,8 @@ because its runs have wall-clock limits.
   block. The day-7 stop does not resume.
 - Operating rules (D-036). G6 and E0 part 2 are relaunched only through
   `tools/e0g6_driver.sh` (a preflight first; it stops at the first step that fails) and watched
-  by `tools/wait_e0g6.sh`. The local arm launches only if the fast ship-check at the banking
+  by `tools/wait_e0g6.sh`; banking starts only after `python3 tools/runcheck.py e0g6-complete`
+  prints `COMPLETE: YES`. The local arm launches only if the fast ship-check at the banking
   commit prints G5 PASS and G6 PASS. It is launched between 21:00 and 23:45 UTC from a fresh
   shell, after every commit: `mkdir -p runs/e1 && setsid nohup .venv/bin/python -m
   noisefloor.e1 local prereg/0004-e1-factorial.md >> runs/e1/log.txt 2>&1 < /dev/null & echo

@@ -12,6 +12,14 @@ one repair it makes, so the repair is the one the runs themselves use.
     is removed and printed: prereg 0005 and 0006 let that dataset run again; note it in
     docs/LOG.md) and every line is a JSON object; and the environment of this checkout is the
     one the rows recorded. Prints ``PREFLIGHT: PASS env <hash>`` or ``PREFLIGHT: FAIL``.
+``e0g6-complete``
+    Before G6 and E0 part 2 are banked (D-036 item 8): completeness read from the raw rows, not
+    the log. The driver has ended; every seed of prereg 0006 has exactly one row and no other
+    seed has one; every replicate index of every cell of prereg 0005 has a line, and each line of
+    a grouped cell carries its dataset's seed; every line is whole; the rows of both studies share
+    one environment and one analysis code from a clean ``src/``; and the driver log shows no step
+    exit since its last start and a finished last step. Only indices, seeds, and stamps are read.
+    Prints ``COMPLETE: YES`` or ``COMPLETE: NO`` (exit 1).
 ``e1-gap [--need SECONDS]``
     Whether CPU-heavy work (tests, ``make prepush``, the fast ship-check, R, report builds,
     workflows) may run now beside the E1 local arm: ``E1-GAP: NONE`` when no arm runs,
@@ -31,6 +39,7 @@ one repair it makes, so the repair is the one the runs themselves use.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -58,6 +67,11 @@ GAP_LINE = re.compile(
 )
 STUDY_MODULES = ("noisefloor.recovery", "noisefloor.e0_run")
 DRIVERS = ("e0g6/driver.sh", "e0g6_driver.sh")
+P5 = "prereg/0005-e0-glmm-cells.md"
+P6 = "prereg/0006-g6-recovery.md"
+DRIVER_LOG = "runs/e0g6/log.txt"
+STEP_EXIT = re.compile(r"^[\w-]+ exit \d+")  # both drivers: "<step> exit <code>"
+FINISHED = re.compile(r"^(?:all done|e0 cells done) ")  # tools/e0g6_driver.sh; the old driver
 
 Proc = tuple[int, list[str]]
 
@@ -322,10 +336,135 @@ def relaunch(
     return rep
 
 
+def prereg_json(path: Path, name: str) -> Any:
+    """A preregistration's ```json <name>``` block, read as ``noisefloor.preregs.prereg_block``."""
+    found = re.search(rf"```json[ \t]+{re.escape(name)}[ \t]*\n(.*?)\n```", path.read_text(), re.S)
+    if found is None:
+        raise ValueError(f"{_show(path)} has no {name} block")
+    return json.loads(found.group(1))
+
+
+def glmm_seed(group: str, replicate: int) -> int:
+    """``noisefloor.recovery.e0_glmm_seed`` with the standard library (a test pins the two)."""
+    digest = hashlib.sha256(f"e0-glmm:{group}:{replicate}".encode()).hexdigest()
+    return int(digest[:12], 16)
+
+
+def _lines(path: Path, rep: Report) -> list[dict[str, Any]]:
+    """The whole lines of a raw row file as objects; a cut or unreadable line is a problem."""
+    data = path.read_bytes().decode()
+    if data and not data.endswith("\n"):
+        rep.problems.append(f"{_show(path)}: last line incomplete")
+    rows: list[dict[str, Any]] = []
+    for n, line in enumerate(data.split("\n")[:-1], 1):
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            row = None
+        if not isinstance(row, dict):
+            rep.problems.append(f"{_show(path)}: line {n} is not a JSON object")
+            continue
+        rows.append(row)
+    return rows
+
+
+def _stamp(row: dict[str, Any]) -> tuple[str, str, Any]:
+    stamp = row.get("stamp")
+    if not isinstance(stamp, dict):
+        stamp = {}
+    return str(stamp.get("env")), str(stamp.get("analysis")), stamp.get("src_dirty")
+
+
+def complete(procs: Sequence[Proc], repo: Path = REPO) -> Report:
+    """The e0g6-complete checks; reads only indices, seeds, and stamps of the raw rows."""
+    rep = Report()
+    busy = study_processes(procs)
+    if busy:
+        rep.problems.append("alive: " + "; ".join(busy))
+    stamps: set[tuple[str, str, Any]] = set()
+
+    seeds = [int(s) for s in prereg_json(repo / P6, "g6-seeds")]
+    raw = repo / "artifacts/g6/raw.jsonl"
+    rows = _lines(raw, rep) if raw.exists() else []
+    count: dict[int, int] = {}
+    for row in rows:
+        count[int(row.get("seed", -1))] = count.get(int(row.get("seed", -1)), 0) + 1
+        stamps.add(_stamp(row))
+    missing = [s for s in seeds if s not in count]
+    rep.lines.append(f"G6: {len(seeds) - len(missing)} of {len(seeds)} preregistered seeds")
+    if missing:
+        rep.problems.append(f"G6: no row for {len(missing)} of {len(seeds)} preregistered seeds")
+    twice = sorted(s for s, n in count.items() if n > 1)
+    if twice:
+        rep.problems.append(f"G6: seeds with two rows: {twice[:5]}")
+    extra = sorted(set(count) - set(seeds))
+    if extra:
+        rep.problems.append(f"G6: rows for seeds not preregistered: {extra[:5]}")
+
+    grid = prereg_json(repo / P5, "e0-grid")
+    tally: dict[str, list[int]] = {}
+    short: list[str] = []
+    for cell in grid:
+        group = (cell.get("params") or {}).get("group")
+        counts = tally.setdefault("ungrouped" if group is None else str(group), [0, 0])
+        counts[1] += 1
+        reps = int(cell["replicates"])
+        path = repo / "artifacts/e0/raw" / f"{cell['cell']}.jsonl"
+        lines = _lines(path, rep) if path.exists() else []
+        have = {int(row.get("i", -1)) for row in lines}
+        done = sum(1 for i in range(reps) if i in have)
+        if done == reps:
+            counts[0] += 1
+        else:
+            short.append(f"{cell['cell']} {done}/{reps}")
+        for row in lines:
+            stamps.add(_stamp(row))
+            i = int(row.get("i", -1))
+            if group is not None and 0 <= i < reps and row.get("seed") != glmm_seed(str(group), i):
+                rep.problems.append(
+                    f"{cell['cell']}: replicate {i} does not carry its dataset's seed"
+                )
+                break
+    rep.lines.append(
+        "E0 part 2: " + ", ".join(f"{g} {done} of {n}" for g, (done, n) in tally.items()) + " cells"
+    )
+    if short:
+        rep.problems.append(
+            f"E0 part 2: {len(short)} of {len(grid)} cells incomplete (first {short[0]})"
+        )
+
+    if len(stamps) > 1:
+        rep.problems.append(
+            f"rows span {len(stamps)} environment, analysis code, or dirty-flag combinations"
+        )
+    elif stamps:
+        env, code, dirty = next(iter(stamps))
+        if dirty is not False:
+            rep.problems.append(f"rows ran from a dirty src/ (src_dirty {dirty})")
+        rep.lines.append(f"one stamp in both studies: environment {env}, analysis code {code}")
+
+    log = repo / DRIVER_LOG
+    if not log.exists():
+        rep.problems.append(f"no driver log at {DRIVER_LOG}")
+        return rep
+    text = log.read_text().splitlines()
+    starts = [n for n, line in enumerate(text) if line.startswith("start ")]
+    since = text[starts[-1] :] if starts else text
+    exits = [line for line in since if STEP_EXIT.match(line)]
+    if exits:
+        rep.problems.append(f"driver log: {exits[0]} since the last start")
+    if not any(FINISHED.match(line) for line in since):
+        rep.problems.append("driver log: the last step has not finished since the last start")
+    return rep
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("e0g6-preflight")
+    sub.add_parser("e0g6-complete")
     p_gap = sub.add_parser("e1-gap")
     p_gap.add_argument("--need", type=float, default=0.0, help="seconds the job needs")
     p_gap.add_argument("--log", type=Path, default=REPO / "runs/e1/log.txt")
@@ -336,7 +475,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         code, line = gap(processes(), args.log, time.time(), args.need)
         print(line)
         return code
-    if args.cmd == "e1-relaunch":
+    if args.cmd == "e0g6-complete":
+        rep = complete(processes())
+        verdict = "COMPLETE: NO" if rep.problems else "COMPLETE: YES"
+    elif args.cmd == "e1-relaunch":
         work = Path(os.environ.get("NOISEFLOOR_WORK", Path.home() / ".cache/noisefloor/work"))
         artifact = REPO / "artifacts/e1/local.jsonl"  # its size only: no record is read
         empty = not artifact.exists() or artifact.stat().st_size == 0

@@ -198,3 +198,125 @@ def test_recorded_envs_reads_stamps_and_environment_files(tmp_path: Path) -> Non
         assert "does not parse" in str(exc)
     else:
         raise AssertionError("a broken environments.json must raise")
+
+
+STAMP = {"env": "e1", "analysis": "a1", "src_dirty": False, "at": "2026-11-12T00:00:00Z"}
+
+
+def _fence(name: str, value: object) -> str:
+    return f"```json {name}\n{json.dumps(value)}\n```\n"
+
+
+def _complete_repo(tmp_path: Path) -> Path:
+    """A finished run in miniature: 2 G6 seeds, a grouped and an ungrouped 0005 cell."""
+    repo = tmp_path / "repo"
+    (repo / "prereg").mkdir(parents=True)
+    (repo / "artifacts/g6").mkdir(parents=True)
+    (repo / "artifacts/e0/raw").mkdir(parents=True)
+    (repo / "runs/e0g6").mkdir(parents=True)
+    (repo / rc.P6).write_text("# 0006\n" + _fence("g6-seeds", [7, 8]))
+    grid = [
+        {"cell": "G-x", "replicates": 2, "params": {"group": "g", "component": "task"}},
+        {"cell": "S-y", "replicates": 2, "params": {}},
+    ]
+    (repo / rc.P5).write_text("# 0005\n" + _fence("e0-grid", grid))
+    g6 = [{"seed": s, "components": {}, "stamp": STAMP} for s in (7, 8)]
+    (repo / "artifacts/g6/raw.jsonl").write_text("".join(json.dumps(r) + "\n" for r in g6))
+    grouped = [{"i": i, "seed": rc.glmm_seed("g", i), "stamp": STAMP} for i in (1, 0)]
+    (repo / "artifacts/e0/raw/G-x.jsonl").write_text("".join(json.dumps(r) + "\n" for r in grouped))
+    cells = [{"i": i, "stamp": STAMP} for i in (0, 1)]
+    (repo / "artifacts/e0/raw/S-y.jsonl").write_text("".join(json.dumps(r) + "\n" for r in cells))
+    log = repo / rc.DRIVER_LOG
+    log.write_text("start 2026-11-11T21:07:01Z workers 4 head abc\ng6 done x\nall done x\n")
+    return repo
+
+
+def test_complete_passes_a_finished_run_and_reads_no_outcome(tmp_path: Path) -> None:
+    repo = _complete_repo(tmp_path)
+    rep = rc.complete([], repo)
+    assert rep.problems == []
+    text = "\n".join(rep.lines)
+    assert "G6: 2 of 2 preregistered seeds" in text
+    assert "g 1 of 1" in text and "ungrouped 1 of 1" in text
+    assert "environment e1, analysis code a1" in text
+    # Only the index, the seed, and the stamp are read: outcomes may be anything.
+    path = repo / "artifacts/e0/raw/S-y.jsonl"
+    path.write_text(path.read_text().replace('"stamp"', '"hit": "unread", "stamp"'))
+    assert rc.complete([], repo).problems == []
+
+
+def test_complete_refuses_missing_duplicate_and_foreign_rows(tmp_path: Path) -> None:
+    repo = _complete_repo(tmp_path)
+    g6 = repo / "artifacts/g6/raw.jsonl"
+    g6.write_text(g6.read_text().splitlines()[0] + "\n")  # seed 8 has no row
+    assert any(
+        "G6: no row for 1 of 2 preregistered seeds" in p for p in rc.complete([], repo).problems
+    )
+    row = json.dumps({"seed": 7, "stamp": STAMP})
+    g6.write_text(f"{row}\n{row}\n" + json.dumps({"seed": 8, "stamp": STAMP}) + "\n")
+    assert any("two rows" in p for p in rc.complete([], repo).problems)
+    g6.write_text("".join(json.dumps({"seed": s, "stamp": STAMP}) + "\n" for s in (7, 8, 9)))
+    assert any("not preregistered" in p for p in rc.complete([], repo).problems)
+
+    repo = _complete_repo(tmp_path / "b")
+    cell = repo / "artifacts/e0/raw/S-y.jsonl"
+    cell.write_text(json.dumps({"i": 0, "stamp": STAMP}) + "\n")
+    rep = rc.complete([], repo)
+    assert any("1 of 2 cells incomplete (first S-y 1/2)" in p for p in rep.problems)
+    assert "ungrouped 0 of 1" in "\n".join(rep.lines)
+    (repo / "artifacts/e0/raw/G-x.jsonl").unlink()
+    assert any("2 of 2 cells incomplete" in p for p in rc.complete([], repo).problems)
+
+    repo = _complete_repo(tmp_path / "c")
+    grouped = repo / "artifacts/e0/raw/G-x.jsonl"
+    grouped.write_text(
+        "".join(json.dumps({"i": i, "seed": 5, "stamp": STAMP}) + "\n" for i in (0, 1))
+    )
+    assert any("does not carry its dataset's seed" in p for p in rc.complete([], repo).problems)
+
+
+def test_complete_requires_one_clean_environment_and_whole_lines(tmp_path: Path) -> None:
+    repo = _complete_repo(tmp_path)
+    cell = repo / "artifacts/e0/raw/S-y.jsonl"
+    other = {**STAMP, "analysis": "a2"}
+    cell.write_text(
+        json.dumps({"i": 0, "stamp": STAMP}) + "\n" + json.dumps({"i": 1, "stamp": other}) + "\n"
+    )
+    assert any("2 environment" in p for p in rc.complete([], repo).problems)
+    dirty = {**STAMP, "src_dirty": True}
+    for path in (repo / "artifacts/g6/raw.jsonl", *sorted((repo / "artifacts/e0/raw").iterdir())):
+        path.write_text(path.read_text().replace(json.dumps(STAMP), json.dumps(dirty)))
+    cell.write_text("".join(json.dumps({"i": i, "stamp": dirty}) + "\n" for i in (0, 1)))
+    assert any("dirty" in p for p in rc.complete([], repo).problems)
+
+    repo = _complete_repo(tmp_path / "b")
+    cell = repo / "artifacts/e0/raw/S-y.jsonl"
+    cell.write_text(cell.read_text() + '{"i": 2, "st')
+    assert any("last line incomplete" in p for p in rc.complete([], repo).problems)
+    cell.write_text(json.dumps({"i": 0, "stamp": STAMP}) + "\nnot json\n")
+    assert any("not a JSON object" in p for p in rc.complete([], repo).problems)
+
+
+def test_complete_reads_the_driver_log_since_its_last_start(tmp_path: Path) -> None:
+    repo = _complete_repo(tmp_path)
+    log = repo / rc.DRIVER_LOG
+    log.write_text("start a\ne0-run exit 1\nstart b\ng6 done x\ne0 cells done x\n")
+    assert rc.complete([], repo).problems == []  # the old driver's last line counts as done
+    log.write_text("start a\ng6 done x\ne0-run exit 1\ne0 grouped done x\ne0 cells done x\n")
+    assert any("e0-run exit 1" in p for p in rc.complete([], repo).problems)
+    log.write_text("start a\ng6-run done x\n")
+    assert any("not finished" in p for p in rc.complete([], repo).problems)
+    log.unlink()
+    assert any("no driver log" in p for p in rc.complete([], repo).problems)
+    alive = rc.complete([(1, ["bash", "runs/e0g6/driver.sh"])], _complete_repo(tmp_path / "b"))
+    assert any(p.startswith("alive:") for p in alive.problems)
+
+
+def test_complete_restates_the_seed_and_block_rules_of_src() -> None:
+    from noisefloor.preregs import prereg_block
+    from noisefloor.recovery import e0_glmm_seed
+
+    for group, i in (("e1", 0), ("e1-het", 499), ("e1-local-lo2", 1999)):
+        assert rc.glmm_seed(group, i) == e0_glmm_seed(group, i)
+    for path, name in ((rc.P5, "e0-grid"), (rc.P6, "g6-seeds")):
+        assert rc.prereg_json(rc.REPO / path, name) == prereg_block(rc.REPO / path, name)
