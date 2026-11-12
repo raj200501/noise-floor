@@ -3,6 +3,7 @@
 import importlib.util
 import json
 import os
+import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -320,3 +321,141 @@ def test_complete_restates_the_seed_and_block_rules_of_src() -> None:
         assert rc.glmm_seed(group, i) == e0_glmm_seed(group, i)
     for path, name in ((rc.P5, "e0-grid"), (rc.P6, "g6-seeds")):
         assert rc.prereg_json(rc.REPO / path, name) == prereg_block(rc.REPO / path, name)
+
+
+def test_alive_names_the_arm_by_its_argv_never_a_launching_shell() -> None:
+    launch = ".venv/bin/python -m noisefloor.e1 local prereg/0004-e1-factorial.md"
+    wrapper = (20, ["/bin/bash", "-c", f"{{ eval 'mkdir -p runs/e1 && setsid nohup {launch} &' }}"])
+    subshell = (21, ["/bin/bash", "-c", "{ \\builtin typeset +x '__CLAUDE_CC_COMMAND_TEXT' }"])
+    code, line = rc.alive([wrapper, subshell, RUNNER, SERVER])
+    assert (code, line) == (1, "no E1 local arm")
+    code, line = rc.alive([wrapper, subshell, ARM, RUNNER, SERVER])
+    assert (code, line) == (0, "10")
+    code, line = rc.alive([ARM, (30, [PY, "-m", "noisefloor.e1", "local", "x.md"])])
+    assert (code, line) == (0, "10 30")  # never more than one in practice; both are named
+
+
+def _summaries(repo: Path, cells: list[dict[str, object]], comps: list[dict[str, object]]) -> None:
+    (repo / "artifacts/e0").mkdir(parents=True, exist_ok=True)
+    (repo / "artifacts/g6").mkdir(parents=True, exist_ok=True)
+    (repo / "artifacts/e0/summary-0005.json").write_text(json.dumps({"cells": cells}))
+    (repo / "artifacts/g6/summary.json").write_text(json.dumps({"components": comps}))
+
+
+GOOD_CHECKS = {
+    "frozen plan": True,
+    "validation": True,
+    "server": "frozen pin",
+    "run code": {"dirty": False},
+    "sandbox": True,
+}
+
+
+def _preflight(
+    repo: Path,
+    checks: dict[str, object] | None = None,
+    *,
+    procs: list[tuple[int, list[str]]] | None = None,
+    now: str = "2026-11-13T21:05:00",
+    weights: bool = False,
+    mem_kib: int = 14 * 1024 * 1024,
+    disk_free: int = 12 * 1024**3,
+) -> rc.Report:
+    calls: list[bool] = []
+
+    def run(weights: bool) -> dict[str, object]:
+        calls.append(weights)
+        return dict(GOOD_CHECKS if checks is None else checks)
+
+    rep = rc.preflight_e1(procs or [], repo, _ts(now), run, weights, mem_kib, disk_free)
+    rep.lines.append(f"calls={calls}")
+    return rep
+
+
+def test_e1_preflight_passes_a_ready_launch_and_names_failing_extras(tmp_path: Path) -> None:
+    _summaries(
+        tmp_path,
+        [
+            {"cell": "G-e1-task", "pass": True, "headline": True},
+            {"cell": "S-c-t-i25", "pass": False, "headline": False},
+        ],
+        [{"component": "task", "pass": True}],
+    )
+    rep = _preflight(tmp_path)
+    assert rep.problems == []
+    text = "\n".join(rep.lines)
+    assert "failing reported extras (no hold, D-043): S-c-t-i25" in text
+    assert "calls=[False]" in text
+
+
+def test_e1_preflight_refuses_near_the_start_after_banking_and_beside_runs(tmp_path: Path) -> None:
+    _summaries(tmp_path, [{"cell": "c", "pass": True, "headline": True}], [])
+    for clock in ("2026-11-13T23:45:00", "2026-11-14T00:00:00", "2026-11-14T00:29:59"):
+        rep = _preflight(tmp_path, now=clock)
+        assert any("23:45 to 00:30 UTC" in p for p in rep.problems)
+        assert "calls=[]" in rep.lines  # nothing ran
+    assert _preflight(tmp_path, now="2026-11-14T00:30:00").problems == []
+    assert _preflight(tmp_path, now="2026-11-13T23:44:59").problems == []
+    (tmp_path / "artifacts/e1").mkdir(parents=True)
+    (tmp_path / "artifacts/e1/local.jsonl").write_text("")
+    rep = _preflight(tmp_path)
+    assert any("e1-relaunch" in p for p in rep.problems) and "calls=[]" in rep.lines
+    (tmp_path / "artifacts/e1/local.jsonl").unlink()
+    for proc in (ARM, RUNNER, SERVER, (1, ["bash", "runs/e0g6/driver.sh"])):
+        rep = _preflight(tmp_path, procs=[proc])
+        assert any(p.startswith("alive:") for p in rep.problems) and "calls=[]" in rep.lines
+
+
+def test_e1_preflight_holds_on_a_failing_headline_cell_or_component(tmp_path: Path) -> None:
+    rep = _preflight(tmp_path)
+    assert any("summary-0005.json is not banked" in p for p in rep.problems)
+    assert any("g6/summary.json is not banked" in p for p in rep.problems)
+    _summaries(
+        tmp_path,
+        [{"cell": "H-e1-task", "pass": False, "headline": True}],
+        [{"component": "day", "pass": False}, {"component": "task", "pass": True}],
+    )
+    rep = _preflight(tmp_path)
+    assert any(
+        "failing headline cells (G5 fails; hold, D-036 item 1): H-e1-task" in p
+        for p in rep.problems
+    )
+    assert any("failing G6 components (hold, D-036 item 1): day" in p for p in rep.problems)
+
+
+def test_e1_preflight_reports_each_start_up_check(tmp_path: Path) -> None:
+    _summaries(tmp_path, [{"cell": "c", "pass": True, "headline": True}], [])
+    bad = {
+        "frozen plan": {"error": "ValueError: the run plan from this code differs"},
+        "validation": {"error": "ValueError: summary not rebuilt"},
+        "server": {"error": "ValueError: the llama-server build (x) is not the frozen one"},
+        "run code": {"dirty": True},
+        "sandbox": False,
+        "weights": {"qwen3-4b": False, "qwen3-1.7b": True},
+    }
+    rep = _preflight(tmp_path, checks=bad, weights=True)
+    text = "\n".join(rep.problems)
+    for needle in ("frozen plan", "validation", "server", "uncommitted", "sandbox", "qwen3-4b"):
+        assert needle in text, needle
+    assert "calls=[True]" in rep.lines
+    amended = {**GOOD_CHECKS, "server": "prereg/0007-llama-server.md"}
+    rep = _preflight(tmp_path, checks=amended)
+    assert rep.problems == [] and any("0007" in ln for ln in rep.lines)
+    assert any("no result" in p for p in _preflight(tmp_path, checks={}).problems)
+    low = _preflight(tmp_path, mem_kib=4 * 1024 * 1024, disk_free=1024**3)
+    assert any("MemAvailable" in p for p in low.problems)
+    assert any("free disk" in p for p in low.problems)
+
+
+def test_e1_preflight_checks_run_the_real_start_up_code() -> None:
+    found = rc.run_checks(False)
+    assert set(found) == {"frozen plan", "validation", "server", "run code", "sandbox"}, found
+    assert found["frozen plan"] is True  # the frozen 0004 plan, pins, and tasks match the code
+
+
+def test_wait_until_refuses_a_time_that_is_not_hh_mm() -> None:
+    for bad in ("25:00", "9:00", "21:5", "", "now"):
+        proc = subprocess.run(
+            ["bash", str(TOOLS / "wait_until.sh"), bad], capture_output=True, text=True, check=False
+        )
+        assert proc.returncode == 2 and "usage" in proc.stdout, bad

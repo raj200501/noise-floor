@@ -208,3 +208,46 @@ def test_the_validity_outputs_are_rebuilt_from_the_banked_coverage(
     # The committed file in the repository is what the banked coverage gives.
     monkeypatch.undo()
     assert e0_validity.stale() == []
+
+
+def test_banking_outputs_on_the_frozen_0005_grid(tmp_path: Path) -> None:
+    """e0_validity on prereg 0005's frozen grid, with made-up counts (no raw rows are read).
+
+    Every cell passing leaves part 1's list of failing cells as it is and adds 0005's
+    headline cells; one failing cell of each kind is listed with its function and design.
+    """
+    import json
+    import shutil
+
+    from noisefloor.preregs import prereg_block
+
+    p5 = e0_validity.REPO / "prereg/0005-e0-glmm-cells.md"
+    grid = prereg_block(p5, "e0-grid")
+    part1 = tmp_path / "part1"
+    part1.mkdir()
+    shutil.copy(e0_validity.COVERAGE, part1 / "coverage.json")
+    shutil.copy(e0_validity.COVERAGE, tmp_path / "coverage.json")
+
+    def outputs(failing: str | None) -> dict[str, dict[str, object]]:
+        cells = [
+            {**c, "covered": c["replicates"] * (4 if c["cell"] == failing else 5) // 5}
+            for c in grid
+        ]
+        art = {"prereg": "prereg/0005-e0-glmm-cells.md", "cells": cells}
+        (tmp_path / "coverage-0005.json").write_text(json.dumps(art))
+        return {p.name: json.loads(t) for p, t in e0_validity.outputs(tmp_path).items()}
+
+    base = {p.name: json.loads(t) for p, t in e0_validity.outputs(part1).items()}
+    clean = outputs(None)
+    assert clean["validity.json"] == base["validity.json"]
+    added = set(prereg_block(p5, "headline").values())
+    assert (
+        set(clean["headline_cells.json"]["cells"])
+        == set(base["headline_cells.json"]["cells"]) | added
+    )
+    kinds = {(c["method"], c["interval_type"]): c for c in grid}
+    for cell in kinds.values():
+        listed = outputs(cell["cell"])["validity.json"]["unsupported"]
+        assert listed[cell["cell"]]["function"] == e0_validity.FUNCTIONS[cell["method"]]
+        assert listed[cell["cell"]]["max_tasks"] == cell["params"]["n_tasks"]
+        assert set(listed) == set(base["validity.json"]["unsupported"]) | {cell["cell"]}

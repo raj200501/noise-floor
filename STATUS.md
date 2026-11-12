@@ -3,8 +3,8 @@ STATE: ACTIVE
 
 # Status
 
-Updated 2026-11-12 14:20 UTC, goal_turn 6 (after Raj's final-hour sprint and the release to main;
-E0 part 2 running). History is in docs/LOG.md.
+Updated 2026-11-12 17:45 UTC, goal_turn 6 (after Raj's final-hour sprint and the release to main;
+E0 part 2 running, banking day prepared). History is in docs/LOG.md.
 
 ## Gates
 
@@ -34,76 +34,46 @@ changes since d2d0bca; prepush, claimcheck, and freshness pass) on 2026-11-12 at
 ## Now
 
 E0 part 2 (0005) has run since 2026-11-12 03:36 UTC in G6's environment, right after G6 wrote all
-200 of its preregistered rows; at 4 workers its first group should end around 19:40 UTC and the
-whole run during 2026-11-13. Raw rows are committed and pushed at each check-in (about every 2
-hours); nothing is banked or read as a result until the driver ends. A harness-tracked waiter
-keeps the container up (no gap in its minute log since the 21:04 UTC restart on 2026-11-11).
-README and REPORT now say G6's rows are written and E0 part 2 is running (they had said G6 was
-running and E0 part 2 queued). For banking day (D-042): `python3 tools/runcheck.py e0g6-complete`
-reads completeness from the raw rows (indices, seeds, and stamps only). The bank commands of G6
-and of E0 part 2 (on its partial rows, outputs unread) were rehearsed in throwaway clones; all
-ran without error except `e0_validity` on cells not yet started, which complete cells cannot
-hit (D-042 item 4). Nothing was banked or committed from the rehearsals.
+200 of its preregistered rows. Group e1 should end around 20:00 UTC and the whole run during
+2026-11-13 (group e1-het's end is forecast from its row stamps once it starts). Raw rows are
+committed and pushed at each check-in (about every 2 hours); nothing is banked or read as a
+result until the driver ends. A harness-tracked waiter keeps the container up (no gap in its
+minute log since the 21:04 UTC restart on 2026-11-11).
 
-Final-hour sprint (Raj, 2026-11-12 00:50 UTC). The README gained a block on why its numbers hold
-up. The G6 run was paused with SIGSTOP (no work lost) so the tree stays clean for a release review,
-the day's one review run (logged), and the full ship-check before main is updated; it resumed at
-01:15 UTC with nothing lost. The release review returned BLOCK on B3: G12's drift check missed files moved into
-artifacts/review/. B3 is fixed, with N20 (E0 part 2 is queued after G6, not running), N21 (the
-safeguard bullet now names the one interval without a coverage cell), and N23 (raw rows must
-postdate their plan, in G5 and G6) (D-041). G12 waits for a later day's review; G5 to G8 wait
-for their studies, and nothing from them is presented as a result. G5 now has the counterpart
-of G6's planted-truth check (N22, D-041 item 7), in place before E0 part 2 is banked.
-
-Crunch time (Raj, 2026-11-11). Raj merged the release-ready commit into main (bbe8e62, a merge
-commit with the same tree as 3a451b0) and made the repository public; this branch fast-forwarded
-to it. Raj authorizes updating main at each RELEASE-READY point (`git merge --ff-only
-origin/main`, fresh-clone `make ci`, claimcheck and freshness, then push HEAD and HEAD:main,
-never force). The Needs Raj list had no "move main" item, so nothing was dropped.
-
-The container restarted at 21:04 UTC and killed the G6 run after its first rows; the driver was
-relaunched at 21:07 UTC with 4 workers at bbe8e62 (`src/` unchanged, same environment hash) and
-resumes per dataset; a harness-tracked waiter has kept the container up since (no gap in its
-minute log). README.md says plainly that the Claude slice of E1 is pending. No `src/` change
-until both arms end, apart from the `e0_validity` commit: rows from a changed `src/` are refused
-at once, rows from a dirty one only at banking.
-
-A read-only pre-mortem (a five-lens workflow, each finding checked by an adversarial verifier)
-of the validation runs, their banking, the E1 arm, resources, and the Claude runbook found
-procedure gaps and no defect that changes a result. D-036 records the operating rules;
-`tools/runcheck.py` (relaunch preflight, E1 gap test, E1 relaunch check), `tools/e0g6_driver.sh`,
-and the waiters `tools/wait_e0g6.sh` and `tools/wait_e1.sh` implement them, and the Claude runbook
-in docs/PLAN.md is corrected. Two consequences: the local arm launches only if G5 and G6 pass at
-the banking commit, and, as prereg 0004 says, the E1 analysis waits for both arms, so E3 on E1
-(G8), the post-E1 check (G7), and the final review (G12) wait for the end of the Claude slice.
-
-A milestone review by the `reviewer` subagent (efbff39; the day's one review run, logged)
-returned BLOCK on one item, a literal em dash in a test, now fixed with a test that keeps em
-dashes out of every authored file. Its 14 non-blocking issues are in docs/REVIEW_LOG.md with what
-was done about each: gate checks tightened in `tools/` (G1, G2, G5, G6, G10, G12, G14; D-039),
-report and README wording, the model weights in docs/DATA.md, and one rank-interval defect in a
-pinned file (N2) that waits until after the E1 analysis. The workflow's completeness critic found
-one more blocking gap, fixed: nothing tied `artifacts/e3/bounds.json` to a recomputation (now G8
-and a test do; D-040), plus four smaller ones, also in docs/REVIEW_LOG.md.
+Banking day is prepared (D-042, D-043). `python3 tools/runcheck.py e0g6-complete` reads
+completeness from the raw rows, and the bank commands of both studies were rehearsed in
+throwaway clones (E0 part 2 on its partial rows, outputs unread). A read-only readiness review
+of the banking commit and the launch (four lenses, each checked by an adversarial verifier, and
+a completeness critic) found one launch defect, now fixed: `tools/wait_e1.sh` watched the PID of
+the launch line's bash subshell instead of the arm, so on launch night it would have ended at
+once and left nothing keeping the container up until the first batch; the arm is now found by
+its argv (`e1-alive`). The review also led to `e1-preflight` (the arm's start-up checks called
+one by one, never starting a batch), `tools/wait_until.sh` (keep-alive from the driver's end to
+the launch window), tests over the banking outputs, an `oom_score_adj` of 0 for the arm, the
+RELEASE-READY procedure with a fetch, and README and REPORT wording that stays true across the
+launch. docs/PLAN.md ("Banking day and launch night") has the ordered checklist. Earlier notes
+(the release to main, Raj's crunch-time instruction, the restart, the pre-mortem, and the
+milestone review) are in docs/LOG.md; Raj's authorization to update main at RELEASE-READY points
+stands (D-043 item 6).
 
 ## Next three actions
 
-1. Keep E0 part 2 running (G6's rows are complete; E0 part 2 should end during 2026-11-13): `bash
-   tools/wait_e0g6.sh` as a background task, restarted first on every wake-up; relaunch only with
-   `WORKERS=4 setsid nohup bash tools/e0g6_driver.sh >> runs/e0g6/nohup.out 2>&1 < /dev/null &`;
-   commit and push raw rows at check-ins.
-2. When the driver has ended: `python3 tools/runcheck.py e0g6-complete` must print `COMPLETE:
-   YES` (completeness from the raw rows, D-036 item 8; D-042), then bank G6
-   (`python -m noisefloor.recovery g6-bank prereg/0006-g6-recovery.md`) and E0 part 2 (`python
-   -m noisefloor.e0_run bank prereg/0003-e0-coverage-grid-part1.md prereg/0005-e0-glmm-cells.md
-   --only prereg/0005-e0-glmm-cells.md`), run `python -m noisefloor.e0_validity` and `python
-   tools/validity_summary.py` (G10 checks its outputs), update the REPORT claim that counts
-   headline cells, commit, fast ship-check. If G5 and G6 pass, update
-   main (RELEASE-READY); if either fails, hold E1 and freeze amendments first (D-036 item 1).
-3. If G5 and G6 pass, launch the E1 local arm between 21:00 and 23:45 UTC as docs/PLAN.md
-   ("Operating rules") says, with `tools/wait_e1.sh` and an hourly check-in; during batches,
-   check-ins only (`tools/runcheck.py e1-gap`). When the arm ends, the analysis waits for the
-   Claude slice: STATE BLOCKED ON RAJ unless other work remains.
+1. Keep E0 part 2 running: `bash tools/wait_e0g6.sh` as a background task, restarted first on
+   every wake-up; relaunch only with `WORKERS=4 setsid nohup bash tools/e0g6_driver.sh >>
+   runs/e0g6/nohup.out 2>&1 < /dev/null &`. At each check-in, commit and push raw rows, and
+   confirm that `git status --porcelain -- src uv.lock pyproject.toml` is empty and that `git
+   rev-parse HEAD:src HEAD:uv.lock` prints the `src_tree` and `uv_lock` recorded for
+   c1569b433f0f5a99 in `artifacts/e0/raw/environments.json` (D-043 item 12).
+2. When the driver has ended, follow docs/PLAN.md "Banking day and launch night" (D-036 item 8,
+   D-042, D-043): `COMPLETE: YES` from `python3 tools/runcheck.py e0g6-complete`; the bank
+   commands, `e0_validity`, and `tools/validity_summary.py`; the claims and the README and REPORT
+   text for the outcome; one banking commit staged by path; the fast ship-check saved;
+   `e1-preflight`; a docs-only commit with the verdict; RELEASE-READY in either outcome.
+3. If G5 and G6 pass and RELEASE-READY has ended by about 23:30 UTC, launch the E1 local arm
+   between 21:00 and 23:45 UTC with the D-043 launch command and its checks, `tools/wait_e1.sh`,
+   and an hourly E1 check-in; otherwise the next night. If either fails, hold E1, ask Raj not to
+   start the slice, and freeze amendments first (D-036 item 1). When the arm ends, the analysis
+   waits for the Claude slice: STATE BLOCKED ON RAJ unless other work remains.
 
 ## Usage to date
 

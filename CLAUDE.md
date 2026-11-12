@@ -58,7 +58,9 @@ per-task results; and leaderboard confidence reports. The full brief is docs/BUI
   tools/runcheck.py e1-gap --need <seconds>` prints `E1-GAP: OPEN`; otherwise a check-in only
   reads and commits rows. Shell commands start with `echo 19 > /proc/self/autogroup; echo 1000 >
   /proc/self/oom_score_adj`. After a restart, relaunch first (`tools/runcheck.py e1-relaunch`,
-  `tools/e0g6_driver.sh`) and restart the waiter (`tools/wait_e1.sh` or `tools/wait_e0g6.sh`).
+  `tools/e0g6_driver.sh`) and restart the waiter (`tools/wait_e1.sh` or `tools/wait_e0g6.sh`, and
+  `tools/wait_until.sh 21:05` between the driver's end and the launch, D-043). Find the arm with
+  `python3 tools/runcheck.py e1-alive`, never `$!`, and launch it without the 1000 prefix.
 
 ## Loop Protocol (section 10.2, short form)
 

@@ -63,7 +63,8 @@ interval be replaced by a dated amendment with its own passing cells before any 
 No commit changes `src/` or `uv.lock` from the start of G6 to the E1 analysis, except the one
 `e0_validity` commit above, which lands after G6 and E0 part 2 have written all their rows (the
 list of failing cells is outside the analysis-code pin): the studies refuse rows from a second
-environment, the arms stop on new run code, and the analysis runs only under the analysis code
+environment when a started cell or group resumes, at a relaunch preflight, and at banking (D-043
+item 12), the arms stop on new run code, and the analysis runs only under the analysis code
 G6 and E0 part 2 ran (D-033 item 10, D-034 item 8). The pinned files include `noisefloor.e1`
 and `noisefloor.models`, so they stay unchanged through G7's recompute in the final ship-check;
 a repair to one of them during an arm, which a resume accepts, also needs a frozen amendment of
@@ -129,10 +130,11 @@ because its runs have wall-clock limits.
   `tools/e0g6_driver.sh` (a preflight first; it stops at the first step that fails) and watched
   by `tools/wait_e0g6.sh`; banking starts only after `python3 tools/runcheck.py e0g6-complete`
   prints `COMPLETE: YES`. The local arm launches only if the fast ship-check at the banking
-  commit prints G5 PASS and G6 PASS. It is launched between 21:00 and 23:45 UTC from a fresh
-  shell, after every commit: `mkdir -p runs/e1 && setsid nohup .venv/bin/python -m
-  noisefloor.e1 local prereg/0004-e1-factorial.md >> runs/e1/log.txt 2>&1 < /dev/null & echo
-  $! > runs/e1/pid`. Then `bash tools/wait_e1.sh` runs as a harness-tracked background task,
+  commit prints G5 PASS and G6 PASS, and only after `python3 tools/runcheck.py e1-preflight`
+  prints PASS. It is launched between 21:00 and 23:45 UTC, after every commit, with the launch
+  command of "Banking day and launch night" below (`oom_score_adj` 0, D-043 item 2), and the
+  arm's PID comes from `python3 tools/runcheck.py e1-alive`, never from `$!` (D-043 item 1).
+  Then `bash tools/wait_e1.sh` runs as a harness-tracked background task,
   restarted first on every wake-up, with its two-hour limit kept off 23:45 to 00:30 UTC on
   launch night, and an hourly check-in fires into the session. Nothing in git changes until the
   first batch is banked. During batches a check-in only reads and commits; CPU-heavy work waits
@@ -143,6 +145,68 @@ because its runs have wall-clock limits.
   launch command, and `python -m noisefloor.e1 note local --reason "..."` for the interruption.
 - The E1 analysis runs only after both arms have ended (prereg 0004), that is, after Raj's end
   point for the Claude slice is in this repository; the local arm alone yields no E1 result.
+
+## Banking day and launch night (D-042, D-043)
+
+When `tools/wait_e0g6.sh` reports that the driver has ended, in this order:
+
+1. Keep the session up and awake: delete the pending E0 fallback check-ins; run `bash
+   tools/wait_until.sh 21:05` as the harness-tracked background task (longest timeout, restarted
+   at each limit and on every wake-up); schedule check-ins at about 21:10 and 23:00 UTC that
+   carry this list.
+2. `python3 tools/runcheck.py e0g6-complete` prints `COMPLETE: YES`. A cut final line is
+   repaired by the driver's preflight (`tools/e0g6_driver.sh`), which then runs that dataset
+   again; anything else goes under Blocked.
+3. Bank, in this order and with these commands only: `python -m noisefloor.recovery g6-bank
+   prereg/0006-g6-recovery.md`; `python -m noisefloor.e0_run bank
+   prereg/0003-e0-coverage-grid-part1.md prereg/0005-e0-glmm-cells.md --only
+   prereg/0005-e0-glmm-cells.md`; `python -m noisefloor.e0_validity`; `python
+   tools/validity_summary.py` (after the final bank and `e0_validity`, and again after any
+   re-bank). Then `git diff --quiet -- artifacts/e0/coverage.json artifacts/e0/crosscheck.json
+   artifacts/e0/raw/environments.json artifacts/g6/raw.jsonl artifacts/g6/environments.json`
+   must succeed.
+4. Claims: add definitions (no value or hash) to `artifacts/claims.json` for every number the
+   new text gives: counts over `/cells` of `artifacts/e0/summary-0005.json` and `/components`
+   of `artifacts/g6/summary.json` with `derive count` and `where` on the exact JSON values
+   (`pass`, `headline`, `coverage` 1.0), single rows chosen by name with `where`, never by index,
+   G6 bias counts from `/coverage/<name>/with_estimate` of `artifacts/g6/recovery.json`, and
+   shares of the 200 datasets with three decimals. `python tools/freshness.py --regenerate` is
+   the last write; its change lines name only `report.e0.headline` (8 to 178) and the new claims.
+5. Text for the outcome (every cell and component passes; only reported extras fail; a headline
+   cell or a G6 component fails), replacing the "running" and "not banked" passages of README
+   and REPORT: the state line (with its date exemption), the abstract, the overview table, the
+   method paragraph, the E0 part 1 sentence that counts headline cells (all 178, with a
+   CORRECTIONS entry), a results subsection for E0 part 2 and G6 that names every failing cell
+   and component and gives each component's bias with its count and its share above zero, the
+   over-coverage count, the rehearsals of D-042, the README's key results and status, and a
+   reproducibility line with the commands of step 3. Synthetic data are labeled synthetic,
+   failures are as prominent as passes, and REPORT stays within 8,000 words. `make claimcheck`
+   and `make freshness` pass.
+6. One banking commit, as Raj, staged by path (D-043 item 8); `git status --porcelain
+   --untracked-files=all` is empty after it.
+7. `python tools/ship_check.py --fast | tee runs/e0g6/shipcheck-fast.txt`, then `python3
+   tools/runcheck.py e1-preflight --weights`.
+8. A docs-only commit with the verdict (D-043 item 7): STATUS's G5 and G6 rows with the banking
+   SHA, Needs Raj item 1 (pass: start once this item records that the local arm has started;
+   fail: hold), and README's gate list.
+9. RELEASE-READY in either outcome (D-043 item 6), then print `RELEASE-READY <sha>`.
+10. If a headline cell or a G6 component fails: no arm starts; Raj is asked not to start the
+    slice; amendments (0003 for replacement cells, 0004 with an ```json analysis-code``` block,
+    0006 for a GLMM kind, after G6's gate can read an amended artifact, D-041 item 4) are frozen
+    before any confirmatory run (D-036 item 1).
+11. If both pass, and RELEASE-READY has ended by about 23:30 UTC (otherwise the next night),
+    launch between 21:00 and 23:45 UTC: `python3 tools/runcheck.py e1-preflight` prints PASS,
+    then `cd /home/user/noise-floor && echo 0 > /proc/self/oom_score_adj && mkdir -p runs/e1 &&
+    setsid nohup .venv/bin/python -m noisefloor.e1 local prereg/0004-e1-factorial.md >>
+    runs/e1/log.txt 2>&1 < /dev/null &`. A few seconds later: `python3 tools/runcheck.py
+    e1-alive > runs/e1/pid`; `tr '\0' '\n' < /proc/$(cat runs/e1/pid)/cmdline | head -3`
+    prints `.venv/bin/python`, `-m`, `noisefloor.e1`; `cat /proc/$(cat
+    runs/e1/pid)/oom_score_adj` prints 0; the log's last line is the wait for 00:00 UTC; and
+    `python3 tools/runcheck.py e1-gap` prints `E1-GAP: OPEN`. Stop `tools/wait_until.sh`, start
+    `bash tools/wait_e1.sh` (its two-hour limit must fall outside 23:45 to 00:30 UTC: if it is
+    started between 21:45 and 22:30, restart it before 23:45), replace the launch-night check-ins
+    with the hourly E1 check-in (D-043 item 5), and change nothing in git until the first batch
+    is banked.
 
 ## Claude arm on Raj's machine (G7)
 
@@ -155,8 +219,8 @@ point (D-036 item 2). Steps for Raj:
 1. Start only once STATUS.md says G5 PASS and G6 PASS at the banking commit and the local arm
    has started: a confirmatory Claude run before a failing validation is resolved closes the
    preregistered route for replacing the failing method (D-036 item 1). Clone the branch
-   `claude/gifted-darwin-k7q99b` (one clone only) at or after that commit, which runs
-   `e0_validity` (STATUS.md names it), and check that `artifacts/g6/recovery.json` and
+   `claude/gifted-darwin-k7q99b` (one clone only) at or after that commit, which commits the
+   outputs of `python -m noisefloor.e0_validity` (STATUS.md names it by SHA), and check that `artifacts/g6/recovery.json` and
    `artifacts/e0/coverage-0005.json` exist. The slice needs
    macOS or Linux (on Windows, WSL). Then `make setup` and `make doctor`. Its `billing guard`
    row must read `clean`: no `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`,

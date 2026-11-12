@@ -1069,3 +1069,92 @@ each one stricter than before (docs/GATES.md):
    `src/evalstats/data/validity.json` unchanged, so no started cell (group `e1`, at about 335 of
    its 500 replicates) failed the G5 rule at that count. No decision depends on it; the run goes
    on to its preregistered sample, and only the banked counts are reported.
+
+## D-043 2026-11-12 Banking-day and launch-night rules from a readiness review (before acting on them)
+A read-only review of the banking commit and the E1 launch (workflow wchlarr95: four lenses,
+gates, tests and pinned data, the launch, documents and claims, each checked by an adversarial
+verifier, then a completeness critic) found one launch defect and several gaps, none in a result.
+These rules hold from now on; none changes `src/`, a preregistration, or a gate's check.
+1. The arm is found by its argv, never by `$!`. In this harness a launch line such as `mkdir -p
+   runs/e1 && setsid nohup ... &` runs as a bash subshell, and `$!` names that subshell, whose
+   command line need not mention the arm (seen on 2026-11-11: the E0 driver's parent shell
+   carried its command text only in its environment). `tools/wait_e1.sh` therefore watched a PID
+   that could not show the arm and would have ended at once, leaving no harness-tracked task
+   from the launch to the first batch. `python3 tools/runcheck.py e1-alive` prints the arm's own
+   PID; the waiter waits on it, the launch writes it to `runs/e1/pid`, and a kill and relaunch
+   (D-036 item 4) signals that PID.
+2. The launch and every relaunch start with `cd /home/user/noise-floor && echo 0 >
+   /proc/self/oom_score_adj` and never with the session's 1000 prefix, which children inherit
+   through `setsid`: the arm, its runners, and llama-server keep 0, and the session's commands
+   stay the ones killed first. After the launch, `/proc/<pid>/cmdline` must show
+   `.venv/bin/python`, `-m`, `noisefloor.e1`, `/proc/<pid>/oom_score_adj` must read 0, and the
+   log's last line must be the wait for 00:00 UTC.
+3. `python3 tools/runcheck.py e1-preflight` (once with `--weights` after the driver ends, never
+   during a batch) runs after the banking commit's fast ship-check and again just before the
+   launch. It calls the arm's own start-up checks one by one (frozen plan, pins, and tasks;
+   G6 and E0 part 2 banked, the analysis code, and the failing-cell list; the llama-server
+   build; clean run code), plus the sandbox and weight checks the arm makes only when a batch
+   starts, so it never starts a batch; it refuses from 23:45 to 00:30 UTC, once
+   `artifacts/e1/local.jsonl` exists, and beside any arm, runner, server, or study process. Its
+   backstop to item 1 of D-036 reads the two banked summaries. Run by hand on 2026-11-12 at
+   17:28 UTC, the checks found the code's plan, pins, and tasks equal to the frozen 0004, the llama-server
+   build equal to its pin, clean run code, and a working sandbox; validation refused, as it
+   should, because nothing is banked yet.
+4. What holds E1 (D-036 item 1): a failing headline cell (G5 fails) or a failing G6 component. A
+   failing reported extra of 0005 (`B-e1-any-a005`, `B-e1-any-a04`, `S-c-t-i25`, `S-c-t-i35`,
+   `S-c-t-i45`) leaves G5 passing: it is listed as unsupported, makes its functions warn on
+   designs at least as small (for a `B-e1-any` cell, `policy_bounds` on 85 or fewer tasks, so
+   E3 on E1's local arm), is reported beside the passing cells, and holds nothing.
+5. Keep-alive and wake-ups to the launch. When `tools/wait_e0g6.sh` reports that the driver has
+   ended, the pending E0 fallback check-ins are deleted and none is scheduled again, and `bash
+   tools/wait_until.sh 21:05` runs as the harness-tracked task (restarted at each limit and on
+   every wake-up) until the launch; scheduled check-ins at about 21:10 and 23:00 UTC carry the
+   launch checklist. At the launch, an hourly E1 check-in replaces them, and its prompt starts
+   with the E1 rules: the prefix on every command, `e1-gap` before anything CPU-heavy, no git
+   change until the first batch is banked, during batches only reads and commits, and
+   `tools/wait_e1.sh` restarted first.
+6. RELEASE-READY procedure. Raj authorized updating main at each RELEASE-READY point (his
+   crunch-time instruction of 2026-11-11; the note is now in docs/LOG.md). The procedure, which
+   replaces the short form STATUS gave: `git fetch origin`; `git merge
+   --ff-only origin/main` (a refusal means main has commits this branch lacks: stop, and list it
+   under Needs Raj); `make prepush`; `make claimcheck`; `make freshness`; `git push origin HEAD`;
+   `git push origin HEAD:main`; never force, never a tag. The banking commit is a RELEASE-READY
+   point in either outcome (D-041 item 5), with README and REPORT stating any failure and the
+   hold; only the launch depends on G5 and G6 passing.
+7. The verdict is recorded after the banking commit: with `git status --porcelain
+   --untracked-files=all` empty, `python tools/ship_check.py --fast | tee
+   runs/e0g6/shipcheck-fast.txt`, then a docs-only commit before RELEASE-READY and the launch
+   that gives STATUS's G5 and G6 rows the banking SHA, Needs Raj item 1 its go or hold text,
+   and README its gate list. A failure is listed from the summaries, every failing cell and
+   component, not from the gates' evidence lines, which name only the first few.
+8. The banking commit stages by path (`artifacts/e0/raw`, the new coverage, recovery, and summary
+   files, `artifacts/headline_cells.json`, `src/evalstats/data/validity.json`,
+   `artifacts/claims.json`, CORRECTIONS.md, and the edited documents), never with `git commit -a`
+   or `-u`, and the porcelain is empty after it. The outputs of `python -m noisefloor.e0_validity`
+   are committed byte for byte as it writes them, labels included (`headline_cells.json` keeps
+   citing 0003); a hand edit fails `stale()` and with it the arm's start check.
+9. Before `python tools/freshness.py --regenerate`, `git diff --quiet -- artifacts/e0/coverage.json
+   artifacts/e0/crosscheck.json artifacts/e0/raw/environments.json artifacts/g6/raw.jsonl
+   artifacts/g6/environments.json` must succeed; after it, its change lines must name only
+   `report.e0.headline` (8 to 178) and the claims added in that commit.
+10. Item 8 of D-036 planned to update the claim that counts headline cells. The count becomes 178
+   in either outcome, because `e0_validity` adds the 170 cells of 0005's `headline` block to
+   part 1's 8, so the sentence at REPORT's E0 part 1 section is rewritten in the banking commit
+   to say which cells it counts, with a CORRECTIONS entry.
+11. Prereg 0004 says the arms' records "are read only by the runners", and D-037 item 1 holds the
+   tools to that. Once records are committed, `make prereg-verify` (which reads each record's
+   `prereg` and `confirmatory` fields), `make secrets-scan` (which matches byte patterns and
+   prints only a pattern name and a path), and git read the file but print no record field or
+   outcome; that is not a read under the rule. No other tool reads those files before both arms
+   end.
+12. STATUS and PLAN said rows from a changed `src/` are refused at once. They are refused at a
+   relaunch preflight, when a cell or group whose rows exist is resumed, and at banking, so
+   until `COMPLETE: YES` each check-in also confirms that `git status --porcelain -- src uv.lock
+   pyproject.toml` is empty and that `git rev-parse HEAD:src HEAD:uv.lock` prints the `src_tree`
+   and `uv_lock` recorded for c1569b433f0f5a99 in `artifacts/e0/raw/environments.json`.
+13. Cut-off: the launch happens only after RELEASE-READY has ended, and if that is not by about
+   23:30 UTC the launch moves to the next night (Needs Raj item 1's date moves with it).
+14. README and REPORT sentences that the first E1 batch would make false ("has not run", "no
+   confirmatory run has started") now say E1 has no results yet, and REPORT's abstract and
+   method paragraph no longer say G6 is running and E0 part 2 queued; these are status
+   wordings, not changed claims (the N3 and N20 precedent).

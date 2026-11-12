@@ -52,7 +52,7 @@ each plan predates the artifacts that cite it.
   failed.
 - *Results recomputed from pinned data.* `make reproduce` rebuilds every E2 and E3 result from
   hash-pinned snapshots, and `make ship-check` runs fourteen gates on a fresh clone.
-- *Findings published, including the unflattering ones.* The failing coverage cell, the one
+- *Findings published, including the unflattering ones.* Every failing coverage cell, the one
   interval without a coverage cell of its own, and every review finding and what was done about
   it are on record ([docs/REVIEW_LOG.md](docs/REVIEW_LOG.md), [CORRECTIONS.md](CORRECTIONS.md)).
 
@@ -121,7 +121,7 @@ its interval, the E1 design, and the limitations in full.
 | SWE-bench Verified reanalysis ([scores](docs/figures/e2-epoch-swebench-scores.svg), [gaps](docs/figures/e2-epoch-swebench-gaps.svg)) | <!-- claim:e2.epoch.adjacent.supported -->3 of <!-- claim:e2.epoch.adjacent.pairs -->31 adjacent pairs separated; the leader's margin over second is <!-- claim:e2.epoch.top.diff -->+0.041 (CI <!-- claim:e2.epoch.top.lo -->+0.010 to <!-- claim:e2.epoch.top.hi -->+0.073) | [results.json](artifacts/e2/epoch-swebench/results.json) | [`prereg/0001`](prereg/0001-e2-leaderboard-reanalysis.md), [`prereg/0002`](prereg/0002-e2-amend-epoch-reference-rule.md) |
 | Policy sensitivity (E3) | Adjacent orderings that hold under every scoring of ambiguous runs: <!-- claim:e3.tb2.identified -->1 of <!-- claim:e2.tb2.adjacent.pairs -->65 on Terminal-Bench (<!-- claim:e3.tb2.robust -->0 also with sampling error), <!-- claim:e3.epoch.identified -->19 of <!-- claim:e2.epoch.adjacent.pairs -->31 on SWE-bench Verified (<!-- claim:e3.epoch.robust -->3 also with sampling error); the sampling-error counts rest on an interval that has no coverage cell of its own | [bounds.json](artifacts/e3/bounds.json) | [`prereg/0001`](prereg/0001-e2-leaderboard-reanalysis.md), [`prereg/0002`](prereg/0002-e2-amend-epoch-reference-rule.md) |
 | Library validity (E0 part one, synthetic) | <!-- claim:e0.cells -->22 coverage cells simulated; the cell that fails the coverage rule (the small-sample paired-difference bootstrap) is flagged as unsupported and makes the library warn; <!-- claim:e0.crosschecks -->22 cross-checks against statsmodels, SciPy, and R agree within tolerance | [coverage.json](artifacts/e0/coverage.json) | [`prereg/0003`](prereg/0003-e0-coverage-grid-part1.md) |
-| Factorial study (E1) | Preregistered and frozen; not yet run, so no results; the Claude slice is pending (see Status) | n/a | [`prereg/0004`](prereg/0004-e1-factorial.md), [`prereg/0005`](prereg/0005-e0-glmm-cells.md), [`prereg/0006`](prereg/0006-g6-recovery.md) |
+| Factorial study (E1) | Preregistered and frozen; no results until both of its arms have ended; the Claude slice is pending (see Status) | n/a | [`prereg/0004`](prereg/0004-e1-factorial.md), [`prereg/0005`](prereg/0005-e0-glmm-cells.md), [`prereg/0006`](prereg/0006-g6-recovery.md) |
 
 The study plan is in [docs/PLAN.md](docs/PLAN.md) and every design choice, with its reason, in
 [DECISIONS.md](DECISIONS.md). Changed or withdrawn claims are dated in
@@ -176,8 +176,8 @@ hold for every entry at once.
 E1 asks how much of the variance in agent success comes from the model and how much from
 everything else a leaderboard holds fixed or ignores. Its plan (frozen in
 [`prereg/0004`](prereg/0004-e1-factorial.md) with its validation in
-[`prereg/0005`](prereg/0005-e0-glmm-cells.md) and [`prereg/0006`](prereg/0006-g6-recovery.md)) fixes, before any
-confirmatory data exist:
+[`prereg/0005`](prereg/0005-e0-glmm-cells.md) and [`prereg/0006`](prereg/0006-g6-recovery.md)) fixed, before any
+confirmatory data existed:
 
 - the local sample, set by its power analysis: three local open-weight models on 85 mock tasks, each
   task run 18 times per model (4,590 local runs over four UTC days and two time-of-day blocks),
@@ -215,9 +215,9 @@ leaderboard snapshots are pinned by URL, retrieval date, and hash in [docs/DATA.
   fixed tasks themselves. Adjacent-pair intervals are per comparison and unadjusted, so a
   multiplicity-adjusted reading cannot separate more pairs; only the rank intervals are simultaneous.
 - Coverage is validated by simulation at designs like these (for E3, on per-entry bounds only),
-  not guaranteed elsewhere; the failing cell (the small-sample paired-difference bootstrap) makes
-  the library warn.
-- E1 has not run. Its tasks are procedurally generated mock tasks, so its results, once banked,
+  not guaranteed elsewhere; each failing cell (in E0's first part, the small-sample
+  paired-difference bootstrap) makes the library warn.
+- E1 has no results yet. Its tasks are procedurally generated mock tasks, so its results, once banked,
   will be results on those tasks, not on real-world work.
 
 ## Responsible reporting

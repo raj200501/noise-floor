@@ -898,6 +898,11 @@ def test_derived_artifacts_named_in_claims_have_checks() -> None:
     checked = {name for name, _ in ship_check.DERIVED_CHECKS}
     for derived in ("artifacts/e2/noise_floor.json", "artifacts/method_pilots/summary.json"):
         assert derived not in cited or derived in checked
+    # The two validation summaries are rebuilt by one command, named "validation summaries".
+    commands = {name: cmd for name, cmd in ship_check.DERIVED_CHECKS}
+    assert commands["validation summaries"] == ["python", "tools/validity_summary.py", "--check"]
+    for derived in ("artifacts/e0/summary-0005.json", "artifacts/g6/summary.json"):
+        assert derived not in cited or "validation summaries" in commands
 
 
 def test_no_em_dash_in_any_authored_file() -> None:

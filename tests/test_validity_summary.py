@@ -87,3 +87,11 @@ def test_build_skips_unbanked_sources_and_records_source_hashes(tmp_path: Path) 
     assert data["source"]["path"] == "artifacts/e0/coverage-0005.json"
     assert len(data["source"]["sha256"]) == 64 and data["cells"][0]["headline"]
     assert "artifacts/g6/summary.json" not in texts
+
+
+def test_banked_summaries_are_current() -> None:
+    # A source not banked yet gives no summary; a banked one must match its committed summary
+    # (G10 runs the same comparison through `validity_summary.py --check`).
+    for path, text in vs.build().items():
+        assert (vs.REPO / path).exists(), f"{path} is not committed beside its banked source"
+        assert (vs.REPO / path).read_text() == text, f"{path} differs from a fresh build"

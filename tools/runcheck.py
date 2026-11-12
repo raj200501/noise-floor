@@ -26,6 +26,25 @@ one repair it makes, so the repair is the one the runs themselves use.
     ``E1-GAP: OPEN <s>`` when the arm waits between blocks, with the seconds left before the
     next 00:00 or 12:00 UTC boundary minus a 10-minute margin, otherwise ``E1-GAP: BUSY <why>``
     (exit 1), or ``E1-GAP: SHORT <s>`` (exit 1) when fewer than SECONDS are left.
+``e1-alive``
+    The PID of the E1 local arm's own Python process, found by its argv (``-m noisefloor.e1
+    local``), never by ``$!``: in a launch line such as ``mkdir -p runs/e1 && setsid nohup ... &``
+    that names a bash subshell whose command line need not mention the arm. Prints the PID
+    (space-separated if there were more than one), or ``no E1 local arm`` (exit 1).
+    ``tools/wait_e1.sh`` waits on it, and the launch writes it to ``runs/e1/pid``.
+``e1-preflight [--weights]``
+    Before the first launch of the E1 local arm, after the banking commit (D-043): the start-up
+    checks the arm makes (the frozen plan, pins, and tasks; G6 and E0 part 2 banked, the
+    analysis code, and the list of failing cells; the llama-server build; no uncommitted run
+    code) and the checks it makes only when a batch starts (the sandbox and, with
+    ``--weights``, the three weight files, about 6.4 GB read), called one by one through
+    ``.venv/bin/python``, so it never starts a batch. It refuses from 23:45 to 00:30 UTC, once
+    ``artifacts/e1/local.jsonl`` exists (then ``e1-relaunch`` applies, and only the runners read
+    that file), and beside any arm, runner, model server, or validation study. As a backstop to
+    D-036 item 1, every headline cell of ``artifacts/e0/summary-0005.json`` and every component
+    of ``artifacts/g6/summary.json`` must pass; failing reported extras are listed and hold
+    nothing. It also needs 10 GiB of MemAvailable and 5 GiB of free disk. Prints
+    ``E1-PREFLIGHT: PASS`` or ``E1-PREFLIGHT: FAIL``.
 ``e1-relaunch [--rotate]``
     Before the arm is relaunched after an interruption: refuses while an arm, a batch runner, or
     a model server is alive; lists each unbanked E1 workspace with the number of whole records
@@ -43,6 +62,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -72,6 +92,38 @@ P6 = "prereg/0006-g6-recovery.md"
 DRIVER_LOG = "runs/e0g6/log.txt"
 STEP_EXIT = re.compile(r"^[\w-]+ exit \d+")  # both drivers: "<step> exit <code>"
 FINISHED = re.compile(r"^(?:all done|e0 cells done) ")  # tools/e0g6_driver.sh; the old driver
+P4 = "prereg/0004-e1-factorial.md"
+NEAR_START = (85_500, 1_800)  # no E1 preflight from 23:45 to 00:30 UTC (seconds of the day)
+MEM_FLOOR_KIB = 10 * 1024 * 1024  # MemAvailable the preflight requires before the launch
+DISK_FLOOR = 5 * 1024**3  # free bytes the preflight requires on the repository's file system
+CHECK_NAMES = ("frozen plan", "validation", "server", "run code", "sandbox")
+# The arm's own start-up checks (noisefloor.e1.run_local), called one by one, never the arm.
+PREFLIGHT_CODE = """
+import json, sys
+from pathlib import Path
+from noisefloor import e1, preregs, sandbox
+from noisefloor.models import MODELS
+from noisefloor.preregs import prereg_block
+prereg, weights, out = Path(sys.argv[1]), sys.argv[2] == "1", {}
+def step(name, fn):
+    try:
+        out[name] = fn()
+    except Exception as exc:
+        out[name] = {"error": f"{type(exc).__name__}: {exc}"}
+design = e1.E1Design.from_json(prereg_block(prereg, "e1-plan"))
+def frozen():
+    preregs.require_frozen(prereg)
+    e1.check_frozen_plan(prereg, design)
+    return True
+step("frozen plan", frozen)
+step("validation", lambda: e1.require_validation(prereg) is None)
+step("server", lambda: e1.check_server(prereg, e1.ARTIFACTS / "local.jsonl") or "frozen pin")
+step("run code", lambda: {"dirty": e1.run_code(True).get("dirty")})
+step("sandbox", sandbox.available)
+if weights:
+    step("weights", lambda: {m: MODELS[m].verify() for m in design.models})
+print(json.dumps(out, default=str))
+"""
 
 Proc = tuple[int, list[str]]
 
@@ -240,6 +292,14 @@ def preflight(
         rep.problems.append(f"this checkout runs {here.get('env')}; the rows ran {min(seen)}")
     rep.lines.append(f"env {here.get('env')}")
     return rep
+
+
+def alive(procs: Sequence[Proc]) -> tuple[int, str]:
+    """The e1-alive verdict: (exit code, the arm's PIDs or why there are none)."""
+    arms = arm_processes(procs)["arm"]
+    if not arms:
+        return 1, "no E1 local arm"
+    return 0, " ".join(str(pid) for pid in sorted(arms))
 
 
 def gap(procs: Sequence[Proc], log: Path, now: float, need: float = 0.0) -> tuple[int, str]:
@@ -460,22 +520,156 @@ def complete(procs: Sequence[Proc], repo: Path = REPO) -> Report:
     return rep
 
 
+def near_start(now: float) -> bool:
+    """True from 23:45 to 00:30 UTC, when the arm may be starting its first batch."""
+    second = int(now) % 86_400
+    return second >= NEAR_START[0] or second < NEAR_START[1]
+
+
+def run_checks(weights: bool, repo: Path = REPO) -> dict[str, Any]:
+    """Run :data:`PREFLIGHT_CODE` in the project's environment; its verdict per check."""
+    proc = subprocess.run(
+        [str(repo / ".venv/bin/python"), "-c", PREFLIGHT_CODE, P4, "1" if weights else "0"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    lines = proc.stdout.strip().splitlines()
+    if proc.returncode != 0 or not lines:
+        tail = proc.stderr.strip().splitlines()[-1:] or ["no output"]
+        return {"error": f"the checks did not run: {tail[0]}"}
+    return dict(json.loads(lines[-1]))
+
+
+def _validation_verdicts(repo: Path, rep: Report) -> None:
+    """The D-036 item 1 backstop, read from the two banked summaries."""
+    e0, g6 = repo / "artifacts/e0/summary-0005.json", repo / "artifacts/g6/summary.json"
+    for path in (e0, g6):
+        if not path.exists():
+            rep.problems.append(f"{_show(path)} is not banked (G5 and G6 come first)")
+    if e0.exists():
+        cells = json.loads(e0.read_text())["cells"]
+        failing = [c["cell"] for c in cells if not c["pass"] and c["headline"]]
+        extras = [c["cell"] for c in cells if not c["pass"] and not c["headline"]]
+        if failing:
+            rep.problems.append(
+                f"failing headline cells (G5 fails; hold, D-036 item 1): {', '.join(failing)}"
+            )
+        if extras:
+            rep.lines.append(f"failing reported extras (no hold, D-043): {', '.join(extras)}")
+        rep.lines.append(
+            f"E0 part 2: {len(cells) - len(failing) - len(extras)} of {len(cells)} cells pass"
+        )
+    if g6.exists():
+        comps = json.loads(g6.read_text())["components"]
+        failing = [c["component"] for c in comps if not c["pass"]]
+        if failing:
+            rep.problems.append(f"failing G6 components (hold, D-036 item 1): {', '.join(failing)}")
+        rep.lines.append(f"G6: {len(comps) - len(failing)} of {len(comps)} components pass")
+
+
+def preflight_e1(
+    procs: Sequence[Proc],
+    repo: Path,
+    now: float,
+    run_checks: Callable[[bool], dict[str, Any]],
+    weights: bool,
+    mem_kib: int,
+    disk_free: int,
+) -> Report:
+    """The e1-preflight checks; the start-up checks run only when nothing else forbids it."""
+    rep = Report()
+    if near_start(now):
+        rep.problems.append("23:45 to 00:30 UTC: the arm may be starting; no preflight now")
+        return rep
+    if (repo / "artifacts/e1/local.jsonl").exists():
+        rep.problems.append(
+            "artifacts/e1/local.jsonl exists: the arm has banked runs, so use e1-relaunch "
+            "(only the runners read that file)"
+        )
+        return rep
+    busy = study_processes(procs) + [
+        f"{kind} {pid}" for kind, pids in arm_processes(procs).items() for pid in pids
+    ]
+    if busy:
+        rep.problems.append("alive: " + "; ".join(busy))
+        return rep
+    _validation_verdicts(repo, rep)
+    found = run_checks(weights)
+    if "error" in found:
+        rep.problems.append(str(found["error"]))
+    for name in CHECK_NAMES + (("weights",) if weights else ()):
+        value = found.get(name)
+        if value is None:
+            rep.problems.append(f"{name}: no result")
+        elif isinstance(value, dict) and "error" in value:
+            rep.problems.append(f"{name}: {value['error']}")
+        elif name == "run code" and value.get("dirty") is not False:
+            rep.problems.append(
+                "run code: src/, uv.lock, or pyproject.toml has uncommitted changes"
+            )
+        elif name == "sandbox" and value is not True:
+            rep.problems.append("sandbox: unprivileged namespaces are not available")
+        elif name == "weights":
+            bad = sorted(m for m, ok in value.items() if not ok)
+            if bad:
+                rep.problems.append(f"weights: missing or not the pinned hash: {', '.join(bad)}")
+            else:
+                rep.lines.append(f"weights: {len(value)} files match their pins")
+        elif name == "server" and value != "frozen pin":
+            rep.lines.append(f"server: the build is the one {value} names (a deviation)")
+    if mem_kib < MEM_FLOOR_KIB:
+        rep.problems.append(f"MemAvailable {mem_kib // 1024} MiB < {MEM_FLOOR_KIB // 1024} MiB")
+    if disk_free < DISK_FLOOR:
+        rep.problems.append(
+            f"free disk {disk_free / 1024**3:.1f} GiB < {DISK_FLOOR / 1024**3:.0f} GiB"
+        )
+    rep.lines.append(f"MemAvailable {mem_kib // 1024} MiB, free disk {disk_free / 1024**3:.1f} GiB")
+    return rep
+
+
+def _mem_available_kib() -> int:
+    for line in Path("/proc/meminfo").read_text().splitlines():
+        if line.startswith("MemAvailable:"):
+            return int(line.split()[1])
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("e0g6-preflight")
     sub.add_parser("e0g6-complete")
+    sub.add_parser("e1-alive")
+    p_pre = sub.add_parser("e1-preflight")
+    p_pre.add_argument("--weights", action="store_true", help="also hash the weight files")
     p_gap = sub.add_parser("e1-gap")
     p_gap.add_argument("--need", type=float, default=0.0, help="seconds the job needs")
     p_gap.add_argument("--log", type=Path, default=REPO / "runs/e1/log.txt")
     p_rel = sub.add_parser("e1-relaunch")
     p_rel.add_argument("--rotate", action="store_true")
     args = parser.parse_args(argv)
+    if args.cmd == "e1-alive":
+        code, line = alive(processes())
+        print(line)
+        return code
     if args.cmd == "e1-gap":
         code, line = gap(processes(), args.log, time.time(), args.need)
         print(line)
         return code
-    if args.cmd == "e0g6-complete":
+    if args.cmd == "e1-preflight":
+        rep = preflight_e1(
+            processes(),
+            REPO,
+            time.time(),
+            run_checks,
+            args.weights,
+            _mem_available_kib(),
+            shutil.disk_usage(REPO).free,
+        )
+        verdict = "E1-PREFLIGHT: FAIL" if rep.problems else "E1-PREFLIGHT: PASS"
+    elif args.cmd == "e0g6-complete":
         rep = complete(processes())
         verdict = "COMPLETE: NO" if rep.problems else "COMPLETE: YES"
     elif args.cmd == "e1-relaunch":
