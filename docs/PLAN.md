@@ -53,7 +53,8 @@ G6 and E0 part 2 (synthetic, CPU only, Laplace bootstrap with task-jackknife ref
 85-task E1 shape (D-034 item 1): about 8 core-minutes per dataset in a timing run at 80 tasks,
 1,200 GLMM datasets (G6 200, E0 groups `e1` and `e1-het` 500 each), so a little over 40 hours on
 4 workers, plus the cheap local-arm and non-GLMM cells). Both studies write all their rows before
-either is banked; then bank both, run `python -m noisefloor.e0_validity`, and commit its outputs
+either is banked; then bank both, run `python -m noisefloor.e0_validity` and `python
+tools/validity_summary.py` (G10 checks the summaries), and commit their outputs
 (the list of failing cells under `src/evalstats/data/`) before the local arm's first batch and
 before Raj clones for the Claude slice; then the E1 local arm (both arms refuse to start before
 the G6 and E0 part 2 artifacts are banked). Running G6 and E0 part 2 first lets a failing kind of

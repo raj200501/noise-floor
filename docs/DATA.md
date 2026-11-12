@@ -54,7 +54,9 @@ checked 2026-11-12); retrieval dates are the download dates.
 | Model key | Repository at pinned revision | File | License | Retrieved | Used in |
 |---|---|---|---|---|---|
 | `qwen2.5-1.5b` | `Qwen/Qwen2.5-1.5B-Instruct-GGUF` @ `91cad511` | `qwen2.5-1.5b-instruct-q4_k_m.gguf` | Apache-2.0 | 2026-10-23 | pilot p1 |
+| `qwen2.5-0.5b` | `Qwen/Qwen2.5-0.5B-Instruct-GGUF` @ `9217f5db` | `qwen2.5-0.5b-instruct-q4_k_m.gguf` | Apache-2.0 | 2026-10-23 | downloaded; no banked run (since removed) |
 | `granite-3.3-2b` | `ibm-granite/granite-3.3-2b-instruct-GGUF` @ `7cdf86cc` | `granite-3.3-2b-instruct-Q4_K_M.gguf` | Apache-2.0 | 2026-10-23 | downloaded; no banked run |
+| `smollm2-1.7b` | `HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF` @ `2d4a76a3` | `smollm2-1.7b-instruct-q4_k_m.gguf` | Apache-2.0 | 2026-10-23 | downloaded; no banked run (since removed) |
 | `phi-4-mini` | `unsloth/Phi-4-mini-instruct-GGUF` @ `78eb92a4` | `Phi-4-mini-instruct-Q4_K_M.gguf` | MIT | 2026-11-04 | screening s2, s3 |
 | `smollm3-3b` | `ggml-org/SmolLM3-3B-GGUF` @ `4965cb60` | `SmolLM3-Q4_K_M.gguf` | Apache-2.0 | 2026-11-04 | screening s3 |
 | `qwen3-1.7b` | `Qwen/Qwen3-1.7B-GGUF` @ `90862c4b` | `Qwen3-1.7B-Q8_0.gguf` | Apache-2.0 | 2026-11-04 | screening s3, E1 dry run, E1 |
@@ -62,8 +64,7 @@ checked 2026-11-12); retrieval dates are the download dates.
 | `granite-4.0-micro` | `ibm-granite/granite-4.0-micro-GGUF` @ `ec48475f` | `granite-4.0-micro-Q4_K_M.gguf` | Apache-2.0 | 2026-11-04 | screening s3, E1 dry run, E1 |
 
 The full revisions and SHA-256 hashes are in `src/noisefloor/models.py` and, for E1, in the
-`model_pins` entry of the frozen `e1-design` block of `prereg/0004-e1-factorial.md`. The
-registry also names `qwen2.5-0.5b` and `smollm2-1.7b`, which were never downloaded or run. Run
+`model_pins` entry of the frozen `e1-design` block of `prereg/0004-e1-factorial.md`. Run
 records keep each run's submitted answer, its grade, and run accounting; full model transcripts
 stay in the local work directories and are not committed.
 

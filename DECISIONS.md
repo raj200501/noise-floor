@@ -1026,3 +1026,8 @@ each one stricter than before (docs/GATES.md):
 5. The release review used 2026-11-12's one review run, so G12 waits for a later day's review;
    G5 to G8 wait for their studies. Main is updated at the release point regardless, with the
    gate state stated as it is (Raj's instruction of 2026-11-12).
+6. From the docs verifier: docs/DATA.md lists the two registry models that were downloaded on
+   2026-10-23 and never run (Apache-2.0, read from their model cards at the pinned revisions);
+   the banking sequence in PLAN also runs `python tools/validity_summary.py`; and the G10
+   contract names which derived files its rebuild checks cover and which other gates cover the
+   rest.

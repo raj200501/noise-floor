@@ -142,9 +142,11 @@ network; `docs/api/` is generated (says so) and names everything in `evalstats._
 ## G10 Claim integrity
 README.md and docs/REPORT.md exist; the `claimcheck` and `freshness` make targets name both;
 both targets pass. They read `artifacts/claims.json` and `docs/claims_exempt.toml` (docs/INTEGRITY.md).
-The committed rebuild check of each derived artifact that claims cite passes:
+The committed rebuild checks of three derived artifacts that claims cite pass:
 `tools/noise_floor.py --check`, `python -m noisefloor.method_pilots --check`, and
-`tools/validity_summary.py --check` (D-039).
+`tools/validity_summary.py --check` (D-039). The other derived files are covered elsewhere: the E3
+bounds by G8's tie to the recomputed results, and the cross-checks and leaderboard reports by
+G1's tests (D-040).
 
 ## G11 Preregistration integrity
 At least one `prereg/NNNN-*.md`; each touched by exactly one commit; every artifact JSON with a
