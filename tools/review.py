@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -45,6 +46,12 @@ ALLOWED_DRIFT = ("artifacts/review/", "STATUS.md", "docs/LOG.md")
 def _git(*args: str) -> tuple[int, str]:
     proc = subprocess.run(["git", *args], cwd=REPO, capture_output=True, text=True, check=False)
     return proc.returncode, proc.stdout.strip()
+
+
+def id_listed(issue_id: str, text: str) -> bool:
+    """True if ``issue_id`` appears in ``text`` as a whole id (N1 is not listed by N10)."""
+    pattern = rf"(?<![\w-]){re.escape(issue_id)}(?![\w-])"
+    return bool(issue_id) and re.search(pattern, text) is not None
 
 
 def validate(data: dict[str, Any]) -> tuple[str, list[str]]:
@@ -82,7 +89,7 @@ def validate(data: dict[str, Any]) -> tuple[str, list[str]]:
                 problems.append(f"code changed since review: {', '.join(stray[:5])}")
     log_text = REVIEW_LOG.read_text() if REVIEW_LOG.exists() else ""
     for issue in data.get("non_blocking", []):
-        if str(issue.get("id")) not in log_text:
+        if not id_listed(str(issue.get("id")), log_text):
             problems.append(f"non-blocking {issue.get('id')} not in docs/REVIEW_LOG.md")
     if problems:
         return "REVIEW: STALE", problems

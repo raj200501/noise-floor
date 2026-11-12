@@ -16,13 +16,14 @@ A gate is never passed by weakening these checks; a contract may only become str
 `PYTEST_ADDOPTS`. Needs: tests ran and none failed; `[tool.coverage.run] source` includes both
 packages; every tracked module in both packages appears in the coverage report unless listed in
 `omit`; each omitted module `x.py` has `tests/contract/test_x.py` using recorded fixtures; line
-coverage (covered lines / statements) is at least 85%.
+coverage (covered lines / statements) is at least 85%. No test is skipped for want of R, lme4, or
+rpy2: the GLMM checks the preregistrations rely on are among those tests (D-039).
 
 ## G2 Static quality
 `ruff check .`, `ruff format --check .`, `mypy --strict src/evalstats src/noisefloor`. Ruff may
 not exclude `src`; no mypy override may target the packages; no `# mypy: ignore-errors`; no
 file-level `# type: ignore` in `src`; every `type: ignore` in src, tests, and tools is followed by
-a `#` reason.
+a `#` reason; no inline `mypy:` setting comment anywhere in them (D-039).
 
 ## G3 CI parity
 `.github/workflows/ci.yml` runs `make ci` with a matrix naming 3.11 and 3.12; the Makefile `ci`
@@ -44,7 +45,10 @@ dead proxies (evidence says `env-only`), plus `UV_OFFLINE=1`, `NOISEFLOOR_OFFLIN
   grid's cells, and its first commit comes strictly after the grid's (D-017).
 - `artifacts/e0/raw/<cell>.jsonl` holds one line per replicate (`i`, `truth`, `lo`, `hi`,
   `estimate`, `hit`); G5 recounts each cell's coverage from it and requires the banked count to
-  match. A replicate with a missing bound counts as not covered.
+  match. A replicate with a missing bound counts as not covered. The line counted for an index
+  is the last one written for it; for a grouped cell it carries `e0_glmm_seed(group, i)`, and for
+  an artifact banked with stamps it names that artifact's environment and analysis code from a
+  clean `src/` (D-039).
 - Replicates at least 2,000 per cell, or 500 when `interval_type` is a bootstrap (`bootstrap`,
   `bca`, `bootstrap_max_t`, `parametric_bootstrap`) or GLMM (`glmm`, `glmm_profile`,
   `profile_glmm`, `glmm_task_jackknife`, `glmm_plugin_share`; D-033) type.
@@ -80,7 +84,11 @@ analysis-code hash, which prereg 0004's analysis requires and which must equal t
 `analysis_code` of `artifacts/e0/coverage-0005.json` once E0 part 2 is banked (for a rerun of G6
 under an amendment of its preregistration, a replaced GLMM method, the hash that a frozen
 amendment of 0004 allows in its ` ```json analysis-code ` block); reported bias
-equals the recomputed mean of estimate minus planted.
+equals the recomputed mean of estimate minus planted. Each banked dataset equals its row in
+`artifacts/g6/raw.jsonl`; the raw rows are exactly the preregistered seeds, each stamped with the
+artifact's environment and analysis code from a clean `src/`; and every dataset's planted value
+for a component the recovery-config fixes (the task, model-by-task, and model variances, each
+two-level factor's contribution, effect squared over four) is that value (D-039).
 
 ## G7 Factorial study (E1)
 - Prereg ` ```json e1-design ` block: `{"factors": {name: [levels]}, "models": [{"id", "family",
@@ -126,6 +134,9 @@ network; `docs/api/` is generated (says so) and names everything in `evalstats._
 ## G10 Claim integrity
 README.md and docs/REPORT.md exist; the `claimcheck` and `freshness` make targets name both;
 both targets pass. They read `artifacts/claims.json` and `docs/claims_exempt.toml` (docs/INTEGRITY.md).
+The committed rebuild check of each derived artifact that claims cite passes:
+`tools/noise_floor.py --check`, `python -m noisefloor.method_pilots --check`, and
+`tools/validity_summary.py --check` (D-039).
 
 ## G11 Preregistration integrity
 At least one `prereg/NNNN-*.md`; each touched by exactly one commit; every artifact JSON with a
@@ -135,7 +146,8 @@ At least one `prereg/NNNN-*.md`; each touched by exactly one commit; every artif
 ## G12 Independent review
 `artifacts/review/latest.json`: verdict SHIP, no blocking issues, reviewed commit equal to HEAD or
 an ancestor differing only in `artifacts/review/`, `STATUS.md`, `docs/LOG.md`; non-blocking ids
-in docs/REVIEW_LOG.md; `tools/review.py --validate` ends with `REVIEW: SHIP`.
+in docs/REVIEW_LOG.md, each as a whole id; the stdout of `tools/review.py --validate` ends with
+`REVIEW: SHIP` (D-039).
 
 ## G13 Documentation
 README.md is not the brief and follows section 11 (name first, headline SVG, table, interval and
@@ -150,5 +162,5 @@ Original checkout clean and `private/` untracked (see above); LICENSE, CITATION.
 CONTRIBUTING.md exist; `budget.toml` has `cash_usd = 0` and no cap above the brief's defaults
 (`disk_floor_gb` may only rise); `make secrets-scan` clean; `make budget` passes and prints
 `cash_usd = 0`. Its turn check reads the `agent_usage` rows on which the client logs a Claude
-Code run's turns; a run the stream check stopped at its first turn over the cap records cap + 1
-and is reported as stopped at the cap, and any higher count fails (D-037 item 2).
+Code run's turns, and any run above the cap fails it, including one the stream check stopped at
+the first message of a turn over the cap (D-037 item 2, made strict by D-039).

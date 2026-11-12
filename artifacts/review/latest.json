@@ -1,0 +1,86 @@
+{
+ "reviewed_commit": "efbff398a7d25ae7d351ec4708a48f8e4e43d192",
+ "verdict": "BLOCK",
+ "date": "2026-11-12T00:08:17Z",
+ "reviewer": "subagent:reviewer (milestone, D-037 item 9)",
+ "blocking": [
+  {
+   "id": "B1",
+   "title": "A tracked file contains a literal em dash (section 9 rule 12: no em dashes anywhere)",
+   "where": "tests/test_e2.py:168",
+   "evidence": "`git ls-files -z | xargs -0 grep -c $'\\xe2\\x80\\x94'` over all 313 tracked files finds exactly one U+2014 character, in tests/test_e2.py line 168, in the assertion `assert \"## Adjacent pairs\" in md and \"Excluded entries\" in md and \"<U+2014>\" not in md` (added in 12f1161). Rule 12 of docs/BUILD_BRIEF.md section 9 (copied verbatim into CLAUDE.md) says 'No em dashes anywhere'. No gate catches it, because G13 scans only README.md and docs/REPORT.md. Fix without touching src/ (safe while G6 runs): write the character as the escape \"\\u2014\", as tools/ship_check.py already does with chr(0x2014)."
+  }
+ ],
+ "non_blocking": [
+  {
+   "id": "N1",
+   "title": "G12 can never pass in this environment: it reads the last line of stdout plus stderr",
+   "detail": "tools/ship_check.py:1202 requires tail(res.out) == 'REVIEW: SHIP', but res.out is stdout then stderr and uv prints a UV_NATIVE_TLS deprecation warning on stderr, so the last line is that warning (reproduced with `uv run --no-sync python -c \"print('REVIEW: SHIP')\"` in the fresh clone; the same warning is why G10's evidence shows a uv warning instead of the PASS lines); compare the last line of res.stdout instead, before the final sequence."
+  },
+  {
+   "id": "N2",
+   "title": "Marginal rank intervals use the other entry's critical value for the best-rank side",
+   "detail": "In src/evalstats/rank.py:152-162 with simultaneous=False, 'j surely better than i' uses crit[j] while entry i's marginal set needs crit[i] for all of i's comparisons; the banked marginal_best fields in artifacts/e2/*/results.json reproduce the library rule, and 10 of 66 TB2 and 2 of 32 Epoch marginal intervals change under the own-critical-value rule; they are secondary and appear in no document, and rank.py is in ANALYSIS_CODE, so a fix waits for the end of E1 or needs an analysis-code amendment of 0004."
+  },
+  {
+   "id": "N3",
+   "title": "docs/REPORT.md says G6 and E0 part 2 have not run while G6 is running",
+   "detail": "docs/REPORT.md line 5 ('frozen and have not run') and the table row at line 24 ('frozen, not run') predate the G6 run that started 2026-11-11T20:19Z with raw rows committed, while README.md says the validation runs are under way; reword to 'running, not banked'."
+  },
+  {
+   "id": "N4",
+   "title": "E3 robust counts are shown as key results without an unvalidated label",
+   "detail": "README.md:104 and the REPORT abstract give the robust counts (0 and 3), whose Imbens and Manski interval for a pair difference has no E0 cell (prereg 0001 Methods 6 asks headline intervals to pass E0), and README.md:75-76 says the methods behind E2 and E3 carry a validity record; the gap is disclosed in Limitations and Method but should sit next to the counts."
+  },
+  {
+   "id": "N5",
+   "title": "The post-result [0, 1] cut of the policy-bounds interval is not listed as a deviation",
+   "detail": "Commit f86413f (D-035 item 6) changed a prereg 0001 estimator after E2 and E3 were banked and re-banked them; CORRECTIONS.md and the Method section record it, but docs/REPORT.md 'Deviations from preregistration' (lines 184-190) omits it and ends 'No other amendment of prereg/0001 or prereg/0003 exists'."
+  },
+  {
+   "id": "N6",
+   "title": "G6 trusts the artifact's planted values and does not tie recovery.json to the raw rows",
+   "detail": "tools/ship_check.py g6 (lines 869-932) recounts coverage against each row's own 'planted' field and never compares recovery.json with the committed artifacts/g6/raw.jsonl; it could require the constant truths from the recovery-config block (task 4.0, model:task 0.5, model 0.24) and dataset-by-dataset equality with the raw rows (the 88 raw rows checked here carry the right constants)."
+  },
+  {
+   "id": "N7",
+   "title": "G5 does not tie E0 raw lines to their cell's seeds or to one analysis code",
+   "detail": "raw_covered (tools/ship_check.py:540-559) recounts any lines with the right indices; it never checks a grouped line's seed against noisefloor.recovery.e0_glmm_seed(group, i) or that every line's stamp names the artifact's environment and analysis_code, so raw files from another design or code would be recounted as valid."
+  },
+  {
+   "id": "N8",
+   "title": "Non-blocking review ids are matched by substring",
+   "detail": "tools/ship_check.py:1194-1195 and tools/review.py test `id in log_text`, so a log that lists only N10 or N11 satisfies N1; match whole ids."
+  },
+  {
+   "id": "N9",
+   "title": "The G14 turn check accepts cap + 1 turns",
+   "detail": "tools/budget.py:87-88 (D-037 item 2) passes agent_usage rows with claude_agent_max_turns + 1 turns; when --max-turns fails and the stream check stops the child at the first message of turn 9, a ninth turn has already started, so a one-turn overrun reads as respected; consider stopping the child when the cap-th turn ends or reporting the overrun."
+  },
+  {
+   "id": "N10",
+   "title": "G2 detects only one form of inline mypy configuration",
+   "detail": "tools/ship_check.py:462 rejects '# mypy: ignore-errors' but not, for example, '# mypy: disable-error-code=...' in a src file, which relaxes --strict for that file while G2 still passes (no such comment exists today)."
+  },
+  {
+   "id": "N11",
+   "title": "Ship-check never recomputes the derived artifacts that claims cite",
+   "detail": "G10 re-derives claims from artifacts/e2/noise_floor.json, artifacts/method_pilots/summary.json, and artifacts/e0/crosscheck.json without checking that those files are what their scripts produce (only `make reproduce`, outside ship-check, checks some); the noise-floor and method-pilot files reproduce today (recomputed in memory)."
+  },
+  {
+   "id": "N12",
+   "title": "docs/DATA.md does not list the third-party model weights",
+   "detail": "The GGUF weights used by the pilots and E1 (Qwen3, Granite 4.0 micro, SmolLM3, Phi-4-mini, Qwen2.5) are pinned in prereg 0004 and src/noisefloor/models.py, but rule 9 asks docs/DATA.md to record source, license, and retrieval date for third-party data."
+  },
+  {
+   "id": "N13",
+   "title": "STATUS.md usage and claim counts are stale",
+   "detail": "STATUS.md line 73 says 'review runs 0' while artifacts/usage/ledger.jsonl records this milestone review run (2026-11-11T23:42:18Z), and the G10 row says 260 claim markers where make claimcheck counts 261."
+  },
+  {
+   "id": "N14",
+   "title": "G1 still passes when the R-dependent tests the preregistrations cite are skipped",
+   "detail": "Prereg 0006 relies on tests/test_recovery.py::test_g6_analysis_equals_the_e1_analysis and 0004 on tests/test_prereg_consistency.py, both skipped without R or rpy2; all 1,414 tests ran here (0 skipped), but in a container without R G1 would pass with them skipped, so G1 could fail on a skip of those tests."
+  }
+ ]
+}

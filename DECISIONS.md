@@ -954,3 +954,32 @@ already fixed. Four small ones are applied here (docs and `tools/` only):
    slice starts, and landing it then would add a second change under `src/` to the window that
    D-034 item 12 keeps for `e0_validity`. It is dropped. Rule 5 rests on the runbook instead:
    extra usage off for the whole slice, and no further call after a refusal that names it.
+
+## D-039 2026-11-12 Gate checks tightened after the milestone review
+The milestone review (D-037 item 9; REVIEW_LOG 2026-11-12) found one blocking issue, a literal em
+dash in a test (rule 12), and fourteen non-blocking ones. Changes in `tools/` and `tests/` only,
+each one stricter than before (docs/GATES.md):
+1. A test scans every tracked file we write (all but `artifacts/` and recorded third-party
+   fixtures) for em dashes.
+2. G12 reads the verdict from stdout alone (uv can warn on stderr after it) and matches review
+   ids as whole ids, in G12 and `tools/review.py`.
+3. G6 requires each banked dataset to equal its committed raw row; the raw rows to be exactly
+   the preregistered seeds, from the artifact's environment and analysis code and a clean
+   `src/`; and the planted values that the recovery-config fixes (task, model-by-task, and model
+   variances; each two-level factor's contribution, effect squared over four) to be the ones
+   every dataset was scored on. The other components' planted values depend on each dataset's
+   own draws and are not restated in the gate.
+4. G5 requires each counted raw line of a grouped cell to carry `e0_glmm_seed(group, i)`
+   (restated in the gate; a test pins it to the study's function) and, for an artifact banked
+   with stamps, every counted line to name that environment and analysis code from a clean
+   `src/`.
+5. G14's turn check is strict: any `agent_usage` row above the cap fails it, including a run the
+   stream check stopped at the first message of a turn over the cap. This replaces D-037 item 2,
+   which reported that case as stopped at the cap: a turn that began is past the cap.
+6. G2 rejects every inline `mypy:` setting comment; G1 fails when a test was skipped for want of
+   R, lme4, or rpy2; G10 also runs the committed rebuild check of each derived artifact that
+   claims cite (the noise floor, the method-pilot summary, and the validation summaries).
+7. Deferred: N2, marginal rank intervals (`evalstats.rank`, `simultaneous=False`) use the other
+   entry's critical value on the best-rank side. No reported number rests on them, and the file
+   is in the pinned analysis code, so the fix lands after the E1 analysis is banked, with E2
+   banked again and a CORRECTIONS entry for every banked interval it changes.

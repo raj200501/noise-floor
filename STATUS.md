@@ -21,7 +21,7 @@ Last fast ship-check (does not count) at 3ad6ea2: 9/14 (G1 to G4, G9 to G11, G13
 | G7 Factorial study | FAIL | 0004 frozen (85 local tasks, 4 days); local arm after G5 and G6 pass; Claude slice needs Raj; analysis after both arms |
 | G8 Leaderboards and bounds | FAIL | E2 and both reports done; E3 on E1 comes with the E1 analysis, after the Claude slice ends |
 | G9 Library shipped | PASS | wheel installs in a clean venv; 5 examples run; API reference generated |
-| G10 Claim integrity | PASS | README and REPORT pass claimcheck and freshness (260 claim markers) |
+| G10 Claim integrity | PASS | README and REPORT pass claimcheck and freshness (261 claims); derived artifacts reproduce |
 | G11 Preregistration integrity | PASS | 6 preregistrations frozen, artifacts predated by them |
 | G12 Independent review | FAIL | `make review` after the E1 analysis (after the Claude slice ends) |
 | G13 Documentation | PASS | README per section 11; REPORT within the word range with all sections; 24 references verified |
@@ -51,6 +51,13 @@ in docs/PLAN.md is corrected. Two consequences: the local arm launches only if G
 the banking commit, and, as prereg 0004 says, the E1 analysis waits for both arms, so E3 on E1
 (G8), the post-E1 check (G7), and the final review (G12) wait for the end of the Claude slice.
 
+A milestone review by the `reviewer` subagent (efbff39; the day's one review run, logged)
+returned BLOCK on one item, a literal em dash in a test, now fixed with a test that keeps em
+dashes out of every authored file. Its 14 non-blocking issues are in docs/REVIEW_LOG.md with what
+was done about each: gate checks tightened in `tools/` (G1, G2, G5, G6, G10, G12, G14; D-039),
+report and README wording, the model weights in docs/DATA.md, and one rank-interval defect in a
+pinned file (N2) that waits until after the E1 analysis.
+
 ## Next three actions
 
 1. Keep G6 and E0 part 2 running (a little over 40 hours on 4 workers in all): `bash
@@ -70,7 +77,8 @@ the banking commit, and, as prereg 0004 says, the E1 analysis waits for both arm
 
 ## Usage to date
 
-cash_usd = 0. cap_share = 0.2 (D-007). Claude subject runs 0, single calls 0, review runs 0.
+cash_usd = 0. cap_share = 0.2 (D-007). Claude subject runs 0, single calls 0, review runs 1 (the
+milestone review of 2026-11-11, D-037 item 9).
 Local model runs: pilot p1 24, screening s2 11 (exploratory, suite v1), s3 84 (suite v2; stopped early, D-025).
 
 ## Needs Raj

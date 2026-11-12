@@ -230,6 +230,24 @@ def tail(text: str, n: int = 1) -> str:
     return " | ".join(lines[-n:])[:120] if lines else "no output"
 
 
+def id_listed(issue_id: str, text: str) -> bool:
+    """True if ``issue_id`` appears in ``text`` as a whole id (N1 is not listed by N10)."""
+    return (
+        bool(issue_id) and re.search(rf"(?<![\w-]){re.escape(issue_id)}(?![\w-])", text) is not None
+    )
+
+
+# Derived artifacts that claims cite, with the command that rebuilds and compares each (G10).
+DERIVED_CHECKS = (
+    ("artifacts/e2/noise_floor.json", ["python", "tools/noise_floor.py", "--check"]),
+    (
+        "artifacts/method_pilots/summary.json",
+        ["python", "-m", "noisefloor.method_pilots", "--check"],
+    ),
+    ("validation summaries", ["python", "tools/validity_summary.py", "--check"]),
+)
+
+
 def need(cond: bool, evidence: str) -> None:
     if not cond:
         raise GateError(evidence)
@@ -361,6 +379,20 @@ def junit_counts(path: Path) -> tuple[int, int]:
     return tests, bad
 
 
+R_SKIP_RE = re.compile(r"\bR\b|lme4|rpy2")
+
+
+def junit_skips(path: Path) -> list[tuple[str, str]]:
+    """(test id, skip message) of every skipped test in a pytest junit XML file."""
+    root = ET.parse(path).getroot()
+    out = []
+    for case in root.iter("testcase"):
+        for skip in case.findall("skipped"):
+            name = f"{case.get('classname', '')}::{case.get('name', '')}"
+            out.append((name, str(skip.get("message", ""))))
+    return out
+
+
 def tracked_py(ctx: Ctx, *roots: str) -> list[Path]:
     out = git(ctx.clone, "ls-files", "--", *roots)
     return [ctx.clone / p for p in out.splitlines() if p.endswith(".py")]
@@ -392,6 +424,12 @@ def g1(ctx: Ctx) -> str:
     need(res.code == 0, f"make test exit {res.code}: {tail(res.out)}")
     tests, bad = junit_counts(logs / "junit.xml")
     need(tests > 0 and bad == 0, f"junit: {tests} tests, {bad} failed")
+    # The R-backed tests carry the GLMM validity checks that preregistrations 0004 to 0006 rely
+    # on (for example test_recovery.py::test_g6_analysis_equals_the_e1_analysis), so a run that
+    # skipped them for want of R, lme4, or rpy2 does not pass (D-039).
+    skipped = junit_skips(logs / "junit.xml")
+    r_skips = [name for name, why in skipped if R_SKIP_RE.search(why)]
+    need(not r_skips, f"{len(r_skips)} R-backed tests skipped, e.g. {', '.join(r_skips[:2])}")
 
     with (ctx.clone / "pyproject.toml").open("rb") as fh:
         cov_cfg = tomllib.load(fh).get("tool", {}).get("coverage", {}).get("run", {})
@@ -423,7 +461,10 @@ def g1(ctx: Ctx) -> str:
     need(statements > 0, "coverage measured no statements")
     pct = 100.0 * covered / statements
     need(pct >= COVERAGE_MIN, f"line coverage {pct:.1f}% < {COVERAGE_MIN:.0f}%")
-    return f"setup ok; {tests} tests pass; line coverage {pct:.1f}% (omitted {len(omit)})"
+    return (
+        f"setup ok; {tests} tests pass ({len(skipped)} skipped, none for want of R); line "
+        f"coverage {pct:.1f}% (omitted {len(omit)})"
+    )
 
 
 def g2(ctx: Ctx) -> str:
@@ -459,8 +500,8 @@ def g2(ctx: Ctx) -> str:
         for lineno, comment, own_line in comments(path):
             where = f"{relp}:{lineno}"
             need(
-                re.search(r"mypy:\s*ignore-errors", comment) is None,
-                f"{where} disables mypy for the file",
+                re.search(r"\bmypy:\s*\S", comment) is None,
+                f"{where} sets mypy options inline (it would relax --strict for the file)",
             )
             if re.search(r"type:\s*ignore", comment) is None:
                 continue
@@ -537,8 +578,27 @@ def g4(ctx: Ctx) -> str:
     return f"demo {res.seconds:.0f}s, no network ({isolation}), no model calls, matches golden"
 
 
-def raw_covered(ctx: Ctx, cell: str, reps: int) -> int:
-    """Recount a cell's covered replicates from artifacts/e0/raw/<cell>.jsonl (indices < reps)."""
+def e0_glmm_seed(group: str, replicate: int) -> int:
+    """``noisefloor.recovery.e0_glmm_seed`` restated with the standard library (a test pins it)."""
+    return int(sha256(f"e0-glmm:{group}:{replicate}".encode()).hexdigest()[:12], 16)
+
+
+def raw_covered(
+    ctx: Ctx,
+    cell: str,
+    reps: int,
+    *,
+    group: str | None = None,
+    env: str | None = None,
+    code: str | None = None,
+) -> int:
+    """Recount a cell's covered replicates from artifacts/e0/raw/<cell>.jsonl (indices < reps).
+
+    The line counted for each index is the last one written for it (prereg 0005). For a grouped
+    cell each counted line must carry its dataset's seed, ``e0_glmm_seed(group, i)``; with
+    ``env`` and ``code`` (an artifact banked with stamps) each must name that environment and
+    analysis code from a clean ``src/`` (D-039).
+    """
     path = rel(ctx, f"artifacts/e0/raw/{cell}.jsonl")
     need(path.exists(), f"cell {cell}: raw replicates missing")
     rows: dict[int, dict[str, Any]] = {}
@@ -547,6 +607,22 @@ def raw_covered(ctx: Ctx, cell: str, reps: int) -> int:
             row = json.loads(line)
             rows[int(row["i"])] = row
     need(all(i in rows for i in range(reps)), f"cell {cell}: raw replicates incomplete")
+    for i in range(reps):
+        row = rows[i]
+        if group is not None:
+            need(
+                row.get("seed") is not None and int(row["seed"]) == e0_glmm_seed(group, i),
+                f"cell {cell}: replicate {i} does not carry the seed of its group's dataset",
+            )
+        if env is not None or code is not None:
+            stamp = row.get("stamp") or {}
+            need(
+                stamp.get("env") == env
+                and stamp.get("analysis") == code
+                and stamp.get("src_dirty") is False,
+                f"cell {cell}: replicate {i} ran in another environment or analysis code, or "
+                "from a dirty src/",
+            )
 
     def covered(row: dict[str, Any]) -> bool:
         if row.get("hit") is not None:
@@ -744,6 +820,7 @@ def g5(ctx: Ctx) -> str:
     grids = e0_grids(ctx)
     planned: dict[str, Any] = {}
     cells: dict[str, Any] = {}
+    stamped: dict[str, tuple[Any, Any]] = {}  # cell -> (env, analysis code) of its artifact
     for prereg, art in grids:
         data = load_json(rel(ctx, art))
         need(data.get("prereg") == prereg, f"{art} cites {data.get('prereg')}, not {prereg}")
@@ -757,6 +834,9 @@ def g5(ctx: Ctx) -> str:
         need(set(got) == set(mine), f"{art} cells differ from the frozen grid of {prereg}")
         planned.update(mine)
         cells.update(got)
+        banked_env = (data.get("environment") or {}).get("env")
+        if banked_env is not None or data.get("analysis_code") is not None:
+            stamped.update(dict.fromkeys(got, (banked_env, data.get("analysis_code"))))
     failing: list[str] = []
     for cid, cell in cells.items():
         plan = planned[cid]
@@ -765,7 +845,11 @@ def g5(ctx: Ctx) -> str:
         reps = int(cell["replicates"])
         floor = MIN_REPS_RESAMPLING if cell["interval_type"] in RESAMPLING_TYPES else MIN_REPS
         need(reps >= max(floor, int(plan.get("replicates", 0))), f"cell {cid}: {reps} replicates")
-        covered = raw_covered(ctx, cid, reps)
+        env, code = stamped.get(cid, (None, None))
+        group = (plan.get("params") or {}).get("group")
+        covered = raw_covered(
+            ctx, cid, reps, group=None if group is None else str(group), env=env, code=code
+        )
         need(
             covered == int(cell["covered"]),
             f"cell {cid}: banked covered count does not match its raw replicates",
@@ -859,6 +943,31 @@ def g5(ctx: Ctx) -> str:
     )
 
 
+def g6_planted_truths(config: dict[str, Any]) -> dict[str, float]:
+    """Planted values a G6 recovery-config fixes for every dataset (prereg 0006).
+
+    The task and model-by-task variances as given; the model variance as the population variance
+    of the planted model effects; each two-level fixed factor's contribution as effect^2 / 4 (a
+    balanced design), with a share of 0 for a factor planted at 0. Components whose planted value
+    depends on a dataset's own draws (day, block, per-model and MDE rows) are not listed.
+    """
+    planted = config.get("planted") or {}
+    out: dict[str, float] = {}
+    if "task_var" in planted:
+        out["task"] = float(planted["task_var"])
+    if "model_task_var" in planted:
+        out["model:task"] = float(planted["model_task_var"])
+    model = [float(x) for x in planted.get("model", [])]
+    if model:
+        mean = sum(model) / len(model)
+        out["model"] = sum((x - mean) ** 2 for x in model) / len(model)
+    for factor, effect in (planted.get("factors") or {}).items():
+        out[str(factor)] = float(effect) ** 2 / 4
+        if float(effect) == 0:
+            out[f"share:{factor}"] = 0.0
+    return out
+
+
 def g6_hit(row: dict[str, Any]) -> bool:
     """True if a G6 component's interval covers its planted value (a missing bound never does)."""
     if row.get("lo") is None or row.get("hi") is None:
@@ -908,6 +1017,41 @@ def g6(ctx: Ctx) -> str:
     need(bool(names), "no variance components")
     # Every preregistered component, and only those, decides the gate (prereg 0006).
     need(names == sorted(listed), "components differ from the prereg's g6-components list")
+    # The artifact is what the committed raw rows say, dataset by dataset, and those rows ran in
+    # the artifact's one environment and analysis code from a clean src/ (D-039).
+    raw = rel(ctx, "artifacts/g6/raw.jsonl")
+    need(raw.exists(), "missing artifacts/g6/raw.jsonl")
+    by_seed: dict[int, dict[str, Any]] = {}
+    for line in raw.read_text().splitlines():
+        if line.strip():
+            row = json.loads(line)
+            need(int(row["seed"]) not in by_seed, f"seed {row['seed']} has two raw rows")
+            by_seed[int(row["seed"])] = row
+    need(set(by_seed) == {int(s) for s in seeds}, "raw rows are not exactly the prereg's seeds")
+    env = (data.get("environment") or {}).get("env")
+    for d in datasets:
+        row = by_seed[int(d["seed"])]
+        same = row.get("components") == d["components"] and all(
+            row.get(k) == d.get(k) for k in ("converged", "error")
+        )
+        need(same, f"dataset {d['seed']} differs from its raw row")
+        stamp = row.get("stamp") or {}
+        need(
+            stamp.get("env") == env
+            and stamp.get("analysis") == code
+            and stamp.get("src_dirty") is False,
+            f"raw row {d['seed']} ran in another environment or analysis code, or a dirty src/",
+        )
+    # Planted values that the recovery-config fixes are the ones every dataset was scored on.
+    for name, value in g6_planted_truths(config).items():
+        if name in names:
+            need(
+                all(
+                    math.isclose(float(d["components"][name]["planted"]), value, abs_tol=1e-12)
+                    for d in datasets
+                ),
+                f"{name} planted value differs from the recovery-config's {value:g}",
+            )
     reported_bias = data.get("bias", {})
     parts = []
     for name in names:
@@ -1151,7 +1295,15 @@ def g10(ctx: Ctx) -> str:
     need(res.code == 0, f"make claimcheck: {tail(res.out)}")
     res2 = make(ctx, "freshness", timeout=3600)
     need(res2.code == 0, f"make freshness: {tail(res2.out)}")
-    return f"claimcheck: {tail(res.out)[:50]}; freshness: {tail(res2.out)[:50]}"
+    # Derived artifacts that claims cite must be what their committed scripts make of the
+    # banked sources (rule 1; D-039), not only internally consistent with the documents.
+    for name, cmd in DERIVED_CHECKS:
+        res3 = run(ctx, f"derived-{name}", ["uv", "run", "--no-sync", *cmd], timeout=1800)
+        need(res3.code == 0, f"{name} does not reproduce: {tail(res3.stdout or res3.out)}")
+    return (
+        f"claimcheck: {tail(res.stdout)[:50]}; freshness: {tail(res2.stdout)[:50]}; "
+        f"{len(DERIVED_CHECKS)} derived artifacts reproduce"
+    )
 
 
 def g11(ctx: Ctx) -> str:
@@ -1192,14 +1344,17 @@ def g12(ctx: Ctx) -> str:
     need(log.exists(), "missing docs/REVIEW_LOG.md")
     log_text = log.read_text()
     for issue in data.get("non_blocking", []):
-        need(str(issue.get("id")) in log_text, f"non-blocking {issue.get('id')} not in log")
+        need(
+            id_listed(str(issue.get("id")), log_text), f"non-blocking {issue.get('id')} not in log"
+        )
     need_setup(ctx)
     res = run(
         ctx,
         "review-validate",
         ["uv", "run", "--no-sync", "python", "tools/review.py", "--validate"],
     )
-    need(res.code == 0 and tail(res.out) == "REVIEW: SHIP", f"make review: {tail(res.out)}")
+    # stdout alone: uv may print a warning on stderr after the verdict line (D-039).
+    need(res.code == 0 and tail(res.stdout) == "REVIEW: SHIP", f"make review: {tail(res.out)}")
     return f"REVIEW: SHIP for {reviewed[:12]}; {len(data.get('non_blocking', []))} non-blocking"
 
 

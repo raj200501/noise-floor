@@ -79,18 +79,17 @@ def check(caps: dict[str, Any], entries: list[dict[str, Any]]) -> tuple[list[str
         lines.append(f"{cap_name}: peak {peak}/{cap} on {peak_day} {status}")
     max_turns = int(caps["claude_agent_max_turns"])
     # A Claude Code run logs its turns on its agent_usage row (noisefloor.client). The child runs
-    # with --max-turns at the cap, and the stream check stops it at the first message of a turn
-    # over the cap, which records cap + 1 turns: the cap held, so that is reported, not failed.
-    # Rows of any other kind that carry turns must stay within the cap itself.
-    usage = [int(e.get("turns", 0)) for e in entries if e.get("kind") == "agent_usage"]
-    other = [int(e.get("turns", 0)) for e in entries if e.get("kind") == "agent_run"]
-    stopped = sum(1 for n in usage if n == max_turns + 1)
-    within = all(n <= max_turns + 1 for n in usage) and all(n <= max_turns for n in other)
-    worst = max([*usage, *other], default=0)
+    # with --max-turns at the cap, and the stream check stops it at the first message of any turn
+    # over the cap; such a run records cap + 1 turns, and the turn it began is an overrun, so it
+    # fails here like any other (D-039, which replaces D-037 item 2's allowance).
+    turns = [
+        int(e.get("turns", 0)) for e in entries if e.get("kind") in ("agent_usage", "agent_run")
+    ]
+    worst = max(turns, default=0)
+    within = worst <= max_turns
     ok = ok and within
-    note = f" ({stopped} stopped at the cap by the stream check)" if stopped else ""
     status = "OK" if within else "EXCEEDED"
-    lines.append(f"claude_agent_max_turns: worst {worst}/{max_turns}{note} {status}")
+    lines.append(f"claude_agent_max_turns: worst {worst}/{max_turns} {status}")
     lines.append(f"ledger entries: {len(entries)}")
     lines.append("BUDGET: " + ("OK" if ok else "VIOLATED"))
     return lines, ok

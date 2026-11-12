@@ -100,9 +100,8 @@ def test_budget_reads_turns_where_the_client_logs_them() -> None:
 
     lines, ok = budget.check(CAPS, [run, usage(cap)])
     assert ok and f"worst {cap}/{cap} OK" in "\n".join(lines)
-    lines, ok = budget.check(CAPS, [run, usage(cap + 1)])  # stopped by the stream check
-    assert ok and "1 stopped at the cap" in "\n".join(lines)
-    assert not budget.check(CAPS, [run, usage(cap + 2)])[1]
+    # The stream check stops a child at the first message of a turn over the cap: an overrun.
+    assert not budget.check(CAPS, [run, usage(cap + 1)])[1]
 
 
 def test_billing_guard_detects_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -343,7 +342,13 @@ def test_budget_counts_both_ledgers(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
 
 def _g6_repo(
-    root: Path, components: list[str], *, rows_ok: bool = True, code: str | None = "a" * 16
+    root: Path,
+    components: list[str],
+    *,
+    rows_ok: bool = True,
+    code: str | None = "a" * 16,
+    raw: str = "match",
+    task_var: float | None = None,
 ) -> Path:
     import hashlib
     import json
@@ -361,7 +366,9 @@ def _g6_repo(
         }
         subprocess.run(["git", *args], cwd=root, check=True, capture_output=True, env=env)
 
-    config = {"design": {"n_tasks": 30}, "settings": {"level": 0.95}}
+    config: dict[str, object] = {"design": {"n_tasks": 30}, "settings": {"level": 0.95}}
+    if task_var is not None:
+        config["planted"] = {"task_var": task_var}
     seeds = list(range(200))
     (root / "prereg").mkdir(parents=True)
     text = "# G6\n\n"
@@ -395,6 +402,15 @@ def _g6_repo(
     }
     (root / "artifacts" / "g6").mkdir(parents=True)
     (root / "artifacts" / "g6" / "recovery.json").write_text(json.dumps(artifact))
+    stamp = {"env": artifact["environment"]["env"], "analysis": code, "src_dirty": raw == "dirty"}
+    rows = [{"seed": d["seed"], "components": d["components"], "stamp": stamp} for d in datasets]
+    if raw == "differ":
+        rows[3] = {**rows[3], "components": {c: {**comp(3), "estimate": 9.0} for c in components}}
+    if raw == "short":
+        rows = rows[:-1]
+    if raw != "missing":
+        lines = "".join(json.dumps(r) + "\n" for r in rows)
+        (root / "artifacts" / "g6" / "raw.jsonl").write_text(lines)
     git("add", "-A")
     git("commit", "-q", "-m", "bank")
     return root
@@ -415,6 +431,22 @@ def test_g6_checks_components_config_and_coverage(tmp_path: Path) -> None:
     blank = _g6_repo(tmp_path / "blank", ["task", "harness"], code=None)
     with pytest.raises(ship_check.GateError, match="analysis_code"):
         ship_check.g6(_ctx(blank))
+    # The artifact must be its committed raw rows, from one environment and a clean src/.
+    for kind, message in (
+        ("missing", "missing artifacts/g6/raw.jsonl"),
+        ("differ", "differs from its raw row"),
+        ("short", "exactly the prereg's seeds"),
+        ("dirty", "dirty src"),
+    ):
+        bad = _g6_repo(tmp_path / f"raw-{kind}", ["task", "harness"], raw=kind)
+        with pytest.raises(ship_check.GateError, match=message):
+            ship_check.g6(_ctx(bad))
+    # Planted values the recovery-config fixes are the ones the datasets were scored on.
+    fixed = _g6_repo(tmp_path / "fixed", ["task", "harness"], task_var=1.0)
+    assert ship_check.g6(_ctx(fixed)).startswith("200 datasets")
+    wrong = _g6_repo(tmp_path / "wrong", ["task", "harness"], task_var=2.0)
+    with pytest.raises(ship_check.GateError, match="planted value"):
+        ship_check.g6(_ctx(wrong))
     # E0 part 2, once banked, must have run the same analysis code.
     e0 = good / "artifacts" / "e0"
     e0.mkdir(parents=True)
@@ -550,3 +582,106 @@ def test_first_screen_interval_reads_the_rendered_text() -> None:
     assert ship_check.first_screen_interval("gap 0.02 (CI [0.01, 0.03])")
     assert not ship_check.first_screen_interval("gap 0.02, CI from 0.01 to 0.03")
     assert not ship_check.first_screen_interval("range [0.01, 0.03] with no interval named")
+
+
+def test_g12_matches_whole_review_ids() -> None:
+    log = "# Review log\n\n- 2026-11-12 N10: something\n- N2. another\n"
+    assert ship_check.id_listed("N10", log) and ship_check.id_listed("N2", log)
+    assert not ship_check.id_listed("N1", log)  # N10 does not list N1
+    assert not ship_check.id_listed("", log)
+
+
+def test_e0_glmm_seed_matches_the_study_code() -> None:
+    from noisefloor.recovery import e0_glmm_seed
+
+    for group in ("e1", "e1-het", "e1-local-eq"):
+        for i in (0, 1, 499, 1999):
+            assert ship_check.e0_glmm_seed(group, i) == e0_glmm_seed(group, i)
+
+
+def test_raw_covered_ties_lines_to_seeds_and_stamps(tmp_path: Path) -> None:
+    import json
+
+    raw = tmp_path / "artifacts" / "e0" / "raw"
+    raw.mkdir(parents=True)
+    stamp = {"env": "e" * 16, "analysis": "a" * 16, "src_dirty": False}
+
+    def write(rows: list[dict[str, object]]) -> None:
+        (raw / "G-x.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+
+    def line(i: int, **extra: object) -> dict[str, object]:
+        seed = ship_check.e0_glmm_seed("g", i)
+        return {
+            "i": i,
+            "seed": seed,
+            "lo": 0.0,
+            "hi": 1.0,
+            "truth": 0.5,
+            "hit": None,
+            "stamp": stamp,
+            **extra,
+        }
+
+    ctx = _ctx(tmp_path)
+    kw = {"group": "g", "env": "e" * 16, "code": "a" * 16}
+    write([line(i) for i in range(4)])
+    assert ship_check.raw_covered(ctx, "G-x", 4, **kw) == 4
+    write([line(0), line(1, seed=7), line(2), line(3)])
+    with pytest.raises(ship_check.GateError, match="seed"):
+        ship_check.raw_covered(ctx, "G-x", 4, **kw)
+    write([line(0), line(1), line(2, stamp={**stamp, "analysis": "b" * 16}), line(3)])
+    with pytest.raises(ship_check.GateError, match="analysis code"):
+        ship_check.raw_covered(ctx, "G-x", 4, **kw)
+    write([line(0), line(1), line(2), line(3, stamp={**stamp, "src_dirty": True})])
+    with pytest.raises(ship_check.GateError, match="dirty"):
+        ship_check.raw_covered(ctx, "G-x", 4, **kw)
+    # A later line for an index replaces an earlier one (prereg 0005), and is the one checked.
+    write([line(0, stamp={**stamp, "env": "x"}), line(0), line(1), line(2), line(3)])
+    assert ship_check.raw_covered(ctx, "G-x", 4, **kw) == 4
+
+
+def test_junit_skips_flag_r_backed_tests(tmp_path: Path) -> None:
+    report = tmp_path / "junit.xml"
+    report.write_text(
+        '<testsuites><testsuite tests="3">'
+        '<testcase classname="tests.test_recovery" name="test_a">'
+        '<skipped message="R, lme4, or rpy2 not available"/></testcase>'
+        '<testcase classname="tests.test_x" name="test_b"><skipped message="no docker"/></testcase>'
+        '<testcase classname="tests.test_x" name="test_c"/></testsuite></testsuites>'
+    )
+    skips = ship_check.junit_skips(report)
+    assert len(skips) == 2
+    flagged = [n for n, why in skips if ship_check.R_SKIP_RE.search(why)]
+    assert flagged == ["tests.test_recovery::test_a"]
+
+
+def test_derived_artifacts_named_in_claims_have_checks() -> None:
+    import json
+
+    claims = json.loads((TOOLS.parent / "artifacts" / "claims.json").read_text())["claims"]
+    cited = {c["artifact"] for c in claims}
+    checked = {name for name, _ in ship_check.DERIVED_CHECKS}
+    for derived in ("artifacts/e2/noise_floor.json", "artifacts/method_pilots/summary.json"):
+        assert derived not in cited or derived in checked
+
+
+def test_no_em_dash_in_any_authored_file() -> None:
+    """Rule 12 (no em dashes anywhere) over every tracked file we write.
+
+    Banked data (artifacts/) and recorded third-party fixtures keep their bytes as banked.
+    """
+    import subprocess
+
+    repo = TOOLS.parent
+    files = subprocess.run(
+        ["git", "ls-files", "-z"], cwd=repo, capture_output=True, check=True
+    ).stdout.split(b"\0")
+    em = "\u2014".encode()
+    hits = []
+    for name in (f.decode() for f in files if f):
+        if name.startswith(("artifacts/", "tests/fixtures/")):
+            continue
+        path = repo / name
+        if path.is_file() and em in path.read_bytes():
+            hits.append(name)
+    assert hits == []

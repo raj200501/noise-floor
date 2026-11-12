@@ -165,7 +165,7 @@ def test_analyze_verify_and_report(sandbox_repo: Path, monkeypatch: pytest.Monke
             "retrieved": "d",
         },
     )
-    assert "## Adjacent pairs" in md and "Excluded entries" in md and "—" not in md
+    assert "## Adjacent pairs" in md and "Excluded entries" in md and "\u2014" not in md
     (sandbox_repo / "artifacts" / "e2" / "epoch-swebench" / "results.json").write_text(
         json.dumps(results["epoch-swebench"])
     )
