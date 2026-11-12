@@ -3,7 +3,7 @@ STATE: ACTIVE
 
 # Status
 
-Updated 2026-11-12 17:45 UTC, goal_turn 6 (after Raj's final-hour sprint and the release to main;
+Updated 2026-11-12 20:25 UTC, goal_turn 6 (after Raj's final-hour sprint and the release to main;
 E0 part 2 running, banking day prepared). History is in docs/LOG.md.
 
 ## Gates
@@ -34,8 +34,9 @@ changes since d2d0bca; prepush, claimcheck, and freshness pass) on 2026-11-12 at
 ## Now
 
 E0 part 2 (0005) has run since 2026-11-12 03:36 UTC in G6's environment, right after G6 wrote all
-200 of its preregistered rows. Group e1 should end around 20:00 UTC and the whole run during
-2026-11-13 (group e1-het's end is forecast from its row stamps once it starts). Raw rows are
+200 of its preregistered rows. Group e1 wrote all 500 of its datasets by 19:58 UTC; group e1-het
+started at 20:05 UTC and, at e1's rate (from row stamp times only), should end around 12:15 UTC on
+2026-11-13, followed by the cheaper local-arm and ungrouped cells. Raw rows are
 committed and pushed at each check-in (about every 2 hours); nothing is banked or read as a
 result until the driver ends. A harness-tracked waiter keeps the container up (no gap in its
 minute log since the 21:04 UTC restart on 2026-11-11).
