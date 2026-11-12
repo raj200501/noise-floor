@@ -1069,6 +1069,14 @@ each one stricter than before (docs/GATES.md):
    `src/evalstats/data/validity.json` unchanged, so no started cell (group `e1`, at about 335 of
    its 500 replicates) failed the G5 rule at that count. No decision depends on it; the run goes
    on to its preregistered sample, and only the banked counts are reported.
+5. A further look, recorded here so that nothing about the rehearsals is left out: in the same
+   throwaway clone of 5749aab, the G6 check of `tools/ship_check.py` was also run on the
+   rehearsal's `recovery.json` (its cross-check against E0 part 2's analysis code was skipped,
+   since `coverage-0005.json` did not exist). Its verdict, like the numbers, stays out of this
+   repository until both studies are banked, as README says; the banking commit records it
+   (D-044) and the REPORT discloses it. No decision depended on it, and nothing in the run, the
+   banking commands, or the outcome texts (drafted in three outcome variants beforehand) changes
+   with it.
 
 ## D-043 2026-11-12 Banking-day and launch-night rules from a readiness review (before acting on them)
 A read-only review of the banking commit and the E1 launch (workflow wchlarr95: four lenses,

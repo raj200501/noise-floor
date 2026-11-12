@@ -51,7 +51,13 @@ its argv (`e1-alive`). The review also led to `e1-preflight` (the arm's start-up
 one by one, never starting a batch), `tools/wait_until.sh` (keep-alive from the driver's end to
 the launch window), tests over the banking outputs, an `oom_score_adj` of 0 for the arm, the
 RELEASE-READY procedure with a fetch, and README and REPORT wording that stays true across the
-launch. docs/PLAN.md ("Banking day and launch night") has the ordered checklist. Earlier notes
+launch. docs/PLAN.md ("Banking day and launch night") has the ordered checklist. The banking
+commit's README and REPORT text and its claim definitions are drafted outside the repository in
+three outcome variants (all pass; only reported extras fail; a headline cell or a G6 component
+fails), each tested end to end with invented fixtures in a throwaway clone (claimcheck,
+freshness, G13); the scratchpad's drafts/notes.md gives the order and the placeholders.
+D-042 item 5 records that the G6 gate was also run on the rehearsal output, its verdict held
+back until both studies are banked. Earlier notes
 (the release to main, Raj's crunch-time instruction, the restart, the pre-mortem, and the
 milestone review) are in docs/LOG.md; Raj's authorization to update main at RELEASE-READY points
 stands (D-043 item 6).
