@@ -40,9 +40,10 @@ hours); nothing is banked or read as a result until the driver ends. A harness-t
 keeps the container up (no gap in its minute log since the 21:04 UTC restart on 2026-11-11).
 README and REPORT now say G6's rows are written and E0 part 2 is running (they had said G6 was
 running and E0 part 2 queued). For banking day (D-042): `python3 tools/runcheck.py e0g6-complete`
-reads completeness from the raw rows (indices, seeds, and stamps only), and the G6 bank command
-was rehearsed in a throwaway clone on the committed rows; it ran without error. Nothing was
-banked or committed from the rehearsal.
+reads completeness from the raw rows (indices, seeds, and stamps only). The bank commands of G6
+and of E0 part 2 (on its partial rows, outputs unread) were rehearsed in throwaway clones; all
+ran without error except `e0_validity` on cells not yet started, which complete cells cannot
+hit (D-042 item 4). Nothing was banked or committed from the rehearsals.
 
 Final-hour sprint (Raj, 2026-11-12 00:50 UTC). The README gained a block on why its numbers hold
 up. The G6 run was paused with SIGSTOP (no work lost) so the tree stays clean for a release review,

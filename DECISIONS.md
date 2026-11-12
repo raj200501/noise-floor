@@ -1059,3 +1059,13 @@ each one stricter than before (docs/GATES.md):
    One stash and pop around a quick typecheck comparison on 2026-11-12 lost nothing (every file
    of group `e1` kept contiguous indices, whole lines, and equal counts); comparisons against HEAD
    use `git show HEAD:<path>` into the scratchpad instead.
+4. The E0 part 2 bank path (`e0_run bank` with 0003 first and `--only` 0005, `e0_validity`,
+   `tools/validity_summary.py` and its `--check`) also ran in a throwaway clone of 1b0fcd3 on the
+   committed partial rows, every output discarded unread, to find a crash a day early. The bank
+   and the summary ran without error. `e0_validity` stops with a ZeroDivisionError on a cell
+   with no replicates (most cells had not started), which cannot happen once every cell is
+   complete; with the unstarted cells left out it ran without error. One thing was seen that the
+   rehearsal did not intend, the exception to item 2: the clone's list of changed files showed
+   `src/evalstats/data/validity.json` unchanged, so no started cell (group `e1`, at about 335 of
+   its 500 replicates) failed the G5 rule at that count. No decision depends on it; the run goes
+   on to its preregistered sample, and only the banked counts are reported.
