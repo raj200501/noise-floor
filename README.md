@@ -46,8 +46,10 @@ each plan predates the artifacts that cite it.
   hashed, and committed before its data existed; `make prereg-verify` checks the order.
 - *No hand-typed numbers.* Each result number on this page carries a hidden marker that ties it
   to a banked artifact; `make claimcheck` and `make freshness` fail if any of them drifts.
-- *Intervals tested before use.* Each interval method behind these results was checked for
-  coverage by simulation at the boards' designs, and the library warns where a check failed.
+- *Intervals tested before use.* The interval methods behind these results were checked for
+  coverage by simulation at the boards' designs, all but the bounded-difference interval behind
+  E3's robust counts, which has no coverage cell of its own; the library warns where a check
+  failed.
 - *Results recomputed from pinned data.* `make reproduce` rebuilds every E2 and E3 result from
   hash-pinned snapshots, and `make ship-check` runs fourteen gates on a fresh clone.
 - *Findings published, including the unflattering ones.* The failing coverage cell, the one
@@ -90,7 +92,8 @@ uv run evalstats rank --help                                    # also: power, d
   coverage simulations (E0): a method used on a design at least as small as one where it failed
   its check emits `UnsupportedDesignWarning`. The one exception behind these results is the
   interval on a pair's bounded difference that E3's robust counts use, which has no coverage cell
-  of its own. The GLMM and Wilson cells (E0's second part) are running and not yet banked. API reference in [docs/api](docs/api), runnable examples in
+  of its own. The GLMM and Wilson cells (E0's second part) run after the G6 recovery study, which is
+  running; nothing from either is banked yet. API reference in [docs/api](docs/api), runnable examples in
   [docs/examples](docs/examples).
 - **Confidence reports for public leaderboards** (experiments E2 and E3): each submission's score
   with an interval, every adjacent ordering tested on shared tasks, simultaneous rank intervals,

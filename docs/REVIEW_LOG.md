@@ -65,3 +65,20 @@ Found by the review workflow's completeness critic, beyond the reviewer's list:
 - Rule 8 check: PR #1 was opened and merged by Raj's account (GitHub, 2026-11-11T20:16:56Z and
   20:17:52Z); this session called no pull-request tool.
 
+## 2026-11-12: release review of d9d04b2 (G12; verdict BLOCK)
+
+Blocking: B3, G12 and `make review` computed the drift since the review with rename detection on,
+so a file moved into artifacts/review/ hid that it left the reviewed code. Fixed: both diffs use
+`--no-renames`, with a test (D-041). Still open and deferred as logged: N2, N17, N18. New:
+
+- N20: the README and REPORT said E0 part 2 was running; it is queued after G6, which is. Fixed.
+- N21: the README's new safeguard bullet said every interval method behind the results was
+  coverage-checked; it now names the one without a cell (the bounded-difference interval behind
+  E3's robust counts). Fixed.
+- N22: G5 takes a grouped GLMM line's truth from the line and does not compare it with the
+  planted values prereg 0005's recovery-config fixes, as G6 now does (N6). Latent: no 0005 cell
+  is banked. Open: added with the G5 counterpart of `g6_planted_truths` before E0 part 2 is
+  banked (D-041).
+- N23: no gate checked that stamped raw rows were made after their preregistration froze. G6
+  and G5 now require it (stamp time at or after the plan's `frozen_at`); all current G6 rows
+  pass. Fixed (D-041).

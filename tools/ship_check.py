@@ -591,6 +591,7 @@ def raw_covered(
     group: str | None = None,
     env: str | None = None,
     code: str | None = None,
+    frozen: Any = None,
 ) -> int:
     """Recount a cell's covered replicates from artifacts/e0/raw/<cell>.jsonl (indices < reps).
 
@@ -628,6 +629,11 @@ def raw_covered(
                 f"cell {cell}: replicate {i} ran in another environment or analysis code, or "
                 "from a dirty src/",
             )
+            if frozen is not None:
+                need(
+                    utc_time(str(stamp.get("at", ""))) >= frozen,
+                    f"cell {cell}: replicate {i} was run before its preregistration was frozen",
+                )
 
     def covered(row: dict[str, Any]) -> bool:
         if row.get("hit") is not None:
@@ -825,7 +831,7 @@ def g5(ctx: Ctx) -> str:
     grids = e0_grids(ctx)
     planned: dict[str, Any] = {}
     cells: dict[str, Any] = {}
-    stamped: dict[str, tuple[Any, Any]] = {}  # cell -> (env, analysis code) of its artifact
+    stamped: dict[str, tuple[Any, Any, Any]] = {}  # cell -> (env, analysis code, plan frozen at)
     for prereg, art in grids:
         data = load_json(rel(ctx, art))
         need(data.get("prereg") == prereg, f"{art} cites {data.get('prereg')}, not {prereg}")
@@ -852,7 +858,8 @@ def g5(ctx: Ctx) -> str:
                     f"{art} has no 16-hex {what}",
                 )
         if banked_env is not None or data.get("analysis_code") is not None:
-            stamped.update(dict.fromkeys(got, (banked_env, data.get("analysis_code"))))
+            when = chain_frozen_at(ctx, prereg)  # stamped lines postdate their plan (D-041)
+            stamped.update(dict.fromkeys(got, (banked_env, data.get("analysis_code"), when)))
     failing: list[str] = []
     for cid, cell in cells.items():
         plan = planned[cid]
@@ -861,10 +868,16 @@ def g5(ctx: Ctx) -> str:
         reps = int(cell["replicates"])
         floor = MIN_REPS_RESAMPLING if cell["interval_type"] in RESAMPLING_TYPES else MIN_REPS
         need(reps >= max(floor, int(plan.get("replicates", 0))), f"cell {cid}: {reps} replicates")
-        env, code = stamped.get(cid, (None, None))
+        env, code, frozen = stamped.get(cid, (None, None, None))
         group = (plan.get("params") or {}).get("group")
         covered = raw_covered(
-            ctx, cid, reps, group=None if group is None else str(group), env=env, code=code
+            ctx,
+            cid,
+            reps,
+            group=None if group is None else str(group),
+            env=env,
+            code=code,
+            frozen=frozen,
         )
         need(
             covered == int(cell["covered"]),
@@ -1037,6 +1050,7 @@ def g6(ctx: Ctx) -> str:
     # the artifact's one environment and analysis code from a clean src/ (D-039).
     raw = rel(ctx, "artifacts/g6/raw.jsonl")
     need(raw.exists(), "missing artifacts/g6/raw.jsonl")
+    frozen = chain_frozen_at(ctx, prereg)  # every raw row must postdate its plan (D-041)
     by_seed: dict[int, dict[str, Any]] = {}
     for line in raw.read_text().splitlines():
         if line.strip():
@@ -1057,6 +1071,10 @@ def g6(ctx: Ctx) -> str:
             and stamp.get("analysis") == code
             and stamp.get("src_dirty") is False,
             f"raw row {d['seed']} ran in another environment or analysis code, or a dirty src/",
+        )
+        need(
+            utc_time(str(stamp.get("at", ""))) >= frozen,
+            f"raw row {d['seed']} was run before {prereg} was frozen",
         )
     # Planted values that the recovery-config fixes are the ones every dataset was scored on.
     for name, value in g6_planted_truths(config).items():
@@ -1356,6 +1374,15 @@ def g11(ctx: Ctx) -> str:
     return f"{len(files)} preregistrations frozen; {linked} artifacts predated by their prereg"
 
 
+def review_drift(clone: Path, reviewed: str, head: str) -> list[str]:
+    """Paths changed between the reviewed commit and HEAD, a moved file under both of its paths.
+
+    Without ``--no-renames`` git lists only a moved file's new path, so a file moved into
+    artifacts/review/ would hide that it left the reviewed code (D-041).
+    """
+    return git(clone, "diff", "--no-renames", "--name-only", reviewed, head).splitlines()
+
+
 def g12(ctx: Ctx) -> str:
     data = load_json(rel(ctx, "artifacts/review/latest.json"))
     need(data.get("verdict") == "SHIP", f"latest review verdict {data.get('verdict')}")
@@ -1364,7 +1391,7 @@ def g12(ctx: Ctx) -> str:
     head = git(ctx.clone, "rev-parse", "HEAD")
     if reviewed != head:
         need(strictly_before(ctx.clone, reviewed, head), "reviewed commit is not an ancestor")
-        changed = git(ctx.clone, "diff", "--name-only", reviewed, head).splitlines()
+        changed = review_drift(ctx.clone, reviewed, head)
         allowed = ("artifacts/review/", "STATUS.md", "docs/LOG.md")
         stray = [c for c in changed if not (c.startswith(allowed[0]) or c in allowed[1:])]
         need(not stray, f"code changed since review: {', '.join(stray[:3])}")

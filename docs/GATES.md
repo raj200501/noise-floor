@@ -48,8 +48,8 @@ dead proxies (evidence says `env-only`), plus `UV_OFFLINE=1`, `NOISEFLOOR_OFFLIN
   match. A replicate with a missing bound counts as not covered. The line counted for an index
   is the last one written for it. Every line of a counted index carries, for a grouped cell,
   `e0_glmm_seed(group, i)`, and, for an artifact banked with stamps, that artifact's environment
-  and analysis code from a clean `src/`; an amendment's artifact must name both as 16-hex strings
-  (D-039, D-040). Limitation: the three simultaneous rank cells (`R-*-sim`) record the
+  and analysis code from a clean `src/`, stamped at or after the plan's `frozen_at`; an
+  amendment's artifact must name both as 16-hex strings (D-039, D-040, D-041). Limitation: the three simultaneous rank cells (`R-*-sim`) record the
   simulator's own joint verdict per replicate (`hit`, with no truth or interval), so G5 counts
   those verdicts rather than recounting them from ranks (D-040).
 - Replicates at least 2,000 per cell, or 500 when `interval_type` is a bootstrap (`bootstrap`,
@@ -89,9 +89,12 @@ under an amendment of its preregistration, a replaced GLMM method, the hash that
 amendment of 0004 allows in its ` ```json analysis-code ` block); reported bias
 equals the recomputed mean of estimate minus planted. Each banked dataset equals its row in
 `artifacts/g6/raw.jsonl`; the raw rows are exactly the preregistered seeds, each stamped with the
-artifact's environment and analysis code from a clean `src/`; and every dataset's planted value
+artifact's environment and analysis code from a clean `src/` and with a stamp time at or after
+the preregistration's `frozen_at`; datasets carry `converged` and `error` as their raw rows do;
+and every dataset's planted value
 for a component the recovery-config fixes (the task, model-by-task, and model variances, each
-two-level factor's contribution, effect squared over four) is that value (D-039).
+two-level factor's contribution, effect squared over four, and a zero share for a factor planted
+at 0) is that value (D-039, D-041).
 
 ## G7 Factorial study (E1)
 - Prereg ` ```json e1-design ` block: `{"factors": {name: [levels]}, "models": [{"id", "family",
@@ -152,7 +155,8 @@ At least one `prereg/NNNN-*.md`; each touched by exactly one commit; every artif
 `artifacts/review/latest.json`: verdict SHIP, no blocking issues, reviewed commit equal to HEAD or
 an ancestor differing only in `artifacts/review/`, `STATUS.md`, `docs/LOG.md`; non-blocking ids
 in docs/REVIEW_LOG.md, each as a whole id; the stdout of `tools/review.py --validate` ends with
-`REVIEW: SHIP` (D-039).
+`REVIEW: SHIP` (D-039). The drift is computed without rename detection, so a moved file counts at
+both of its paths (D-041).
 
 ## G13 Documentation
 README.md is not the brief and follows section 11 (name first, headline SVG, table, interval and

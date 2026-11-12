@@ -48,6 +48,16 @@ def _git(*args: str) -> tuple[int, str]:
     return proc.returncode, proc.stdout.strip()
 
 
+def drift(reviewed: str, head: str) -> list[str]:
+    """Paths changed since the reviewed commit, a moved file under both of its paths.
+
+    ``--no-renames``: without it git lists only a moved file's new path, so a file moved into
+    artifacts/review/ would hide that it left the reviewed code (DECISIONS.md D-041).
+    """
+    _, diff = _git("diff", "--no-renames", "--name-only", reviewed, head)
+    return [p for p in diff.splitlines() if p]
+
+
 def id_listed(issue_id: str, text: str) -> bool:
     """True if ``issue_id`` appears in ``text`` as a whole id (N1 is not listed by N10)."""
     pattern = rf"(?<![\w-]){re.escape(issue_id)}(?![\w-])"
@@ -79,7 +89,7 @@ def validate(data: dict[str, Any]) -> tuple[str, list[str]]:
         if code != 0:
             problems.append(f"reviewed commit {reviewed[:12]} is not an ancestor of HEAD")
         else:
-            _, diff = _git("diff", "--name-only", reviewed, head)
+            diff = "\n".join(drift(reviewed, head))
             stray = [
                 p
                 for p in diff.splitlines()

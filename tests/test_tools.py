@@ -379,6 +379,8 @@ def _g6_repo(
     ):
         text += f"```json {name}\n{json.dumps(value)}\n```\n\n"
     (root / "prereg" / "0006-g6.md").write_text(text)
+    chain = {"file": "prereg/0006-g6.md", "frozen_at": "2026-11-11T04:21:42Z"}
+    (root / "prereg" / "CHAIN.jsonl").write_text(json.dumps(chain) + "\n")
     git("init", "-q")
     git("add", "-A")
     git("commit", "-q", "-m", "freeze")
@@ -402,7 +404,12 @@ def _g6_repo(
     }
     (root / "artifacts" / "g6").mkdir(parents=True)
     (root / "artifacts" / "g6" / "recovery.json").write_text(json.dumps(artifact))
-    stamp = {"env": artifact["environment"]["env"], "analysis": code, "src_dirty": raw == "dirty"}
+    stamp = {
+        "env": artifact["environment"]["env"],
+        "analysis": code,
+        "src_dirty": raw == "dirty",
+        "at": "2026-11-10T00:00:00+00:00" if raw == "early" else "2026-11-12T00:00:00+00:00",
+    }
     rows = [{"seed": d["seed"], "components": d["components"], "stamp": stamp} for d in datasets]
     if raw == "differ":
         rows[3] = {**rows[3], "components": {c: {**comp(3), "estimate": 9.0} for c in components}}
@@ -437,6 +444,7 @@ def test_g6_checks_components_config_and_coverage(tmp_path: Path) -> None:
         ("differ", "differs from its raw row"),
         ("short", "exactly the prereg's seeds"),
         ("dirty", "dirty src"),
+        ("early", "before prereg/0006-g6.md was frozen"),
     ):
         bad = _g6_repo(tmp_path / f"raw-{kind}", ["task", "harness"], raw=kind)
         with pytest.raises(ship_check.GateError, match=message):
@@ -689,3 +697,70 @@ def test_no_em_dash_in_any_authored_file() -> None:
         if path.is_file() and em in path.read_bytes():
             hits.append(name)
     assert hits == []
+
+
+def test_review_drift_shows_a_moved_files_old_path(tmp_path: Path) -> None:
+    """B3: a file moved into artifacts/review/ must not hide that it left the reviewed code."""
+    import subprocess
+
+    env = {
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@example.invalid",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@example.invalid",
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "PATH": "/usr/bin:/bin",
+    }
+
+    def git(*args: str) -> str:
+        return subprocess.run(
+            ["git", *args], cwd=tmp_path, check=True, capture_output=True, text=True, env=env
+        ).stdout.strip()
+
+    git("init", "-q")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "rank.py").write_text("x = 1\n" * 50)
+    git("add", "-A")
+    git("commit", "-q", "-m", "reviewed")
+    reviewed = git("rev-parse", "HEAD")
+    (tmp_path / "artifacts" / "review").mkdir(parents=True)
+    git("mv", "src/rank.py", "artifacts/review/rank.py")
+    git("commit", "-q", "-m", "move")
+    head = git("rev-parse", "HEAD")
+    changed = ship_check.review_drift(tmp_path, reviewed, head)
+    assert "src/rank.py" in changed and "artifacts/review/rank.py" in changed
+    review = load("review")
+    review.REPO = tmp_path
+    assert "src/rank.py" in review.drift(reviewed, head)
+
+
+def test_stamped_rows_must_postdate_their_plan(tmp_path: Path) -> None:
+    import json
+    from datetime import UTC, datetime
+
+    raw = tmp_path / "artifacts" / "e0" / "raw"
+    raw.mkdir(parents=True)
+    early = {
+        "env": "e" * 16,
+        "analysis": "a" * 16,
+        "src_dirty": False,
+        "at": "2026-11-10T00:00:00+00:00",
+    }
+    late = {**early, "at": "2026-11-12T00:00:00+00:00"}
+    frozen = datetime(2026, 11, 11, 4, 21, 42, tzinfo=UTC)
+
+    def write(stamp: dict[str, object]) -> None:
+        rows = [
+            {"i": i, "lo": 0.0, "hi": 1.0, "truth": 0.5, "hit": None, "stamp": stamp}
+            for i in range(2)
+        ]
+        (raw / "C-x.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+
+    ctx = _ctx(tmp_path)
+    kw = {"env": "e" * 16, "code": "a" * 16, "frozen": frozen}
+    write(late)
+    assert ship_check.raw_covered(ctx, "C-x", 2, **kw) == 2
+    write(early)
+    with pytest.raises(ship_check.GateError, match="before its preregistration was frozen"):
+        ship_check.raw_covered(ctx, "C-x", 2, **kw)

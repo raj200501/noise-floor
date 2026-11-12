@@ -1007,3 +1007,22 @@ each one stricter than before (docs/GATES.md):
    README says so), since nothing can be installed without it.
 7. Rule 8 was checked: PR #1 was opened and merged from Raj's account, and this session called
    no pull-request tool.
+
+## D-041 2026-11-12 Release review and the last gate verifiers
+1. B3 (release review): the drift since a review is computed with `git diff --no-renames`, in
+   G12 and `tools/review.py`, so a moved file shows its old path; a test moves a file into
+   `artifacts/review/` and checks that the old path is reported.
+2. N23: G6 requires every raw row, and G5 every stamped line of a counted index, to carry a stamp
+   time at or after its preregistration's `frozen_at` in prereg/CHAIN.jsonl.
+3. N22, before E0 part 2 is banked: G5 gets the counterpart of `g6_planted_truths` for the grouped
+   cells whose truth the recovery-config fixes (to be added with a test against the 0005 config,
+   and only if it passes on rows the frozen code writes).
+4. From the G6 verifier, recorded for the contingency only: if G6 fails under 0006, its rerun
+   under an amendment of 0006 banks to its own paths (`artifacts/g6/recovery-NNNN.json` and
+   `raw-NNNN.jsonl`, as G5 does with `coverage-NNNN.json`), because the fixed path's first commit
+   would predate the amendment; the G6 task truth adds half of each planted task-by-factor
+   variance if a config ever plants one (0006 plants none); and the G6 contract lists `converged`
+   and the zero planted share of a factor planted at 0.
+5. The release review used 2026-11-12's one review run, so G12 waits for a later day's review;
+   G5 to G8 wait for their studies. Main is updated at the release point regardless, with the
+   gate state stated as it is (Raj's instruction of 2026-11-12).
