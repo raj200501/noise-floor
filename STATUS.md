@@ -3,8 +3,8 @@ STATE: ACTIVE
 
 # Status
 
-Updated 2026-11-12, goal_turn 6 (Raj's final-hour sprint: push the gates as far as they honestly
-go, then finalize and update main). History is in docs/LOG.md.
+Updated 2026-11-12 14:20 UTC, goal_turn 6 (after Raj's final-hour sprint and the release to main;
+E0 part 2 running). History is in docs/LOG.md.
 
 ## Gates
 
@@ -33,6 +33,14 @@ changes since d2d0bca; prepush, claimcheck, and freshness pass) on 2026-11-12 at
 
 ## Now
 
+E0 part 2 (0005) has run since 2026-11-12 03:36 UTC in G6's environment, right after G6 wrote all
+200 of its preregistered rows; at 4 workers its first group should end around 19:40 UTC and the
+whole run during 2026-11-13. Raw rows are committed and pushed at each check-in (about every 2
+hours); nothing is banked or read as a result until the driver ends. A harness-tracked waiter
+keeps the container up (no gap in its minute log since the 21:04 UTC restart on 2026-11-11).
+README and REPORT now say G6's rows are written and E0 part 2 is running (they had said G6 was
+running and E0 part 2 queued).
+
 Final-hour sprint (Raj, 2026-11-12 00:50 UTC). The README gained a block on why its numbers hold
 up. The G6 run was paused with SIGSTOP (no work lost) so the tree stays clean for a release review,
 the day's one review run (logged), and the full ship-check before main is updated; it resumed at
@@ -40,8 +48,8 @@ the day's one review run (logged), and the full ship-check before main is update
 artifacts/review/. B3 is fixed, with N20 (E0 part 2 is queued after G6, not running), N21 (the
 safeguard bullet now names the one interval without a coverage cell), and N23 (raw rows must
 postdate their plan, in G5 and G6) (D-041). G12 waits for a later day's review; G5 to G8 wait
-for their studies, and nothing from them is presented as a result. Before E0 part 2 is banked,
-G5 gets the counterpart of G6's planted-truth check (N22).
+for their studies, and nothing from them is presented as a result. G5 now has the counterpart
+of G6's planted-truth check (N22, D-041 item 7), in place before E0 part 2 is banked.
 
 Crunch time (Raj, 2026-11-11). Raj merged the release-ready commit into main (bbe8e62, a merge
 commit with the same tree as 3a451b0) and made the repository public; this branch fast-forwarded
@@ -76,7 +84,7 @@ and a test do; D-040), plus four smaller ones, also in docs/REVIEW_LOG.md.
 
 ## Next three actions
 
-1. Keep G6 and E0 part 2 running (a little over 40 hours on 4 workers in all): `bash
+1. Keep E0 part 2 running (G6's rows are complete; E0 part 2 should end during 2026-11-13): `bash
    tools/wait_e0g6.sh` as a background task, restarted first on every wake-up; relaunch only with
    `WORKERS=4 setsid nohup bash tools/e0g6_driver.sh >> runs/e0g6/nohup.out 2>&1 < /dev/null &`;
    commit and push raw rows at check-ins.

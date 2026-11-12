@@ -92,8 +92,8 @@ uv run evalstats rank --help                                    # also: power, d
   coverage simulations (E0): a method used on a design at least as small as one where it failed
   its check emits `UnsupportedDesignWarning`. The one exception behind these results is the
   interval on a pair's bounded difference that E3's robust counts use, which has no coverage cell
-  of its own. The GLMM and Wilson cells (E0's second part) run after the G6 recovery study, which is
-  running; nothing from either is banked yet. API reference in [docs/api](docs/api), runnable examples in
+  of its own. The GLMM and Wilson cells (E0's second part) are running, after the G6 recovery study
+  wrote all its rows; nothing from either is banked yet. API reference in [docs/api](docs/api), runnable examples in
   [docs/examples](docs/examples).
 - **Confidence reports for public leaderboards** (experiments E2 and E3): each submission's score
   with an interval, every adjacent ordering tested on shared tasks, simultaneous rank intervals,

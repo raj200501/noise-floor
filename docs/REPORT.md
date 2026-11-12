@@ -2,7 +2,7 @@
 
 **How much of a leaderboard gap is the model? Rank confidence on public agent leaderboards, a statistics library with simulation-checked intervals, and a preregistered factorial design.**
 
-*Report state as of 2026-11-11.* E0 part 1, E2, and E3 on the public boards are complete; E1 and its validation studies (E0 part 2 and G6) are frozen; G6 is running and E0 part 2 is queued after it, with nothing from either banked or reported yet, and E1 has not run, so there are no E1 results and no E3 bounds on E1's runs. Every result number carries a hidden marker that ties it to a banked artifact.
+*Report state as of 2026-11-12.* E0 part 1, E2, and E3 on the public boards are complete; E1 and its validation studies (E0 part 2 and G6) are frozen; G6 has written all its rows and E0 part 2 is running, with nothing from either banked or reported yet (both are banked when E0 part 2 ends), and E1 has not run, so there are no E1 results and no E3 bounds on E1's runs. Every result number carries a hidden marker that ties it to a banked artifact.
 
 ## Abstract
 
@@ -21,7 +21,7 @@ We ask how much of a leaderboard gap is the model. Existing data answer a narrow
 | E2: supported orderings on public boards | complete | `artifacts/e2/*/results.json` | [`prereg/0001`](../prereg/0001-e2-leaderboard-reanalysis.md), [`prereg/0002`](../prereg/0002-e2-amend-epoch-reference-rule.md) |
 | E3: policy bounds on public boards | complete | `artifacts/e3/bounds.json` | [`prereg/0001`](../prereg/0001-e2-leaderboard-reanalysis.md) |
 | GLMM interval-method pilots (synthetic) | exploratory | `artifacts/method_pilots/summary.json` | not preregistered |
-| E0 part 2 and G6: E1 interval coverage (synthetic) | frozen; G6 running, E0 part 2 queued; nothing banked yet | none yet | [`prereg/0005`](../prereg/0005-e0-glmm-cells.md), [`prereg/0006`](../prereg/0006-g6-recovery.md) |
+| E0 part 2 and G6: E1 interval coverage (synthetic) | frozen; G6 rows written, E0 part 2 running; nothing banked yet | none yet | [`prereg/0005`](../prereg/0005-e0-glmm-cells.md), [`prereg/0006`](../prereg/0006-g6-recovery.md) |
 | E1: factorial study on mock tasks | frozen, not run | none yet | [`prereg/0004`](../prereg/0004-e1-factorial.md) |
 | E4: efficient task subsets | not attempted | none | none |
 
