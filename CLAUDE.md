@@ -61,6 +61,7 @@ per-task results; and leaderboard confidence reports. The full brief is docs/BUI
   `tools/e0g6_driver.sh`) and restart the waiter (`tools/wait_e1.sh` or `tools/wait_e0g6.sh`, and
   `tools/wait_until.sh 21:05` between the driver's end and the launch, D-043). Find the arm with
   `python3 tools/runcheck.py e1-alive`, never `$!`, and launch it without the 1000 prefix.
+  Stage rows with `python3 tools/stage_rows.py` (it never parses an E1 record).
 
 ## Loop Protocol (section 10.2, short form)
 

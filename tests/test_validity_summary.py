@@ -95,3 +95,55 @@ def test_banked_summaries_are_current() -> None:
     for path, text in vs.build().items():
         assert (vs.REPO / path).exists(), f"{path} is not committed beside its banked source"
         assert (vs.REPO / path).read_text() == text, f"{path} differs from a fresh build"
+
+
+def _g6_source(datasets: list[dict[str, object]]) -> dict[str, object]:
+    return {"prereg": "p", "nominal": 0.95, "failed_fits": 1, "datasets": datasets}
+
+
+def test_g6_rows_are_recomputed_with_the_bank_s_definitions() -> None:
+    from noisefloor.recovery import coverage_summary
+
+    rows = []
+    for i in range(40):
+        lo, hi = (None, None) if i % 9 == 0 else (0.2 + 0.01 * i, 1.4 + 0.02 * i)
+        estimate = None if i % 13 == 0 else 0.9 + 0.005 * i
+        comp = {"planted": 1.0, "estimate": estimate, "lo": lo, "hi": hi}
+        zero = {"planted": 0.0, "estimate": 0.01 * (i % 5), "lo": -0.1 + 0.01 * i, "hi": 0.5}
+        rows.append({"seed": i, "components": {"task": comp, "concurrency": zero}})
+    bank = coverage_summary(rows)
+    for row in vs.g6_summary(_g6_source(rows))["components"]:
+        want = bank[row["component"]]
+        for key in ("missing", "with_estimate"):
+            assert row[key] == want[key], (row["component"], key)
+        for key in ("bias", "mean_width", "above_zero"):
+            assert abs(row[key] - want[key]) <= 1e-12, (row["component"], key)
+
+
+def test_text_tables_have_one_line_per_row_and_mark_failures() -> None:
+    e0 = vs.e0_summary({"cells": [_cell("A", 1900), _cell("B-long-name", 1840)]}, {"A"})
+    table = vs.e0_table(e0).splitlines()
+    assert table[0].startswith("Synthetic data: E0 part 2") and len(table) == 4
+    assert table[2].split()[-2:] == ["pass", "yes"] and table[3].split()[-2:] == ["FAIL", "no"]
+    good = [_dataset(i, True) for i in range(170)] + [_dataset(170 + i, False) for i in range(30)]
+    g6 = vs.g6_table(vs.g6_summary(_g6_source(good))).splitlines()
+    assert g6[0].startswith("Synthetic data: G6") and "1 failed fits" in g6[0]
+    assert len(g6) == 3 and "FAIL" in g6[2].split() and "+0.1000" in g6[2].split()
+    for lines in (table[1:], g6[1:]):
+        assert all(ln == ln.rstrip() for ln in lines)
+        assert len({len(ln) for ln in lines}) == 1  # right-aligned columns end together
+
+
+def test_build_writes_both_tables_beside_their_summaries(tmp_path: Path) -> None:
+    (tmp_path / "artifacts/e0").mkdir(parents=True)
+    (tmp_path / "artifacts/g6").mkdir(parents=True)
+    (tmp_path / "artifacts/e0/coverage-0005.json").write_text(
+        json.dumps({"cells": [_cell("A", 1900)]})
+    )
+    (tmp_path / "artifacts/g6/recovery.json").write_text(
+        json.dumps(_g6_source([_dataset(i, True) for i in range(200)]))
+    )
+    texts = vs.build(tmp_path)
+    assert sorted(texts) == sorted([vs.E0_OUT, vs.E0_TXT, vs.G6_OUT, vs.G6_TXT])
+    assert vs.e0_table(json.loads(texts[vs.E0_OUT])) == texts[vs.E0_TXT]
+    assert vs.g6_table(json.loads(texts[vs.G6_OUT])) == texts[vs.G6_TXT]

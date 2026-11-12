@@ -12,9 +12,15 @@ Derived from banked artifacts only (rule 1), with the coverage rule and hit test
   variance component its coverage over the datasets, the pass point, whether it passes, its
   mean bias and interval width, and how often its interval is above zero.
 
-Both outputs are lists that claims can count with ``where`` (docs/INTEGRITY.md). Every row is
-synthetic (rule 4): these studies simulate their data. Usage: ``python tools/validity_summary.py``
-(``--check`` fails if a banked summary differs from a fresh build; a missing source is skipped).
+Both outputs are lists that claims can count with ``where`` (docs/INTEGRITY.md). The G6 rows'
+coverage, bias with its count of estimates, missing intervals, mean width, and share above
+zero are recomputed here from the datasets, with the definitions of
+``noisefloor.recovery.coverage_summary``, so G10's rebuild checks them too. Each summary also
+gets a fixed-width text table (``artifacts/e0/summary-0005.txt``, ``artifacts/g6/summary.txt``,
+one line per row) that the report can show as a ``text from=`` block, which claimcheck holds
+equal to the file. Every row is synthetic (rule 4): these studies simulate their data. Usage:
+``python tools/validity_summary.py`` (``--check`` fails if a banked summary or table differs
+from a fresh build; a missing source is skipped).
 """
 
 from __future__ import annotations
@@ -23,6 +29,7 @@ import hashlib
 import importlib.util
 import json
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -33,6 +40,8 @@ E0_OUT = "artifacts/e0/summary-0005.json"
 G6_SOURCE = "artifacts/g6/recovery.json"
 G6_OUT = "artifacts/g6/summary.json"
 HEADLINE = "artifacts/headline_cells.json"
+E0_TXT = "artifacts/e0/summary-0005.txt"
+G6_TXT = "artifacts/g6/summary.txt"
 
 
 def _ship_check() -> ModuleType:
@@ -91,7 +100,13 @@ def g6_summary(source: dict[str, Any]) -> dict[str, Any]:
         covered = sum(1 for c in comps if SC.g6_hit(c))
         ok, cov, threshold = SC.coverage_rule(covered, len(comps), nominal)
         planted = {float(c["planted"]) for c in comps}
-        summary = (source.get("coverage") or {}).get(name, {})
+        # The definitions of noisefloor.recovery.coverage_summary, recomputed from the rows.
+        bounded = [c for c in comps if c["lo"] is not None and c["hi"] is not None]
+        errors = [
+            float(c["estimate"]) - float(c["planted"]) for c in comps if c["estimate"] is not None
+        ]
+        widths = [float(c["hi"]) - float(c["lo"]) for c in bounded]
+        above = sum(1 for c in bounded if float(c["lo"]) > 0)
         rows.append(
             {
                 "component": name,
@@ -101,10 +116,11 @@ def g6_summary(source: dict[str, Any]) -> dict[str, Any]:
                 "threshold": threshold,
                 "pass": bool(ok),
                 "planted": planted.pop() if len(planted) == 1 else None,
-                "missing": summary.get("missing"),
-                "bias": summary.get("bias"),
-                "mean_width": summary.get("mean_width"),
-                "above_zero": summary.get("above_zero"),
+                "missing": len(comps) - len(bounded),
+                "with_estimate": len(errors),
+                "bias": sum(errors) / len(errors) if errors else None,
+                "mean_width": sum(widths) / len(widths) if widths else None,
+                "above_zero": above / len(comps) if comps else None,
             }
         )
     return {
@@ -115,6 +131,94 @@ def g6_summary(source: dict[str, Any]) -> dict[str, Any]:
         "failed_fits": source.get("failed_fits"),
         "components": rows,
     }
+
+
+def _num(value: Any, fmt: str) -> str:
+    if value is None or (isinstance(value, float) and value != value):
+        return "-"
+    return format(value, fmt)
+
+
+def _columns(head: Sequence[str], body: Sequence[Sequence[str]]) -> str:
+    """Fixed-width columns: the first left-aligned, the others right-aligned."""
+    widths = [max(len(row[i]) for row in (head, *body)) for i in range(len(head))]
+    lines = [
+        "  ".join(
+            cell.ljust(width) if i == 0 else cell.rjust(width)
+            for i, (cell, width) in enumerate(zip(row, widths, strict=True))
+        ).rstrip()
+        for row in (head, *body)
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def e0_table(summary: dict[str, Any]) -> str:
+    """One line per E0 part 2 cell: its counts, the G5 pass point, and the verdict."""
+    head = (
+        "cell",
+        "method",
+        "interval",
+        "replicates",
+        "covered",
+        "coverage",
+        "pass point",
+        "verdict",
+        "headline",
+    )
+    body = [
+        (
+            r["cell"],
+            r["method"],
+            r["interval_type"],
+            str(r["replicates"]),
+            str(r["covered"]),
+            _num(r["coverage"], ".3f"),
+            _num(r["threshold"], ".3f"),
+            "pass" if r["pass"] else "FAIL",
+            "yes" if r["headline"] else "no",
+        )
+        for r in summary["cells"]
+    ]
+    title = f"Synthetic data: E0 part 2 coverage cells (prereg 0005), from {E0_SOURCE}\n"
+    return title + _columns(head, body)
+
+
+def g6_table(summary: dict[str, Any]) -> str:
+    """One line per G6 component: coverage and its pass point, bias, width, share above 0."""
+    head = (
+        "component",
+        "planted",
+        "datasets",
+        "covered",
+        "coverage",
+        "pass point",
+        "verdict",
+        "estimates",
+        "bias",
+        "mean width",
+        "above 0",
+    )
+    body = [
+        (
+            r["component"],
+            _num(r["planted"], ".4g"),
+            str(r["datasets"]),
+            str(r["covered"]),
+            _num(r["coverage"], ".3f"),
+            _num(r["threshold"], ".3f"),
+            "pass" if r["pass"] else "FAIL",
+            str(r["with_estimate"]),
+            _num(r["bias"], "+.4f"),
+            _num(r["mean_width"], ".4f"),
+            _num(r["above_zero"], ".3f"),
+        )
+        for r in summary["components"]
+    ]
+    title = (
+        "Synthetic data: G6 planted-component recovery (prereg 0006), "
+        f"{summary['failed_fits']} failed fits, from {G6_SOURCE}\n"
+    )
+    return title + _columns(head, body)
 
 
 def _dump(obj: dict[str, Any]) -> str:
@@ -142,11 +246,13 @@ def build(repo: Path = REPO) -> dict[str, str]:
         if head.exists():
             summary["headline_source"] = {"path": HEADLINE, "sha256": _sha(head)}
         out[E0_OUT] = _dump(summary)
+        out[E0_TXT] = e0_table(summary)
     g6 = repo / G6_SOURCE
     if g6.exists():
         summary = g6_summary(json.loads(g6.read_text()))
         summary["source"] = {"path": G6_SOURCE, "sha256": _sha(g6)}
         out[G6_OUT] = _dump(summary)
+        out[G6_TXT] = g6_table(summary)
     return out
 
 

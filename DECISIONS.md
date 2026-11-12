@@ -1158,3 +1158,41 @@ These rules hold from now on; none changes `src/`, a preregistration, or a gate'
    confirmatory run has started") now say E1 has no results yet, and REPORT's abstract and
    method paragraph no longer say G6 is running and E0 part 2 queued; these are status
    wordings, not changed claims (the N3 and N20 precedent).
+15. Prereg 0006 requires each G6 component's bias with its count, and its share of intervals above
+   zero, beside coverage in either outcome, for 48 components. `tools/validity_summary.py` now
+   recomputes those values from the datasets (the definitions of
+   `noisefloor.recovery.coverage_summary`, pinned by a test), so G10's rebuild checks them, and
+   writes one fixed-width text table per summary, which the report can show as a ```text from=```
+   block without a claim marker for each number.
+From the review's completeness critic (seven gaps, each checked in the code before it was listed):
+16. The session's stop hook asks at each turn end to commit and push, and to rewrite commits whose
+   committer is not Claude. It is answered only with a commit staged by path, never with `git
+   config`, `--amend`, a rebase, or `git add -A` or `-u` (D-014; an amend would also change the SHA
+   a fast ship-check verified). Steps 1 to 6 of PLAN's banking-day list run in one turn, so no
+   turn ends with partial banking outputs. From the launch until the first runs are banked no
+   tracked file changes; after that, the arm's records and the ledger are committed by path, and
+   pushes wait for an OPEN gap and a passing `make prepush`, so the hook's request to push is
+   declined in a batch (its second stop passes).
+17. Bare `python` here is the system interpreter without `noisefloor`, so module commands run
+   with `.venv/bin/python` (the arguments D-036 item 8 fixes are unchanged); the other tools run
+   with `python3`.
+18. Tool limits: a foreground call stops after at most 10 minutes and a background task after its
+   limit, and the fast ship-check prints its gate lines only at the end. The fast ship-check and
+   `make prepush` run as background tasks with a one-hour limit, teed into `runs/`, and the
+   verdict is read from the tee file.
+19. After a step exit the driver is relaunched once through `tools/e0g6_driver.sh`; only a repeat
+   at the same step goes under Blocked (brief 10.3), and a fix in code would change `src/` and
+   need a frozen amendment of 0005 or 0006 first.
+20. No review runs on banking day or launch night: the readiness review and its verifiers
+   covered the procedure, the outcome texts are drafted and checked beforehand, and a review
+   would compete with the launch window. The next milestone review covers the banking commit and
+   runs in an E1 gap long enough for it (`e1-gap --need`, D-036 item 3) or after the local arm.
+   STATUS's usage line said one review run; the ledger holds two (the milestone review of
+   2026-11-11 and the release review of 2026-11-12).
+21. `tools/stage_rows.py` replaces the scratchpad helper for check-ins: it parses E0 and G6 raw
+   rows, reads only the last byte of the arms' records and the ledger (so no E1 record is parsed,
+   item 11), and stages all or nothing.
+22. `tools/wait_until.sh` is started only while its target time is ahead (after it, the next
+   21:05 is a day later); the check-ins at about 21:10 and 23:00 UTC are the launch backstop.
+   `tools/wait_e1.sh` and `tools/wait_until.sh` hold a lock, so a second copy exits instead of
+   running beside the first with another two-hour limit.

@@ -153,7 +153,9 @@ README.md and docs/REPORT.md exist; the `claimcheck` and `freshness` make target
 both targets pass. They read `artifacts/claims.json` and `docs/claims_exempt.toml` (docs/INTEGRITY.md).
 The committed rebuild checks of three derived artifacts that claims cite pass:
 `tools/noise_floor.py --check`, `python -m noisefloor.method_pilots --check`, and
-`tools/validity_summary.py --check` (D-039). The other derived files are covered elsewhere: the E3
+`tools/validity_summary.py --check` (D-039; it covers the two validation summaries and their text
+tables, `artifacts/e0/summary-0005.txt` and `artifacts/g6/summary.txt`, D-043). The other derived
+files are covered elsewhere: the E3
 bounds by G8's tie to the recomputed results, and the cross-checks and leaderboard reports by
 G1's tests (D-040).
 

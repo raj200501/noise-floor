@@ -60,8 +60,8 @@ stands (D-043 item 6).
 
 1. Keep E0 part 2 running: `bash tools/wait_e0g6.sh` as a background task, restarted first on
    every wake-up; relaunch only with `WORKERS=4 setsid nohup bash tools/e0g6_driver.sh >>
-   runs/e0g6/nohup.out 2>&1 < /dev/null &`. At each check-in, commit and push raw rows, and
-   confirm that `git status --porcelain -- src uv.lock pyproject.toml` is empty and that `git
+   runs/e0g6/nohup.out 2>&1 < /dev/null &`. At each check-in, stage raw rows with `python3
+   tools/stage_rows.py --changed`, commit as Raj, `make prepush`, push, and confirm that `git status --porcelain -- src uv.lock pyproject.toml` is empty and that `git
    rev-parse HEAD:src HEAD:uv.lock` prints the `src_tree` and `uv_lock` recorded for
    c1569b433f0f5a99 in `artifacts/e0/raw/environments.json` (D-043 item 12).
 2. When the driver has ended, follow docs/PLAN.md "Banking day and launch night" (D-036 item 8,
@@ -77,8 +77,8 @@ stands (D-043 item 6).
 
 ## Usage to date
 
-cash_usd = 0. cap_share = 0.2 (D-007). Claude subject runs 0, single calls 0, review runs 1 (the
-milestone review of 2026-11-11, D-037 item 9).
+cash_usd = 0. cap_share = 0.2 (D-007). Claude subject runs 0, single calls 0, review runs 2 (the
+milestone review of 2026-11-11, D-037 item 9, and the release review of 2026-11-12, D-041).
 Local model runs: pilot p1 24, screening s2 11 (exploratory, suite v1), s3 84 (suite v2; stopped early, D-025).
 
 ## Needs Raj
