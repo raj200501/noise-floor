@@ -983,3 +983,27 @@ each one stricter than before (docs/GATES.md):
    entry's critical value on the best-rank side. No reported number rests on them, and the file
    is in the pinned analysis code, so the fix lands after the E1 analysis is banked, with E2
    banked again and a CORRECTIONS entry for every banked interval it changes.
+
+## D-040 2026-11-12 Further checks from the milestone review's completeness critic
+1. `artifacts/e3/bounds.json` backs 20 REPORT claims but was compared with nothing that
+   recomputes it. Each of its public-board entries equals that board's `results.json` q3 for its
+   analysis set, plus `source` and `analysis_set`, so G8 and a test (`tests/test_banked.py`) now
+   require that equality: G8's full mode recomputes `results.json`, and the tie carries that to
+   every E3 number.
+2. The leaderboard reports are rendered from their banked files in a test, and `make reproduce`
+   regenerates them before its diff, which could not fire before.
+3. The cross-check tests compare their fresh results with `artifacts/e0/crosscheck.json`, with
+   names, tolerances, and reference implementations exact and values to 1e-6: lme4's fit moves by
+   about 1e-7 from run to run, the same on both of its paths, so each check's own difference
+   stays near 1e-12.
+4. G14 passes the sensitive variables that `clean_env` removes to `make secrets-scan` alone, so it
+   can search for their literal values; the scanner only reads files and prints pattern names.
+5. Recorded, not changed: G5 counts the simultaneous rank cells' stored verdicts, because their
+   raw rows hold no ranks; and the E2, E3, and E0 part 1 artifacts carry no git SHA, code hash,
+   environment, or command line (brief 10.2 step 5). Both are addressed when E2 is banked again
+   after the E1 analysis (D-039 item 7), with per-model ranks and provenance fields in the files.
+6. Section 11 asks for a 60-second quickstart that runs offline. It is read as: after a one-time
+   clone and `make setup`, which need the network, the quickstart runs with no network (the
+   README says so), since nothing can be installed without it.
+7. Rule 8 was checked: PR #1 was opened and merged from Raj's account, and this session called
+   no pull-request tool.

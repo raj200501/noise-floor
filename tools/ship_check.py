@@ -1206,6 +1206,18 @@ def g8(ctx: Ctx) -> str:
     sources = {str(e.get("source")) for e in bounds.get("entries", [])}
     missing = [b for b in boards if b not in sources]
     need(not missing, f"E3 bounds missing for {', '.join(missing)}")
+    # Each public board's E3 entry is the policy question (q3) of that board's results.json,
+    # which the full mode recomputes from the snapshot, so no E3 number stands on its own (D-040).
+    for entry in bounds.get("entries", []):
+        board = str(entry.get("source"))
+        results = load_json(rel(ctx, f"artifacts/e2/{board}/results.json"))
+        aset = str(entry.get("analysis_set"))
+        q3 = ((results.get("sets") or {}).get(aset) or {}).get("q3")
+        need(isinstance(q3, dict), f"{board} results.json has no q3 for analysis set {aset}")
+        need(
+            entry == {"source": board, "analysis_set": aset, **q3},
+            f"artifacts/e3/bounds.json entry for {board} differs from its results.json q3",
+        )
     # E3 on E1 comes from the E1 analysis under the E1 preregistration (prereg 0004).
     on_e1 = load_json(rel(ctx, "artifacts/e1/e3_bounds.json"))
     need(on_e1.get("source") == "e1" and bool(on_e1.get("entries")), "E3 bounds do not cover E1")
@@ -1471,7 +1483,10 @@ def g14(ctx: Ctx, pre: list[str]) -> str:
         else:
             need(caps[key] <= default, f"cap {key} raised above the brief default")
     need_setup(ctx)
-    res = make(ctx, "secrets-scan", timeout=900)
+    # The scanner also searches for the literal values of sensitive variables, which clean_env
+    # removes; it only reads files and prints pattern names, never values (D-040).
+    scan_env = {**ctx.env, **{k: v for k, v in os.environ.items() if k in SECRET_ENV}}
+    res = make(ctx, "secrets-scan", timeout=900, env=scan_env)
     need(res.code == 0, f"make secrets-scan: {tail(res.out)}")
     res = make(ctx, "budget", timeout=300)
     need(res.code == 0, f"make budget: {tail(res.out)}")

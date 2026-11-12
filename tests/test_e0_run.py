@@ -144,11 +144,27 @@ def test_grid_errors_and_cli(
     assert e0_run._clean({"x": [float("nan"), 1.0]}) == {"x": [None, 1.0]}
 
 
+def _same_as_banked(checks: list[dict[str, object]]) -> None:
+    """Fresh cross-checks equal the banked artifacts/e0/crosscheck.json entries (D-040).
+
+    Values agree to 1e-6: lme4's fit moves by about 1e-7 from run to run (both of its paths
+    together, so each check's own difference stays near 1e-12).
+    """
+    data = json.loads((e0_crosscheck.REPO / "artifacts" / "e0" / "crosscheck.json").read_text())
+    banked = {c["name"]: c for c in data["checks"]}
+    for c in checks:
+        b = banked[c["name"]]
+        assert (c["tolerance"], c["reference_impl"]) == (b["tolerance"], b["reference_impl"])
+        for key in ("value", "reference", "abs_diff"):
+            assert c[key] == pytest.approx(b[key], rel=1e-6, abs=1e-6)
+
+
 def test_crosscheck_library_checks_agree() -> None:
     checks = e0_crosscheck.library_checks()
     assert len(checks) >= 10
     assert all(c["abs_diff"] <= c["tolerance"] for c in checks)
     assert any("statsmodels" in c["reference_impl"] for c in checks)
+    _same_as_banked(checks)
 
 
 def test_crosscheck_main_writes_artifact(
@@ -169,6 +185,9 @@ def test_crosscheck_main_writes_artifact(
 def test_crosscheck_glmm_checks_agree() -> None:
     checks = e0_crosscheck.glmm_checks()
     assert len(checks) == 5 and all(c["abs_diff"] <= c["tolerance"] for c in checks)
+    _same_as_banked(checks)
+    data = json.loads((e0_crosscheck.REPO / "artifacts" / "e0" / "crosscheck.json").read_text())
+    assert len(data["checks"]) == len(e0_crosscheck.library_checks()) + len(checks)
 
 
 def test_lower_priority(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

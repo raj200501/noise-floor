@@ -48,7 +48,9 @@ dead proxies (evidence says `env-only`), plus `UV_OFFLINE=1`, `NOISEFLOOR_OFFLIN
   match. A replicate with a missing bound counts as not covered. The line counted for an index
   is the last one written for it; for a grouped cell it carries `e0_glmm_seed(group, i)`, and for
   an artifact banked with stamps it names that artifact's environment and analysis code from a
-  clean `src/` (D-039).
+  clean `src/` (D-039). Limitation: the three simultaneous rank cells (`R-*-sim`) record the
+  simulator's own joint verdict per replicate (`hit`, with no truth or interval), so G5 counts
+  those verdicts rather than recounting them from ranks (D-040).
 - Replicates at least 2,000 per cell, or 500 when `interval_type` is a bootstrap (`bootstrap`,
   `bca`, `bootstrap_max_t`, `parametric_bootstrap`) or GLMM (`glmm`, `glmm_profile`,
   `profile_glmm`, `glmm_task_jackknife`, `glmm_plugin_share`; D-033) type.
@@ -119,7 +121,9 @@ two-level factor's contribution, effect squared over four) is that value (D-039)
 At least 2 `artifacts/e2/<board>/manifest.json` with `source_url`, `retrieved`, `license`,
 `snapshot`, `sha256` (snapshot hash checked unless the snapshot is under `private/`, where the
 private manifest covers it); `docs/leaderboards/<board>.md` for each; `artifacts/e3/bounds.json`
-`entries` with `source` covering every board; and E3 on E1, `artifacts/e1/e3_bounds.json`
+`entries` with `source` covering every board, each entry equal to its board's `results.json`
+q3 for the entry's analysis set plus `source` and `analysis_set` (so the full mode's recompute of
+`results.json` covers every E3 number; D-040); and E3 on E1, `artifacts/e1/e3_bounds.json`
 (`source` `e1`, non-empty `entries`, a non-empty `rankings` object, and a non-empty `adjacent`
 list), written by the E1 analysis
 under the E1 preregistration, which must predate it. Full mode: `python -m noisefloor.reanalysis --verify` (E1's file is
@@ -160,7 +164,9 @@ is in `artifacts/citecheck.json` with `verified: true`; `make citecheck` passes;
 ## G14 Hygiene
 Original checkout clean and `private/` untracked (see above); LICENSE, CITATION.cff, SECURITY.md,
 CONTRIBUTING.md exist; `budget.toml` has `cash_usd = 0` and no cap above the brief's defaults
-(`disk_floor_gb` may only rise); `make secrets-scan` clean; `make budget` passes and prints
+(`disk_floor_gb` may only rise); `make secrets-scan` clean, run with the sensitive variables
+that sub-commands otherwise lose, so it also searches for their literal values (it prints
+pattern names only; D-040); `make budget` passes and prints
 `cash_usd = 0`. Its turn check reads the `agent_usage` rows on which the client logs a Claude
 Code run's turns, and any run above the cap fails it, including one the stream check stopped at
 the first message of a turn over the cap (D-037 item 2, made strict by D-039).

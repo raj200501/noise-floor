@@ -56,7 +56,9 @@ returned BLOCK on one item, a literal em dash in a test, now fixed with a test t
 dashes out of every authored file. Its 14 non-blocking issues are in docs/REVIEW_LOG.md with what
 was done about each: gate checks tightened in `tools/` (G1, G2, G5, G6, G10, G12, G14; D-039),
 report and README wording, the model weights in docs/DATA.md, and one rank-interval defect in a
-pinned file (N2) that waits until after the E1 analysis.
+pinned file (N2) that waits until after the E1 analysis. The workflow's completeness critic found
+one more blocking gap, fixed: nothing tied `artifacts/e3/bounds.json` to a recomputation (now G8
+and a test do; D-040), plus four smaller ones, also in docs/REVIEW_LOG.md.
 
 ## Next three actions
 
