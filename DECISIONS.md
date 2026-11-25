@@ -1236,3 +1236,10 @@ D-044 stays reserved for the banking commit (D-042 item 5).
 6. README and REPORT now say the validation runs are paused part way, not running; the README
    gains the CI badge of this repository (badges from other sites would count as unverified
    citations under G13).
+7. From a read-only first-impression review (two lenses, an evals engineer and an investor):
+   the README's opening says what evalstats takes and answers; the first screen has an
+   install-and-use quickstart (checked on the demo fixture) above the safeguards; the harness
+   readers and `policy_bounds` are shown; no README line opens with a claim marker, which under
+   CommonMark started a raw HTML block and broke the headline paragraph on GitHub; and `evalstats
+   report`, which the CLI lists but does not implement, is no longer advertised. Every number
+   still comes from an existing claim.

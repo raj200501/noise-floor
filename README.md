@@ -4,25 +4,33 @@
 
 **How much of a leaderboard gap is the model, and how much is noise?**
 
-noise-floor is a toolkit and a set of preregistered studies for telling real differences between
-AI agents from noise. Its library, evalstats, compares agents task by task with intervals whose
-coverage is checked by simulation, and warns when a method is used where that check failed. With
-it, this repository reanalyzes public agent leaderboards to show which of their orderings the
-published data support, and it has frozen, before any data, a factorial study of how much of
-agent success comes from the model rather than the harness, resource limits, sampling, and time.
-Every result number below is generated from a banked artifact and checked by the repository's own
-tools.
+noise-floor tells you which differences between AI agents on a benchmark the data can resolve.
+Its library, **evalstats**, takes one row per run, or reads Inspect AI logs, Harbor job
+directories, and SWE-bench evaluation results directly, and answers the questions a single
+leaderboard score skips: is agent A ahead of agent B on the same tasks, which entries could
+plausibly rank first, how many tasks and runs a comparison needs, and whether an ordering
+survives a different scoring of timeouts and infrastructure errors. It warns when an interval
+method is used on a design as small as one where its coverage check failed in simulation. This
+repository applies it to public agent leaderboards; a preregistered study of how much of agent
+success comes from the model rather than the harness and run settings
+([E1](#e1-the-preregistered-factorial-study)) is frozen and has no results yet. Every result
+number on this page is generated from a banked artifact and checked by `make claimcheck`.
 
-On Terminal-Bench 2.0, the top two submissions differ by <!-- claim:e2.tb2.top.diff -->+0.018 in task
-success (95% paired CI [<!-- claim:e2.tb2.top.lo -->-0.041, <!-- claim:e2.tb2.top.hi -->+0.077]), only
-<!-- claim:e2.tb2.adjacent.supported -->2 of <!-- claim:e2.tb2.adjacent.pairs -->65 adjacent pairs on
-the board are statistically separated, and <!-- claim:e2.tb2.first -->15 of its
-<!-- claim:e2.tb2.entries -->66 entries could plausibly rank first. In an exploratory check (not
-preregistered), the smallest gap the board's own design detects
-with 80% power (median over adjacent pairs) is <!-- claim:nf.tb2.mde -->0.097, the median adjacent gap is
-<!-- claim:nf.tb2.gap -->0.007, and only <!-- claim:nf.tb2.atleast -->1 of the <!-- claim:e2.tb2.adjacent.pairs -->65 adjacent gaps reaches its pair's detectable gap.
+**Headline finding.** On the public Terminal-Bench 2.0 leaderboard, only <!-- claim:e2.tb2.adjacent.supported -->2
+of <!-- claim:e2.tb2.adjacent.pairs -->65 adjacent pairs are statistically separated, and <!-- claim:e2.tb2.first -->15
+of its <!-- claim:e2.tb2.entries -->66 entries could plausibly rank first. The top two submissions
+differ by <!-- claim:e2.tb2.top.diff -->+0.018 in task success (95% paired CI [<!-- claim:e2.tb2.top.lo -->-0.041, <!-- claim:e2.tb2.top.hi -->+0.077]).
+In an exploratory check (not preregistered), the smallest gap the board's design detects
+with 80% power (median over adjacent pairs) is <!-- claim:nf.tb2.mde -->0.097, while the median
+adjacent gap is <!-- claim:nf.tb2.gap -->0.007; only <!-- claim:nf.tb2.atleast -->1 of the <!-- claim:e2.tb2.adjacent.pairs -->65
+adjacent gaps reaches its pair's detectable gap. The same arithmetic sizes your own evals: from
+a pilot's results, `mde` gives the smallest gap a design detects at a chosen power, and
+`tasks_needed` gives the number of tasks a target gap requires.
 
 ![Terminal-Bench adjacent pairs: each gap between neighbouring entries with its paired interval; nearly all cross zero](docs/figures/e2-tb2-gaps.svg)
+
+Each row of the figure is the gap between two neighbouring Terminal-Bench entries with its paired
+interval; where the interval crosses zero, the data do not support that ordering.
 
 | Leaderboard (confidence report) | Entries | Tasks | Adjacent pairs separated | Median rank-interval width | Could rank first | Detectable gap* | Median adjacent gap* |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -31,16 +39,42 @@ with 80% power (median over adjacent pairs) is <!-- claim:nf.tb2.mde -->0.097, t
 
 Pairs are separated when their paired, task-clustered 95% interval excludes zero; rank intervals
 are simultaneous 95% intervals from a task bootstrap on the tasks every entry attempted (the Tasks
-column). *Exploratory, not preregistered
-([`tools/noise_floor.py`](tools/noise_floor.py), [artifact](artifacts/e2/noise_floor.json)): a
+column). The unstarred columns follow plans frozen before any interval, ordering test, or rank set
+was computed ([`prereg/0001`](prereg/0001-e2-leaderboard-reanalysis.md), amended for SWE-bench
+Verified by [`prereg/0002`](prereg/0002-e2-amend-epoch-reference-rule.md)). *Exploratory, not
+preregistered ([script](tools/noise_floor.py), [artifact](artifacts/e2/noise_floor.json)): a
 pair's detectable gap is the smallest true difference in success rate that its design detects with
-80% power at two-sided alpha 0.05 (normal approximation, standard error from its banked interval);
-both columns are medians over adjacent pairs, and only <!-- claim:nf.tb2.atleast -->1 and <!-- claim:nf.epoch.atleast -->2
-pairs, respectively, have a gap at least as large as their own detectable gap. The other columns
-follow plans frozen before any interval, ordering test, rank set, or bound was computed:
-[`prereg/0001`](prereg/0001-e2-leaderboard-reanalysis.md), amended for SWE-bench Verified by
-[`prereg/0002`](prereg/0002-e2-amend-epoch-reference-rule.md); `make prereg-verify` checks that
-each plan predates the artifacts that cite it.
+80% power at two-sided alpha 0.05 (normal approximation); both starred columns are medians over
+adjacent pairs, and only <!-- claim:nf.tb2.atleast -->1 and <!-- claim:nf.epoch.atleast -->2 pairs,
+respectively, have a gap at least as large as their own detectable gap.
+
+**Quickstart.** Install the library; its only dependencies are NumPy, SciPy, and pandas:
+
+```bash
+pip install "git+https://github.com/raj200501/noise-floor"   # Python 3.11 or later
+```
+
+Then give it one row per run:
+
+```python
+from evalstats import paired_difference, rank_confidence, read_csv
+from evalstats import design_from_results, tasks_needed
+
+results = read_csv("my_runs.csv")  # columns: model, task, run, outcome (a score in [0, 1])
+
+cmp = paired_difference(results, "agent-a", "agent-b")  # paired by task, clustered on tasks
+d = cmp.difference
+print(f"A - B = {d.estimate:+.3f}, 95% CI [{d.lo:+.3f}, {d.hi:+.3f}], separated: {cmp.supported}")
+
+ranks = rank_confidence(results, seed=0)  # simultaneous 95% rank intervals for every entry
+print("could rank first:", ranks.top_set)
+
+design = design_from_results(results, "agent-a", "agent-b")
+print("tasks for a 0.03 gap at 3 runs each:", tasks_needed(0.03, design, runs_per_task=3))
+```
+
+No results of your own yet? In a clone, `make setup && make demo` runs evalstats offline on a
+synthetic fixture with planted effects (no model calls; needs uv).
 
 **Why these numbers hold up.** Each safeguard below is a check you can run, not a promise:
 
@@ -48,55 +82,65 @@ each plan predates the artifacts that cite it.
   hashed, and committed before its data existed; `make prereg-verify` checks the order.
 - *No hand-typed numbers.* Each result number on this page carries a hidden marker that ties it
   to a banked artifact; `make claimcheck` and `make freshness` fail if any of them drifts.
-- *Intervals tested before use.* The interval methods behind these results were checked for
-  coverage by simulation at the boards' designs, all but the bounded-difference interval behind
-  E3's robust counts, which has no coverage cell of its own; the library warns where a check
-  failed.
+- *Intervals tested before use.* The score, paired, and rank intervals behind E2 and the
+  per-entry bounds behind E3 were checked for coverage by simulation at both boards' designs,
+  and <!-- claim:e0.crosschecks -->22 cross-checks against statsmodels, SciPy, and R agree within
+  tolerance. One interval, behind E3's counts that also allow for sampling error, has no coverage
+  check of its own, and those counts say so.
 - *Results recomputed from pinned data.* `make reproduce` rebuilds every E2 and E3 result from
-  hash-pinned snapshots, and `make ship-check` runs fourteen gates on a fresh clone.
-- *Findings published, including the unflattering ones.* Every failing coverage cell, the one
-  interval without a coverage cell of its own, and every review finding and what was done about
-  it are on record ([docs/REVIEW_LOG.md](docs/REVIEW_LOG.md), [CORRECTIONS.md](CORRECTIONS.md)).
-
-**Quickstart** (about a minute; after setup, nothing touches the network):
-
-```bash
-git clone https://github.com/raj200501/noise-floor && cd noise-floor
-make setup    # uv sync --locked (Python 3.11 or later)
-make demo     # offline demo on a synthetic fixture (no model calls); a test pins its output
-uv run python docs/examples/01_compare_two_models.py
-```
+  hash-pinned snapshots and fails if any result or figure differs.
+- *Unflattering findings published too.* Every failing coverage cell, every review finding and
+  what was done about it, and every changed claim are on record
+  ([docs/REVIEW_LOG.md](docs/REVIEW_LOG.md), [CORRECTIONS.md](CORRECTIONS.md)).
 
 ## Use it on your own benchmark or agent
 
-Give evalstats one row per run (model, task, run, outcome):
+evalstats reads a plain results table (CSV, TSV, or JSONL with one row per model, task, run, and
+outcome) or a harness's own output files, without importing the harness's package:
 
 ```python
-from evalstats import paired_difference, read_csv
+from evalstats import paired_difference, policy_bounds
+from evalstats.adapters import read_inspect  # also read_harbor (job dirs), read_swebench (reports)
 
-results = read_csv("my_runs.csv")
-cmp = paired_difference(results, "agent-a", "agent-b")  # paired by task, clustered by task
-print(cmp.difference.estimate, cmp.difference.lo, cmp.difference.hi, cmp.supported)
+results = read_inspect("logs/")  # Inspect AI .eval or .json logs: one row per sample and epoch
+cmp = paired_difference(results, "model-a", "model-b")  # model names as recorded in the logs
+
+# Errored, limit-hit, and invalidated samples get a status. Bound each score over every way of
+# scoring them, and check which adjacent orderings hold under all of them.
+report = policy_bounds(results)
+for m in report.models:
+    print(m.model, "score bounds:", m.lower, m.upper)
+for p in report.adjacent:
+    print(p.higher, ">", p.lower, "holds under every scoring:", p.identified)
 ```
+
+The same analyses run from the shell (prefix `uv run` inside a clone):
 
 ```bash
-uv run evalstats compare my_runs.csv --a agent-a --b agent-b   # the same from the shell
-uv run evalstats rank --help                                    # also: power, decompose, report
+evalstats compare my_runs.csv --a agent-a --b agent-b               # paired difference and CI
+evalstats rank my_runs.csv                                          # simultaneous rank intervals
+evalstats power my_runs.csv --a agent-a --b agent-b --effect 0.03   # MDE and tasks needed
+evalstats decompose my_runs.csv                                     # GLMM variance components
 ```
+
+Runnable examples, all on synthetic or mock data, are in [docs/examples](docs/examples): comparing
+two models, power and MDE, rank confidence, variance decomposition, and policy bounds from Inspect
+logs. `decompose` needs a GLMM backend (the `glmm` extra, or R with lme4). The full API reference
+is [docs/api/evalstats.md](docs/api/evalstats.md).
 
 ## What this is
 
-- **evalstats**, a typed Python library that makes the right analysis of eval results the
-  default: paired and task-clustered comparisons, Wilson and cluster-robust intervals,
-  bootstrap and mixed-model (GLMM) variance components, power and minimum detectable effects,
-  simultaneous rank-confidence sets, and policy-sensitivity bounds for runs whose outcome is
-  ambiguous (timeouts, infrastructure errors). Its intervals carry a validity record from
-  coverage simulations (E0): a method used on a design at least as small as one where it failed
-  its check emits `UnsupportedDesignWarning`. The one exception behind these results is the
-  interval on a pair's bounded difference that E3's robust counts use, which has no coverage cell
-  of its own. The GLMM and Wilson cells (E0's second part) ran part way, after the G6 recovery study
-  wrote all its rows, and are paused; nothing from either is banked yet. API reference in [docs/api](docs/api), runnable examples in
-  [docs/examples](docs/examples).
+- **evalstats**, a typed Python library (MIT licensed; its only dependencies are NumPy, SciPy, and
+  pandas) that makes the right analysis of eval results the default: paired and task-clustered
+  comparisons, Wilson and cluster-robust intervals, bootstrap and mixed-model (GLMM) variance
+  components, power and minimum detectable effects, simultaneous rank-confidence sets, and
+  policy-sensitivity bounds for runs whose outcome is ambiguous (timeouts, infrastructure errors).
+  It reads Inspect AI, Harbor, and SWE-bench outputs as well as plain tables. Each interval method
+  that E0's coverage simulations have checked carries a validity record: a method used on a design
+  at least as small as one where it failed its check emits `UnsupportedDesignWarning`. The cells
+  for the GLMM and Wilson intervals (E0's second part) ran part way and are paused, with nothing
+  banked yet, and the interval behind E3's sampling-error counts has no coverage cell of its own.
+  API reference in [docs/api](docs/api), runnable examples in [docs/examples](docs/examples).
 - **Confidence reports for public leaderboards** (experiments E2 and E3): each submission's score
   with an interval, every adjacent ordering tested on shared tasks, simultaneous rank intervals,
   and how the ranking moves when ambiguous runs are scored differently.
@@ -131,29 +175,27 @@ The study plan is in [docs/PLAN.md](docs/PLAN.md) and every design choice, with 
 
 ## Status
 
-The project defines its finish line as fourteen gates that `make ship-check` checks on a fresh
-clone ([docs/GATES.md](docs/GATES.md)). In the latest fast run (`python tools/ship_check.py
---fast`, which does not count as the final check) these pass: build and tests with coverage
-(G1), static quality (G2), CI parity (G3), the offline demo (G4), the library shipped as a wheel
-(G9), claim integrity (G10), preregistration integrity (G11), documentation (G13), and hygiene
-(G14).
+**Working now:** evalstats; the E2 and E3 reanalyses of both leaderboards, banked with their
+[confidence reports](docs/leaderboards); and part one of the E0 coverage study. In the latest
+fast run of the ship-check (which does not count as the final check), the gates for build and
+tests, static quality, CI parity, the offline demo, the wheel, claim and preregistration
+integrity, documentation, and hygiene pass.
 
-Still in progress, and failing until their experiments run: library validity for E1's
-intervals (G5, the second part of the E0 coverage cells), planted-component recovery of the E1 analysis
-(G6), the factorial study itself (G7), the E3 bounds on E1 (G8), and the independent review of
-the finished study (G12). Their plans are frozen. The validation runs behind G5 and G6 are paused part way (G6 has all its rows; E0's second
-part has its first group and part of its second), with every raw row committed; nothing from
-them is banked or reported until both studies finish, and nothing in this README presents them as results.
-[STATUS.md](STATUS.md) has the live table and next steps.
+**Pending, with nothing banked:** E0's second part (the GLMM and Wilson coverage cells) ran part
+way and is paused, and the G6 planted-component recovery study has all its rows; every raw row is
+committed. The E1 factorial study has no results. Nothing in this README presents any of these as
+results, and the gates that depend on this work fail until it is done. [STATUS.md](STATUS.md) has
+the live table of the fourteen gates that `make ship-check` checks on a fresh clone
+([docs/GATES.md](docs/GATES.md)).
 
-**The Claude slice of E1 is pending.** The Claude tiers cannot run in the hosted session where
-this repository is built, whose billing guard blocks Claude children by design, so the slice
-waits for a run on Raj's machine that follows the runbook in [docs/PLAN.md](docs/PLAN.md)
-("Claude arm on Raj's machine"). Until it runs there are no Claude results, and G7, which
-requires Claude-tier runs, cannot pass. The local arm of E1 runs here once G5 and G6 pass, but
-as preregistered the E1 analysis runs only after both arms have ended. So E1 reports no result
-from either arm until the slice ends, and E3 on E1 (G8) and the review of the finished study
-(G12) wait for that too.
+**The Claude slice of E1 is pending.** The hosted environment where this repository is built
+trips the project's billing guard (no paid compute), which blocks Claude runs there by design, so
+the Claude tiers wait for a run on Raj's machine that follows the runbook in
+[docs/PLAN.md](docs/PLAN.md) ("Claude arm on Raj's machine"). Until it runs there are no Claude
+results, and G7, which requires Claude-tier runs, cannot pass. The local arm of E1 runs here once
+G5 and G6 pass, but as preregistered the E1 analysis runs only after both arms have ended, so E1
+reports no result from either arm until then; E3 on E1 (G8) and the review of the finished study
+(G12) wait for it too.
 
 ## How it works
 

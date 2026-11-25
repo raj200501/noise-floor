@@ -38,7 +38,11 @@ Raj paused the build on 2026-11-13 to save usage: the G6 and E0 part 2 driver wa
 deleted. On 2026-11-25 the session resumed in a new container (no virtualenv, R, model weights,
 llama-server build, or scratchpad) for a one-hour finalization at Raj's request: main's two CI
 fixes are merged into the branch (c68090c); README and REPORT say the validation runs are paused,
-not running; the README carries this repository's CI badge; `make ci` passes here (1,431 tests,
+not running; the README carries this repository's CI badge, and its first screen (from a
+two-lens first-impression review) now leads with what evalstats does, an install-and-use
+quickstart, and the Inspect, Harbor, and SWE-bench readers, renders its headline correctly (no
+line opens with a claim marker), and no longer lists `evalstats report`, which is not
+implemented; `make ci` passes here (1,431 tests,
 92% line coverage; the 18 tests that need R skip without it); and main is updated by a
 fast-forward. Nothing is banked, and no result changed. D-045 records how to resume: E0 part 2
 only in its recorded environment (`src/` tree 036a0cb, R 4.3.3 with lme4 1.1-35.1, and the
