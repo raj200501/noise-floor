@@ -196,6 +196,42 @@ def test_e0_grids_and_frozen_headline_cells(tmp_path: Path) -> None:
         ship_check.e0_grids(ctx)
 
 
+def test_prereg_order_needs_full_history(tmp_path: Path) -> None:
+    import subprocess
+
+    env = {
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@example.invalid",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@example.invalid",
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "PATH": "/usr/bin:/bin",
+    }
+
+    def git(cwd: Path, *args: str) -> None:
+        subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, env=env)
+
+    src = tmp_path / "src"
+    (src / "prereg").mkdir(parents=True)
+    git(src, "init", "-q")
+    (src / "prereg" / "0001-x.md").write_text("plan\n")
+    git(src, "add", "-A")
+    git(src, "commit", "-qm", "prereg")
+    (src / "artifacts").mkdir()
+    (src / "artifacts" / "a.json").write_text("{}\n")
+    git(src, "add", "-A")
+    git(src, "commit", "-qm", "artifact")
+    ship_check.check_prereg_link(_ctx(src), "prereg/0001-x.md", "artifacts/a.json")
+    with pytest.raises(ship_check.GateError, match="does not predate"):
+        ship_check.check_prereg_link(_ctx(src), "artifacts/a.json", "prereg/0001-x.md")
+    # In a shallow clone both files seem to start at the cut; the gate says why it cannot tell.
+    shallow = tmp_path / "shallow"
+    git(tmp_path, "clone", "-q", "--depth", "1", f"file://{src}", str(shallow))
+    with pytest.raises(ship_check.GateError, match="shallow clone"):
+        ship_check.check_prereg_link(_ctx(shallow), "prereg/0001-x.md", "artifacts/a.json")
+
+
 def test_utc_time() -> None:
     a = ship_check.utc_time("2026-11-05T00:00:00Z")
     b = ship_check.utc_time("2026-11-05T01:00:00+01:00")

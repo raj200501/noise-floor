@@ -69,7 +69,10 @@ def _add_input(p: argparse.ArgumentParser, required: bool) -> None:
 
 
 def _positive_int(text: str) -> int:
-    value = int(text)
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"must be a whole number, not {text!r}") from None
     if value < 1:
         raise argparse.ArgumentTypeError(f"must be at least 1, not {value}")
     return value
@@ -357,6 +360,10 @@ def _flags(message: str) -> str:
         value = f" {m.group(2)}" if m.group(2) else ""
         return f"pass --{m.group(1).replace('_', '-')}{value}"
 
+    message = message.replace(
+        "pass value_map", "map such values with read_inspect(value_map=...) in Python"
+    )
+    message = re.sub(r"\bprefer method='([^']*)'", r"prefer --method \1", message)
     return _KEYWORD.sub(flag, message)
 
 

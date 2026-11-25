@@ -214,7 +214,8 @@ documentation, and hygiene pass.
    following the runbook in [docs/PLAN.md](docs/PLAN.md) ("Claude arm on Raj's machine"), because
    the hosted environment where this repository is built has a no-paid-compute guard that blocks
    Claude runs by design; reaching the Claude-tier run count that G7 requires also needs Raj to
-   raise the slice's usage cap or move its end date, either reported as a deviation. As
+   raise the slice's usage cap or move its end date (the second by an amendment, reported as a
+   deviation). As
    preregistered, E1 is analyzed only after both arms end; until then it has no results, and
    nothing here presents any.
 

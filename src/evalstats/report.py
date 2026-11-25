@@ -179,8 +179,8 @@ def _bounds_lines(bounds: PolicyReport) -> list[str]:
     if not any(m.ambiguous_runs for m in bounds.models):
         return [
             *lines,
-            f"No run has an ambiguous status ({statuses}), so no score depends on how "
-            "such runs are scored.",
+            f"No run on these tasks has an ambiguous status ({statuses}), so no score here "
+            "depends on how such runs are scored.",
         ]
     held = sum(1 for p in bounds.adjacent if p.identified)
     robust = sum(1 for p in bounds.adjacent if p.robust)

@@ -313,8 +313,18 @@ def prereg_block(ctx: Ctx, prereg: str, tag: str) -> Any:
         raise GateError(f"{prereg} {tag} block is not valid JSON") from exc
 
 
+def need_full_history(ctx: Ctx) -> None:
+    """Commit order needs the whole history: a shallow clone cuts it at an arbitrary commit."""
+    need(
+        git(ctx.clone, "rev-parse", "--is-shallow-repository") != "true",
+        "shallow clone: history is cut, so commit order cannot be checked "
+        "(run `git fetch --unshallow` in the original checkout)",
+    )
+
+
 def check_prereg_link(ctx: Ctx, prereg: str, artifact: str) -> None:
     """The preregistration's commit must strictly predate the artifact's first commit."""
+    need_full_history(ctx)
     p, a = first_commit(ctx.clone, prereg), first_commit(ctx.clone, artifact)
     need(bool(p), f"{prereg} not committed")
     need(bool(a), f"{artifact} not committed")
@@ -1433,6 +1443,7 @@ def g12(ctx: Ctx) -> str:
     reviewed = str(data.get("reviewed_commit", ""))
     head = git(ctx.clone, "rev-parse", "HEAD")
     if reviewed != head:
+        need_full_history(ctx)
         need(strictly_before(ctx.clone, reviewed, head), "reviewed commit is not an ancestor")
         changed = review_drift(ctx.clone, reviewed, head)
         allowed = ("artifacts/review/", "STATUS.md", "docs/LOG.md")

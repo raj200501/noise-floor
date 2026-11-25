@@ -1252,22 +1252,38 @@ D-044 stays reserved for the banking commit (D-042 item 5).
    files (`src/evalstats/report.py`, `cli.py`, `__init__.py`) are outside the analysis-code
    pin, which still recomputes to b6b0e09229761233; like bc3785e they change the `src/` tree, so
    item 3's way of resuming E0 part 2 applies. README's status reads as shipped and next, with
-   every fact kept. `tests/test_readme.py` runs every Python block and every `evalstats`
-   command line in the README as written (on synthetic rows and the mock Inspect and Harbor
-   fixtures), so the quickstart cannot drift from the code.
-   A two-lens review of the change (code, and README with REPORT) found no defect in a banked
-   result and these in the new work, all fixed with tests: the report's ambiguous-runs section used
-   every task an entry attempted and its own order, so it could disagree with the ranking (it now
-   uses the ranking's tasks and order, as the E2 pipeline does); it gave no count with sampling
-   error and printed counts when no run was ambiguous; `--level` did not reach the bounds and
-   printed rounded; the CLI could not pass the readers' options (it now takes `--scorer`, `--value-
-   key`, `--run-key`, `--reward-key`, and `--model-label`, and errors name those flags), and a
-   Harbor entry that pools two agents now warns; `--json` could print a bare NaN; `--n-boot 0`
-   raised a traceback; `rank` labeled its adjacent intervals 95% at any level; synthetic rows were
-   not labeled; and with few tasks the task bootstrap can separate a pair that its paired interval
-   does not, which the report now flags (`rank_confidence` itself is inside the analysis-code pin
-   and is unchanged). REPORT's limitations said `evalstats report` is not implemented; that line
-   changed, with a CORRECTIONS.md entry. The README no longer calls the CLI report the same as the
-   leaderboard reports, states no count in words, and its roadmap names what the E1 arms need (the
-   pinned llama-server build or a 0004 amendment, and Raj's decision on the Claude slice's cap or
-   end date, items 4 and 5).
+   every fact kept. `tests/test_readme.py` runs every Python block and every `evalstats` command
+   line in the README as written (on synthetic rows and the mock Inspect and Harbor fixtures), so
+   the quickstart cannot drift from the code. A two-lens review of the change (code, and README
+   with REPORT) found no defect in a banked result and these in the new work, all fixed with tests:
+   the report's ambiguous-runs section used every task an entry attempted and its own order, so it
+   could disagree with the ranking (it now uses the ranking's tasks and order, as the E2 pipeline
+   does); it gave no count with sampling error and printed counts when no run was ambiguous;
+   `--level` did not reach the bounds and printed rounded; the CLI could not pass the readers'
+   options (it now takes `--scorer`, `--value-key`, `--run-key`, `--reward-key`, and
+   `--model-label`, and errors name those flags), and a Harbor entry that pools two agents now
+   warns; `--json` could print a bare NaN; `--n-boot 0` raised a traceback; `rank` labeled its
+   adjacent intervals 95% at any level; synthetic rows were not labeled; and with few tasks the
+   task bootstrap can separate a pair that its paired interval does not, which the report now flags
+   (`rank_confidence` itself is inside the analysis-code pin and is unchanged). REPORT's
+   limitations said `evalstats report` is not implemented; that line changed, with a CORRECTIONS.md
+   entry. The README no longer calls the CLI report the same as the leaderboard reports, states no
+   count in words, and its roadmap names what the E1 arms need (the pinned llama-server build or a
+   0004 amendment, and Raj's decision on the Claude slice's cap or end date, items 4 and 5).
+9. This container's checkout was a shallow clone (history cut at 6474b4c), and a fast ship-check of
+   22abcd5 then reported for G5, G8, and G11 that a preregistration does not predate its artifact:
+   in a cut history both files seem to start at the cut. With the full history fetched (`git fetch
+   --unshallow`, which changes only `.git`), G11 passes and G5 and G8 wait only on their studies.
+   So that this cannot mislead a later session, the commit-order checks (each preregistration link,
+   and G12's reviewed-commit ancestry) now fail with "shallow clone" and the remedy when the clone
+   is shallow. The checks are not weakened: a shallow clone still fails them, and with full history
+   they run as before. A test covers both.
+10. A focused check of 22abcd5 confirmed those fixes and found smaller issues, now fixed with
+    tests: when every ambiguous run fell on a task outside the shared set, the report said that no
+    run is ambiguous (it now says no run on these tasks is); a trial with no result names its agent
+    from its config, so one custom agent could trigger the pooled-agents warning (such trials no
+    longer count for it); two messages named options the CLI lacks (`value_map`, `method=`);
+    `--n-boot abc` named an internal function; REPORT's limitation named more inputs than the CLI
+    reads; and the README called both of the Claude slice's remedies deviations, where item 5 makes
+    only an amendment of the end date one. One finding stays: the new flags make a rare prefix
+    (`--model`) ambiguous, and argparse then refuses it with a clear message.

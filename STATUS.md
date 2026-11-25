@@ -3,16 +3,22 @@ STATE: BLOCKED ON RAJ
 
 # Status
 
-Updated 2026-11-25 07:20 UTC, goal_turn 7 (Raj paused the build on 2026-11-13; a one-hour
+Updated 2026-11-25 07:44 UTC, goal_turn 7 (Raj paused the build on 2026-11-13; a one-hour
 finalization on 2026-11-25). History is in docs/LOG.md.
 
 ## Gates
 
 Last full ship-check (counts) at d2d0bca: SHIP-CHECK: FAIL 9/14. G1 to G4, G9 to G11, G13, and
-G14 pass (1,424 tests, none skipped, 97.0% line coverage); G5 and G6 wait on their running
-studies, G7 and G8 on E1, and G12 on a SHIP review (the release review of d9d04b2 returned BLOCK
+G14 pass (1,424 tests, none skipped, 97.0% line coverage); G5 and G6 wait on their studies (now
+paused), G7 and G8 on E1, and G12 on a SHIP review (the release review of d9d04b2 returned BLOCK
 on B3, fixed in D-041; one review a UTC day). Released: main fast-forwarded to 4f54a6e (docs-only
 changes since d2d0bca; prepush, claimcheck, and freshness pass) on 2026-11-12 at 01:14 UTC.
+On 2026-11-25 a fast ship-check (does not count) of 22abcd5 gave 8/14: the same gates as the full
+run except G1, which fails here only because this container has no R (its 18 R-backed tests
+skip; Needs Raj item 4). This container's checkout was shallow, which made G5, G8, and G11
+report that a preregistration does not predate its artifact; with full history (`git fetch
+--unshallow`) G11 passes, and G5 and G8 wait only on their studies. Those checks now say "shallow
+clone" instead (D-045 item 9).
 
 | Gate | Status | Evidence / next step |
 |------|--------|----------------------|

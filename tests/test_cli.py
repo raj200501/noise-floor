@@ -192,6 +192,40 @@ def test_compare_reads_inspect_logs(tmp_path: Path, capsys: pytest.CaptureFixtur
     assert "need at least 2 models" in capsys.readouterr().err  # one entry: nothing to rank
 
 
+def test_one_custom_agent_is_not_reported_as_two(tmp_path: Path) -> None:
+    import warnings
+
+    from evalstats.adapters import read_harbor
+
+    job = tmp_path / "job"
+    shutil.copytree(HARBOR_JOB, job)
+    for trial in job.iterdir():
+        result, config = trial / "result.json", trial / "config.json"
+        if result.is_file():  # a finished trial names its agent from agent_info
+            data = json.loads(result.read_text())
+            data["config"]["agent"] |= {"name": None, "import_path": "pkg.mod:MyAgent"}
+            data["agent_info"] = (data.get("agent_info") or {}) | {"name": "my-agent"}
+            result.write_text(json.dumps(data))
+        elif config.is_file():  # a trial with no result names it from its config only
+            data = json.loads(config.read_text())
+            data["agent"] |= {"name": None, "import_path": "pkg.mod:MyAgent"}
+            config.write_text(json.dumps(data))
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        read_harbor(job)
+    assert not [w for w in caught if "pools" in str(w.message)]
+
+
+def test_messages_name_what_the_cli_can_pass(
+    csv_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert "prefer --method cluster_t" in cli._flags("...; prefer method='cluster_t'")
+    assert "read_inspect(value_map=...)" in cli._flags("cannot convert 'X'; pass value_map")
+    with pytest.raises(SystemExit):
+        cli.main(["rank", str(csv_path), "--n-boot", "abc"])
+    assert "must be a whole number, not 'abc'" in capsys.readouterr().err
+
+
 def test_inspect_options_reach_the_reader(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -254,9 +288,11 @@ def test_report_sections_share_tasks_order_and_labels(tmp_path: Path) -> None:
     assert "(2 other tasks left out)" in text and "a\\|x" in text
     assert "**Synthetic data.**" in text and "also with it" in text
     frame["status"] = "ok"
-    frame.to_csv(path, index=False)
+    frame.loc[(frame["model"] == "b") & (frame["task"] == "t011"), "status"] = "timeout"
+    frame.to_csv(path, index=False)  # the only ambiguous runs are on a task c never attempted
     text = confidence_report(read_results(path), n_boot=200)
-    assert "No run has an ambiguous status" in text and "hold under every way" not in text
+    assert "No run on these tasks has an ambiguous status" in text
+    assert "hold under every way" not in text
 
 
 def test_json_is_strict_and_flags_are_checked(

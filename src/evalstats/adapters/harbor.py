@@ -174,6 +174,8 @@ def _warn_pooled_agents(rows: list[dict[str, Any]]) -> None:
     """Warn when one entry pools the trials of several agents (two agents, one model)."""
     agents: dict[str, set[str]] = {}
     for row in rows:
+        if row["status_reason"] == "no_result":
+            continue  # a trial with no result.json names its agent from its config only
         agents.setdefault(str(row["model"]), set()).add(str(row["agent"]))
     for model, names in sorted(agents.items()):
         if len(names) > 1:
