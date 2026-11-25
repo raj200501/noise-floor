@@ -2,6 +2,14 @@
 
 Dated entries for every changed or withdrawn claim, newest first.
 
+## 2026-11-25
+
+- Changed (D-045 item 8): docs/REPORT.md's limitations said that the `evalstats report`
+  subcommand is not implemented. It is now implemented (`evalstats.confidence_report`), and
+  every CLI command reads Inspect AI logs and Harbor jobs with `--from`; the leaderboard
+  confidence reports still come from `python -m noisefloor.reanalysis report`. No banked
+  number and no reading changed.
+
 ## 2026-11-11
 
 - Changed (D-035): the Imbens and Manski interval of a model's success rate under the policy

@@ -3,7 +3,7 @@ STATE: BLOCKED ON RAJ
 
 # Status
 
-Updated 2026-11-25 06:20 UTC, goal_turn 7 (Raj paused the build on 2026-11-13; a one-hour
+Updated 2026-11-25 07:20 UTC, goal_turn 7 (Raj paused the build on 2026-11-13; a one-hour
 finalization on 2026-11-25). History is in docs/LOG.md.
 
 ## Gates
@@ -38,17 +38,18 @@ Raj paused the build on 2026-11-13 to save usage: the G6 and E0 part 2 driver wa
 deleted. On 2026-11-25 the session resumed in a new container (no virtualenv, R, model weights,
 llama-server build, or scratchpad) for a one-hour finalization at Raj's request: main's two CI
 fixes are merged into the branch (c68090c); README and REPORT say the validation runs are paused,
-not running; the README carries this repository's CI badge, and its first screen (from a
-two-lens first-impression review) now leads with what evalstats does, an install-and-use
-quickstart, and the Inspect, Harbor, and SWE-bench readers, renders its headline correctly (no
-line opens with a claim marker), and no longer lists `evalstats report`, which is not
-implemented; `make ci` passes here (1,431 tests,
-92% line coverage; the 18 tests that need R skip without it); and main is updated by a
-fast-forward. Nothing is banked, and no result changed. D-045 records how to resume: E0 part 2
-only in its recorded environment (`src/` tree 036a0cb, R 4.3.3 with lme4 1.1-35.1, and the
-rest of `artifacts/e0/raw/environments.json`), the E1 arm only with the pinned llama-server build
-or a frozen 0004 amendment, and the banking-day drafts redrafted from docs/PLAN.md step 5.
-Earlier notes are in docs/LOG.md.
+not running; the README carries this repository's CI badge, and its first screen (from a two-lens
+first-impression review) now leads with what evalstats does, an install-and-use quickstart, and the
+Inspect, Harbor, and SWE-bench readers, renders its headline correctly (no line opens with a claim
+marker); `evalstats report`, once listed but unimplemented, now writes a Markdown confidence
+report, and every CLI command reads Inspect AI logs or Harbor jobs with `--from`, with the readers'
+options as flags (D-045 item 8, after a two-lens review whose findings are all fixed); a test runs
+every README example as written; `make ci` passes here on Python 3.11 and 3.12 (the 18 tests that
+need R skip without it); and main is updated by a fast-forward. Nothing is banked, and no result
+changed. D-045 records how to resume: E0 part 2 only in its recorded environment (`src/` tree
+036a0cb, R 4.3.3 with lme4 1.1-35.1, and the rest of `artifacts/e0/raw/environments.json`), the E1
+arm only with the pinned llama-server build or a frozen 0004 amendment, and the banking-day drafts
+redrafted from docs/PLAN.md step 5. Earlier notes are in docs/LOG.md.
 
 ## Next three actions
 
@@ -98,7 +99,10 @@ None.
 
 ## Backlog (suggestions for Raj, not ladder rungs)
 
-1. A `evalstats compare --from-inspect <log dir>` one-liner so an evals engineer gets a paired
-   interval from existing Inspect logs without writing any code.
+1. `evalstats report --baseline <entry>`: each entry's paired interval against one named
+   baseline, exiting non-zero only when an interval excludes zero in the worse direction, so a
+   team can gate a model or harness change in CI on evidence rather than a point difference.
+   (The earlier item 1, Inspect logs on the command line, shipped as `--from inspect`, D-045
+   item 8.)
 2. `evalstats decompose --bootstrap` on the command line, so a team can get variance shares with
    intervals from its own run logs in one call.

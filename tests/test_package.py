@@ -12,10 +12,10 @@ def test_versions_and_exports() -> None:
         assert hasattr(evalstats, name)
 
 
-@pytest.mark.parametrize("command", ["report"])
-def test_cli_unimplemented_exits_nonzero(command: str, capsys: pytest.CaptureFixture[str]) -> None:
-    assert cli.main([command]) == 2
-    assert "not implemented" in capsys.readouterr().err
+def test_every_cli_subcommand_runs() -> None:
+    # The CLI lists no command it cannot run (`report` was once listed and exited "not
+    # implemented"); each listed subcommand has a handler.
+    assert set(cli.SUBCOMMANDS) == set(cli.COMMANDS)
 
 
 def test_cli_requires_subcommand() -> None:

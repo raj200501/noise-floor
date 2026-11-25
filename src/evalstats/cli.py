@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
+import re
 import sys
+import warnings
 from dataclasses import asdict
-from typing import Any
+from typing import Any, TextIO
 
 from evalstats import __version__
 from evalstats.compare import paired_difference
@@ -15,6 +18,7 @@ from evalstats.intervals import INTERVAL_METHODS
 from evalstats.power import PairedDesign, design_from_results, mde, tasks_needed
 from evalstats.rank import rank_confidence
 from evalstats.readers import read_results
+from evalstats.report import is_synthetic, render_report, report_inputs
 from evalstats.schema import EvalResults, SchemaError
 
 SUBCOMMANDS: dict[str, str] = {
@@ -24,15 +28,51 @@ SUBCOMMANDS: dict[str, str] = {
     "decompose": "variance components of eval outcomes",
     "report": "confidence report for a leaderboard",
 }
-IMPLEMENTED = ("compare", "power", "decompose", "rank")
+# Input formats: a results table, or a harness's own output read by evalstats.adapters.
+SOURCES = ("table", "inspect", "harbor")
 
 
 def _add_input(p: argparse.ArgumentParser, required: bool) -> None:
-    p.add_argument("input", nargs=None if required else "?", help="CSV, TSV, or JSONL results")
-    p.add_argument("--model-col", default="model")
-    p.add_argument("--task-col", default="task")
-    p.add_argument("--run-col", default="run", help="use '' if there is no run column")
-    p.add_argument("--outcome-col", default="outcome")
+    p.add_argument(
+        "input",
+        nargs=None if required else "?",
+        help="a CSV, TSV, or JSONL results table; with --from, an Inspect AI log file or "
+        "directory, or a Harbor job directory",
+    )
+    p.add_argument(
+        "--from",
+        dest="source",
+        default="table",
+        choices=SOURCES,
+        help="input format (default: a results table)",
+    )
+    p.add_argument("--model-col", default="model", help="tables only")
+    p.add_argument("--task-col", default="task", help="tables only")
+    p.add_argument("--run-col", default="run", help="tables only; use '' if there is no run column")
+    p.add_argument("--outcome-col", default="outcome", help="tables only")
+    p.add_argument("--scorer", help="with --from inspect: the scorer whose value is the outcome")
+    p.add_argument("--value-key", help="with --from inspect: the entry of dict-valued scores")
+    p.add_argument(
+        "--run-key",
+        default="epoch",
+        choices=["epoch", "eval_epoch"],
+        help="with --from inspect: eval_epoch keeps repeated logs of one model and task apart",
+    )
+    p.add_argument("--reward-key", help="with --from harbor: the reward used as the outcome")
+    p.add_argument(
+        "--model-label",
+        default="model",
+        choices=["model", "agent_model"],
+        help="with --from harbor: agent_model names entries <agent>__<model>, so two agents "
+        "with one model stay apart",
+    )
+
+
+def _positive_int(text: str) -> int:
+    value = int(text)
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"must be at least 1, not {value}")
+    return value
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -48,7 +88,7 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument("--b", required=True, help="second model")
             p.add_argument("--method", default="cluster_t", choices=sorted(INTERVAL_METHODS))
             p.add_argument("--level", type=float, default=0.95)
-            p.add_argument("--n-boot", type=int, default=10_000)
+            p.add_argument("--n-boot", type=_positive_int, default=10_000)
             p.add_argument("--seed", type=int, default=None)
             p.add_argument("--json", action="store_true", help="print JSON")
         elif name == "power":
@@ -73,7 +113,7 @@ def build_parser() -> argparse.ArgumentParser:
                 action="store_true",
                 help="marginal rank intervals instead of simultaneous ones",
             )
-            p.add_argument("--n-boot", type=int, default=2000)
+            p.add_argument("--n-boot", type=_positive_int, default=2000)
             p.add_argument("--seed", type=int, default=None)
             p.add_argument("--json", action="store_true", help="print JSON")
         elif name == "decompose":
@@ -89,10 +129,31 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument("--level", type=float, default=0.95)
             p.add_argument("--no-intervals", action="store_true", help="skip profile intervals")
             p.add_argument("--json", action="store_true", help="print JSON")
+        elif name == "report":
+            _add_input(p, required=True)
+            p.add_argument("--title", default="leaderboard", help="report title")
+            p.add_argument("--level", type=float, default=0.95, help="confidence level")
+            p.add_argument(
+                "--n-boot", type=_positive_int, default=2000, help="task-bootstrap replicates"
+            )
+            p.add_argument(
+                "--seed", type=int, default=0, help="bootstrap seed (fixed, so reruns match)"
+            )
+            p.add_argument("--json", action="store_true", help="print JSON")
     return parser
 
 
 def _load(args: argparse.Namespace) -> EvalResults:
+    if args.source == "inspect":
+        from evalstats.adapters import read_inspect  # noqa: PLC0415 - only when asked
+
+        return read_inspect(
+            args.input, scorer=args.scorer, value_key=args.value_key, run_key=args.run_key
+        )
+    if args.source == "harbor":
+        from evalstats.adapters import read_harbor  # noqa: PLC0415 - only when asked
+
+        return read_harbor(args.input, reward_key=args.reward_key, model_label=args.model_label)
     return read_results(
         args.input,
         model=args.model_col,
@@ -102,8 +163,21 @@ def _load(args: argparse.Namespace) -> EvalResults:
     )
 
 
+def _finite(value: Any) -> Any:
+    """JSON-safe values: NaN and infinities become None, recursively."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: _finite(v) for k, v in value.items()}
+    if isinstance(value, list | tuple):
+        return [_finite(v) for v in value]
+    return value
+
+
 def _emit(payload: dict[str, Any], text: str, as_json: bool) -> None:
-    print(json.dumps(payload, indent=2, sort_keys=True) if as_json else text)
+    if as_json:
+        text = json.dumps(_finite(payload), indent=2, sort_keys=True, allow_nan=False)
+    print(text)
 
 
 def cmd_compare(args: argparse.Namespace) -> int:
@@ -142,6 +216,8 @@ def cmd_power(args: argparse.Namespace) -> int:
             raise SchemaError("--a and --b are required with an input file")
         design = design_from_results(_load(args), args.a, args.b)
         source = f"estimated from {args.input} ({args.a} vs {args.b})"
+    elif args.source != "table":
+        raise SchemaError("--from needs an input path")
     elif args.between_var is not None and args.within_var is not None:
         design = PairedDesign(args.between_var, args.within_var)
         source = "given"
@@ -232,7 +308,7 @@ def cmd_rank(args: argparse.Namespace) -> int:
             f"{r.rank:>4}  {r.model:<{width}} {r.score:6.3f}  [{r.best_rank}, {r.worst_rank}]"
             for r in rc.intervals
         ],
-        "adjacent pairs (paired difference, 95% marginal interval):",
+        f"adjacent pairs (paired difference, {100 * rc.level:g}% marginal interval):",
         *[
             f"  {p.higher} > {p.lower}: {p.difference:+.3f} [{p.lo:+.3f}, {p.hi:+.3f}] "
             + ("supported" if p.supported else "not supported")
@@ -248,25 +324,64 @@ def cmd_rank(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_report(args: argparse.Namespace) -> int:
+    """``evalstats report``: a Markdown confidence report for a leaderboard."""
+    results = _load(args)
+    ranks, bounds = report_inputs(results, level=args.level, n_boot=args.n_boot, seed=args.seed)
+    synthetic = is_synthetic(results)
+    payload = {
+        "ranks": asdict(ranks),
+        "policy_bounds": None if bounds is None else asdict(bounds),
+        "synthetic": synthetic,
+    }
+    text = render_report(ranks, bounds, title=args.title, synthetic=synthetic).rstrip("\n")
+    _emit(payload, text, args.json)
+    return 0
+
+
 COMMANDS = {
     "compare": cmd_compare,
     "power": cmd_power,
     "decompose": cmd_decompose,
     "rank": cmd_rank,
+    "report": cmd_report,
 }
+
+
+# Library messages name keyword arguments ("pass run_key='eval_epoch'"); here they are flags.
+_KEYWORD = re.compile(r"\bpass (run_key|reward_key|value_key|model_label)(?:='([^']*)')?")
+
+
+def _flags(message: str) -> str:
+    def flag(m: re.Match[str]) -> str:
+        value = f" {m.group(2)}" if m.group(2) else ""
+        return f"pass --{m.group(1).replace('_', '-')}{value}"
+
+    return _KEYWORD.sub(flag, message)
 
 
 def main(argv: list[str] | None = None) -> int:
     """Run the CLI and return a process exit code."""
     args = build_parser().parse_args(argv)
-    if args.command not in IMPLEMENTED:
-        print(f"evalstats {args.command}: not implemented yet", file=sys.stderr)
-        return 2
-    try:
-        return COMMANDS[args.command](args)
-    except (SchemaError, ValueError, OSError) as exc:
-        print(f"evalstats {args.command}: error: {exc}", file=sys.stderr)
-        return 1
+    prefix = f"evalstats {args.command}"
+
+    def show(  # noqa: PLR0917 - the signature of warnings.showwarning
+        message: Warning | str,
+        category: type[Warning],
+        filename: str,
+        lineno: int,
+        file: TextIO | None = None,
+        line: str | None = None,
+    ) -> None:
+        print(f"{prefix}: warning: {_flags(str(message))}", file=sys.stderr)
+
+    with warnings.catch_warnings():
+        warnings.showwarning = show
+        try:
+            return COMMANDS[args.command](args)
+        except (SchemaError, ValueError, OSError) as exc:
+            print(f"{prefix}: error: {_flags(str(exc))}", file=sys.stderr)
+            return 1
 
 
 if __name__ == "__main__":

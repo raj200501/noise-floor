@@ -1243,3 +1243,31 @@ D-044 stays reserved for the banking commit (D-042 item 5).
    CommonMark started a raw HTML block and broke the headline paragraph on GitHub; and `evalstats
    report`, which the CLI lists but does not implement, is no longer advertised. Every number
    still comes from an existing claim.
+8. Raj then asked to finish the repository for its readers on main. The CLI's listed but
+   unimplemented `report` is now implemented: `evalstats.confidence_report` renders a Markdown
+   confidence report (ranks with simultaneous intervals, adjacent orderings with paired
+   intervals, and, when the rows carry run statuses, policy bounds), and every CLI command takes
+   `--from inspect` or `--from harbor` to read a harness's own output through
+   `evalstats.adapters`. A test now requires every listed subcommand to have a handler. These
+   files (`src/evalstats/report.py`, `cli.py`, `__init__.py`) are outside the analysis-code
+   pin, which still recomputes to b6b0e09229761233; like bc3785e they change the `src/` tree, so
+   item 3's way of resuming E0 part 2 applies. README's status reads as shipped and next, with
+   every fact kept. `tests/test_readme.py` runs every Python block and every `evalstats`
+   command line in the README as written (on synthetic rows and the mock Inspect and Harbor
+   fixtures), so the quickstart cannot drift from the code.
+   A two-lens review of the change (code, and README with REPORT) found no defect in a banked
+   result and these in the new work, all fixed with tests: the report's ambiguous-runs section used
+   every task an entry attempted and its own order, so it could disagree with the ranking (it now
+   uses the ranking's tasks and order, as the E2 pipeline does); it gave no count with sampling
+   error and printed counts when no run was ambiguous; `--level` did not reach the bounds and
+   printed rounded; the CLI could not pass the readers' options (it now takes `--scorer`, `--value-
+   key`, `--run-key`, `--reward-key`, and `--model-label`, and errors name those flags), and a
+   Harbor entry that pools two agents now warns; `--json` could print a bare NaN; `--n-boot 0`
+   raised a traceback; `rank` labeled its adjacent intervals 95% at any level; synthetic rows were
+   not labeled; and with few tasks the task bootstrap can separate a pair that its paired interval
+   does not, which the report now flags (`rank_confidence` itself is inside the analysis-code pin
+   and is unchanged). REPORT's limitations said `evalstats report` is not implemented; that line
+   changed, with a CORRECTIONS.md entry. The README no longer calls the CLI report the same as the
+   leaderboard reports, states no count in words, and its roadmap names what the E1 arms need (the
+   pinned llama-server build or a 0004 amendment, and Raj's decision on the Claude slice's cap or
+   end date, items 4 and 5).

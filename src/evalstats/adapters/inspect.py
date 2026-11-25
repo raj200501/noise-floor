@@ -172,10 +172,14 @@ def read_inspect(
         for row in _log_rows(log, options):
             key = (row["model"], row["task"], row["run"])
             if key in owner:
+                hint = (
+                    "they are copies of one eval; read one of them"
+                    if options.run_key == "eval_epoch"
+                    else "read one log, or pass run_key='eval_epoch' to keep repeated logs apart"
+                )
                 raise SchemaError(
                     f"{key[1]} run {key[2]} of {key[0]} appears in both {owner[key]} and "
-                    f"{log.label}; read one log, or pass run_key='eval_epoch' to keep "
-                    "repeated logs apart"
+                    f"{log.label}; {hint}"
                 )
             owner[key] = log.label
             rows.append(row)

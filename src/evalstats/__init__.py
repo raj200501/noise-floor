@@ -37,6 +37,7 @@ from evalstats.power import (
 )
 from evalstats.rank import AdjacentPair, RankConfidence, RankInterval, rank_confidence
 from evalstats.readers import read_csv, read_jsonl, read_results
+from evalstats.report import confidence_report, render_report
 from evalstats.schema import EvalResults, PairedScores, SchemaError
 
 __version__ = "0.0.1"
@@ -62,6 +63,7 @@ __all__ = [
     "bca_interval",
     "cluster_robust_mean",
     "cluster_wilson_interval",
+    "confidence_report",
     "contrast_difference",
     "decompose",
     "design_from_logit",
@@ -77,6 +79,7 @@ __all__ = [
     "read_csv",
     "read_jsonl",
     "read_results",
+    "render_report",
     "score_interval",
     "t_interval",
     "tasks_needed",

@@ -15,7 +15,8 @@ each trial directory is one attempt.
 Rows. One row per trial. ``model`` is ``config.agent.model_name``, else
 ``agent_info.model_info`` as ``<provider>/<name>``, else the agent name (for agents such as
 ``oracle`` that use no model). With ``model_label="agent_model"`` the model is
-``<agent>__<model>``, as in Harbor's own evals keys, so two agents with one model stay apart.
+``<agent>__<model>``, as in Harbor's own evals keys, so two agents with one model stay apart;
+without it, an entry that pools the trials of several agents gets a warning.
 ``task`` is ``task_name``. ``run`` numbers the trials of each (model, task) from 0 in order of
 ``started_at`` and then trial name. ``outcome`` is ``verifier_result.rewards["reward"]``, or the
 only reward when there is one key (the rule Harbor's uploader uses), or
@@ -164,7 +165,23 @@ def read_harbor(
     _number_runs(rows)
     if not rows:
         raise SchemaError(f"{path}: no Harbor trial results found")
+    if model_label == "model":
+        _warn_pooled_agents(rows)
     return build_results(rows, source=str(path), columns=_COLUMNS, numeric=_NUMERIC)
+
+
+def _warn_pooled_agents(rows: list[dict[str, Any]]) -> None:
+    """Warn when one entry pools the trials of several agents (two agents, one model)."""
+    agents: dict[str, set[str]] = {}
+    for row in rows:
+        agents.setdefault(str(row["model"]), set()).add(str(row["agent"]))
+    for model, names in sorted(agents.items()):
+        if len(names) > 1:
+            warnings.warn(
+                f"entry {model!r} pools the trials of agents {', '.join(sorted(names))}; "
+                "pass model_label='agent_model' to keep them apart",
+                stacklevel=3,
+            )
 
 
 def _is_trial(data: Any) -> bool:

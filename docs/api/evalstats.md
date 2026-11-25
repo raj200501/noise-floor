@@ -160,6 +160,18 @@ estimator, ``p (1 - p) mean(1 / runs) / T``, so the effective sample size
 size uses the t quantile with ``T - 1`` degrees of freedom. Unlike the t interval it
 stays inside [0, 1] and keeps its width when most tasks are all-success or all-failure.
 
+### `confidence_report(results: 'EvalResults', *, title: 'str' = 'leaderboard', level: 'float' = 0.95, n_boot: 'int' = 2000, seed: 'int | None' = 0) -> 'str'`
+
+A Markdown confidence report for every entry in ``results``.
+
+Ranks and adjacent orderings come from :func:`evalstats.rank_confidence` on the tasks every
+entry attempted (simultaneous rank intervals at ``level`` from ``n_boot`` task-bootstrap
+replicates, seeded by ``seed``); an ordering counts as supported when its paired interval
+excludes zero. When ``results`` has a ``status`` column, a section from
+:func:`evalstats.policy_bounds` bounds each score over every scoring of ambiguous runs, on
+the same tasks and in the same order. Rows marked ``synthetic`` get a label saying so.
+Raises ``ValueError`` (as ``rank_confidence`` does) for fewer than two entries.
+
 ### `contrast_difference(results: 'EvalResults', a1: 'str', a0: 'str', b1: 'str', b0: 'str', *, method: 'str' = 'cluster_t', level: 'float' = 0.95, n_boot: 'int' = 10000, seed: 'int | None' = None) -> 'ContrastDifference'`
 
 Interval for ``(a1 - a0) - (b1 - b0)``, the difference of two contrasts, by task.
@@ -271,6 +283,12 @@ Read a JSON Lines file with one object per task run (blank lines skipped).
 ### `read_results(path: 'str | Path', *, model: 'str' = 'model', task: 'str' = 'task', run: 'str | None' = 'run', outcome: 'str' = 'outcome') -> 'EvalResults'`
 
 Read CSV or JSON Lines, chosen by file extension.
+
+### `render_report(ranks: 'RankConfidence', bounds: 'PolicyReport | None' = None, *, title: 'str' = 'leaderboard', synthetic: 'bool' = False) -> 'str'`
+
+Render a rank-confidence result, and optionally policy bounds, as Markdown.
+
+``synthetic=True`` adds a line saying that the rows are synthetic, not model results.
 
 ### `score_interval(results: 'EvalResults', model: 'str', *, method: 'str' = 'cluster_t', level: 'float' = 0.95, n_boot: 'int' = 10000, seed: 'int | None' = None) -> 'ScoreInterval'`
 

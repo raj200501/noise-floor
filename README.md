@@ -82,8 +82,12 @@ design = design_from_results(results, "agent-a", "agent-b")
 print("tasks for a 0.03 gap at 3 runs each:", tasks_needed(0.03, design, runs_per_task=3))
 ```
 
-No results of your own yet? In a clone, `make setup && make demo` runs evalstats offline on a
-synthetic fixture with planted effects (no model calls; needs uv).
+From the shell, `evalstats report my_runs.csv` writes a Markdown confidence report for your own
+runs: each entry's simultaneous rank interval, every adjacent ordering with its paired interval,
+and, for runs with a status, bounds over every way of scoring the ambiguous ones. `--from inspect`
+or `--from harbor` reads a harness's own output directly. No results of your own yet? In a clone,
+`make setup && make demo` runs evalstats offline on a synthetic fixture with planted effects (no
+model calls; needs uv).
 
 **Why these numbers hold up.** Each safeguard below is a check you can run, not a promise:
 
@@ -130,7 +134,13 @@ evalstats compare my_runs.csv --a agent-a --b agent-b               # paired dif
 evalstats rank my_runs.csv                                          # simultaneous rank intervals
 evalstats power my_runs.csv --a agent-a --b agent-b --effect 0.03   # MDE and tasks needed
 evalstats decompose my_runs.csv                                     # GLMM variance components
+evalstats report my_runs.csv > report.md                            # Markdown confidence report
+evalstats report logs/ --from inspect                               # straight from Inspect AI logs
+evalstats report jobs/my-job --from harbor                          # or from a Harbor job directory
 ```
+
+The readers' options are flags too (`--scorer` and `--run-key` for Inspect, `--reward-key` and
+`--model-label` for Harbor); `evalstats <command> --help` lists them all.
 
 Runnable examples, all on synthetic or mock data, are in [docs/examples](docs/examples): comparing
 two models, power and MDE, rank confidence, variance decomposition, and policy bounds from Inspect
@@ -176,35 +186,42 @@ its interval, the E1 design, and the limitations in full.
 | SWE-bench Verified reanalysis ([scores](docs/figures/e2-epoch-swebench-scores.svg), [gaps](docs/figures/e2-epoch-swebench-gaps.svg)) | <!-- claim:e2.epoch.adjacent.supported -->3 of <!-- claim:e2.epoch.adjacent.pairs -->31 adjacent pairs separated; the leader's margin over second is <!-- claim:e2.epoch.top.diff -->+0.041 (CI <!-- claim:e2.epoch.top.lo -->+0.010 to <!-- claim:e2.epoch.top.hi -->+0.073) | [results.json](artifacts/e2/epoch-swebench/results.json) | [`prereg/0001`](prereg/0001-e2-leaderboard-reanalysis.md), [`prereg/0002`](prereg/0002-e2-amend-epoch-reference-rule.md) |
 | Policy sensitivity (E3) | Adjacent orderings that hold under every scoring of ambiguous runs: <!-- claim:e3.tb2.identified -->1 of <!-- claim:e2.tb2.adjacent.pairs -->65 on Terminal-Bench (<!-- claim:e3.tb2.robust -->0 also with sampling error), <!-- claim:e3.epoch.identified -->19 of <!-- claim:e2.epoch.adjacent.pairs -->31 on SWE-bench Verified (<!-- claim:e3.epoch.robust -->3 also with sampling error); the sampling-error counts rest on an interval that has no coverage cell of its own | [bounds.json](artifacts/e3/bounds.json) | [`prereg/0001`](prereg/0001-e2-leaderboard-reanalysis.md), [`prereg/0002`](prereg/0002-e2-amend-epoch-reference-rule.md) |
 | Library validity (E0 part one, synthetic) | <!-- claim:e0.cells -->22 coverage cells simulated; the cell that fails the coverage rule (the small-sample paired-difference bootstrap) is flagged as unsupported and makes the library warn; <!-- claim:e0.crosschecks -->22 cross-checks against statsmodels, SciPy, and R agree within tolerance | [coverage.json](artifacts/e0/coverage.json) | [`prereg/0003`](prereg/0003-e0-coverage-grid-part1.md) |
-| Factorial study (E1) | Preregistered and frozen; no results until both of its arms have ended; the Claude slice is pending (see Status) | n/a | [`prereg/0004`](prereg/0004-e1-factorial.md), [`prereg/0005`](prereg/0005-e0-glmm-cells.md), [`prereg/0006`](prereg/0006-g6-recovery.md) |
+| Factorial study (E1) | Preregistered and frozen; no results until both of its arms have ended; the Claude slice is pending (see [Status and roadmap](#status-and-roadmap)) | n/a | [`prereg/0004`](prereg/0004-e1-factorial.md), [`prereg/0005`](prereg/0005-e0-glmm-cells.md), [`prereg/0006`](prereg/0006-g6-recovery.md) |
 
 The study plan is in [docs/PLAN.md](docs/PLAN.md) and every design choice, with its reason, in
 [DECISIONS.md](DECISIONS.md). Changed or withdrawn claims are dated in
 [CORRECTIONS.md](CORRECTIONS.md).
 
-## Status
+## Status and roadmap
 
-**Working now:** evalstats; the E2 and E3 reanalyses of both leaderboards, banked with their
-[confidence reports](docs/leaderboards); and part one of the E0 coverage study. In the latest
-fast run of the ship-check (which does not count as the final check), the gates for build and
-tests, static quality, CI parity, the offline demo, the wheel, claim and preregistration
-integrity, documentation, and hygiene pass.
+**Shipped.** evalstats, as a library with readers for Inspect AI, Harbor, and SWE-bench outputs
+and a CLI that reads results tables, Inspect AI logs, and Harbor jobs; confidence reports for both
+reanalyzed leaderboards ([docs/leaderboards](docs/leaderboards)); and part one of the E0 coverage
+study, whose failing cell (the small-sample paired-difference bootstrap) makes the library warn.
+In the latest full ship-check recorded in [STATUS.md](STATUS.md), the gates for build and tests,
+static quality, CI parity, the offline demo, the wheel, claim and preregistration integrity,
+documentation, and hygiene pass.
 
-**Pending, with nothing banked:** E0's second part (the GLMM and Wilson coverage cells) ran part
-way and is paused, and the G6 planted-component recovery study has all its rows; every raw row is
-committed. The E1 factorial study has no results. Nothing in this README presents any of these as
-results, and the gates that depend on this work fail until it is done. [STATUS.md](STATUS.md) has
-the live table of the fourteen gates that `make ship-check` checks on a fresh clone
+**Next.**
+
+1. *Validation of E1's analysis.* E0's second part (coverage of the GLMM and Wilson intervals at
+   E1's design) ran part way and is paused; the G6 planted-component recovery study has all its
+   rows. Every raw row is committed, and neither study is banked or reported until E0's second
+   part finishes.
+2. *The E1 factorial study.* Its local arm starts once both validation studies pass, on the pinned
+   llama-server build (or under a frozen amendment of [`prereg/0004`](prereg/0004-e1-factorial.md)
+   that replaces the pin, reported as a deviation). Its Claude slice runs on Raj's machine
+   following the runbook in [docs/PLAN.md](docs/PLAN.md) ("Claude arm on Raj's machine"), because
+   the hosted environment where this repository is built has a no-paid-compute guard that blocks
+   Claude runs by design; reaching the Claude-tier run count that G7 requires also needs Raj to
+   raise the slice's usage cap or move its end date, either reported as a deviation. As
+   preregistered, E1 is analyzed only after both arms end; until then it has no results, and
+   nothing here presents any.
+
+The gates that depend on this work (validity of E1's analysis, the factorial study, the E3
+bounds on it, and the review of the finished study) fail until it is done; [STATUS.md](STATUS.md)
+has the live table of the fourteen gates that `make ship-check` checks on a fresh clone
 ([docs/GATES.md](docs/GATES.md)).
-
-**The Claude slice of E1 is pending.** The hosted environment where this repository is built
-trips the project's billing guard (no paid compute), which blocks Claude runs there by design, so
-the Claude tiers wait for a run on Raj's machine that follows the runbook in
-[docs/PLAN.md](docs/PLAN.md) ("Claude arm on Raj's machine"). Until it runs there are no Claude
-results, and G7, which requires Claude-tier runs, cannot pass. The local arm of E1 runs here once
-G5 and G6 pass, but as preregistered the E1 analysis runs only after both arms have ended, so E1
-reports no result from either arm until then; E3 on E1 (G8) and the review of the finished study
-(G12) wait for it too.
 
 ## How it works
 
