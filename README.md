@@ -19,13 +19,22 @@ number on this page is generated from a banked artifact and checked by `make cla
 **Headline finding.** On the public Terminal-Bench 2.0 leaderboard, only <!-- claim:e2.tb2.adjacent.supported -->2
 of <!-- claim:e2.tb2.adjacent.pairs -->65 adjacent pairs are statistically separated, and <!-- claim:e2.tb2.first -->15
 of its <!-- claim:e2.tb2.entries -->66 entries could plausibly rank first. The top two submissions
-differ by <!-- claim:e2.tb2.top.diff -->+0.018 in task success (95% paired CI [<!-- claim:e2.tb2.top.lo -->-0.041, <!-- claim:e2.tb2.top.hi -->+0.077]).
+differ by <!-- claim:e2.tb2.top.diff -->+0.018 in task success (95% paired CI [<!-- claim:e2.tb2.top.lo -->-0.041, <!-- claim:e2.tb2.top.hi -->+0.077]), so their order is not statistically supported.
 In an exploratory check (not preregistered), the smallest gap the board's design detects
 with 80% power (median over adjacent pairs) is <!-- claim:nf.tb2.mde -->0.097, while the median
 adjacent gap is <!-- claim:nf.tb2.gap -->0.007; only <!-- claim:nf.tb2.atleast -->1 of the <!-- claim:e2.tb2.adjacent.pairs -->65
-adjacent gaps reaches its pair's detectable gap. The same arithmetic sizes your own evals: from
-a pilot's results, `mde` gives the smallest gap a design detects at a chosen power, and
-`tasks_needed` gives the number of tasks a target gap requires.
+adjacent gaps reaches its pair's detectable gap. Where the data do resolve a gap, the analysis
+reports it: on SWE-bench Verified, <!-- claim:e2.epoch.adjacent.supported -->3 of <!-- claim:e2.epoch.adjacent.pairs -->31 adjacent pairs are
+separated, among them the leader's margin over second
+(<!-- claim:e2.epoch.top.diff -->+0.041, CI <!-- claim:e2.epoch.top.lo -->+0.010 to <!-- claim:e2.epoch.top.hi -->+0.073). The same arithmetic sizes your own
+evals: from a pilot's results, `mde` gives the smallest gap a design detects at a chosen power,
+and `tasks_needed` gives the number of tasks a target gap requires.
+
+Why it matters: boards like these rest on tens to hundreds of tasks with few runs each, and their
+scores move with more than the model ([Segato (Anthropic)](https://www.anthropic.com/research/infrastructure-noise)
+reports that container resource settings moved Terminal-Bench 2.0 scores by several percentage
+points for Claude models). An ordering the data do not support is not evidence that one entry is
+better.
 
 ![Terminal-Bench adjacent pairs: each gap between neighbouring entries with its paired interval; nearly all cross zero](docs/figures/e2-tb2-gaps.svg)
 
