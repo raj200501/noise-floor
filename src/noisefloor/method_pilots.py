@@ -313,6 +313,22 @@ def dumps(obj: Any) -> str:
     return json.dumps(obj, indent=1, sort_keys=True) + "\n"
 
 
+def same_summary(a: Any, b: Any) -> bool:
+    """Equal JSON values, with floats equal to 1e-9 relative (or 1e-12 absolute).
+
+    The pinned numpy and scipy differ between Python 3.11 and 3.12 (uv.lock), and they
+    round some sums differently in the last digit, so a bit-exact text comparison would
+    call a summary stale on one interpreter and current on the other.
+    """
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(same_summary(a[k], b[k]) for k in a)
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(same_summary(x, y) for x, y in zip(a, b, strict=True))
+    if isinstance(a, float) and isinstance(b, float):
+        return math.isclose(a, b, rel_tol=1e-9, abs_tol=1e-12)
+    return bool(a == b) and type(a) is type(b)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """``python -m noisefloor.method_pilots [--check] [--dir DIR]``."""
     parser = argparse.ArgumentParser(description="summarize the exploratory method pilots")
@@ -322,7 +338,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     text = dumps(build(args.dir))
     target = args.dir / "summary.json"
     if args.check:
-        same = target.exists() and target.read_text() == text
+        same = target.exists() and same_summary(json.loads(target.read_text()), json.loads(text))
         print("method pilots: summary current" if same else "method pilots: summary STALE")
         return 0 if same else 1
     target.write_text(text)

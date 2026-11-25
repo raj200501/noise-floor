@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -144,6 +145,10 @@ def test_grid_errors_and_cli(
     assert e0_run._clean({"x": [float("nan"), 1.0]}) == {"x": [None, 1.0]}
 
 
+def _unversioned(name: object) -> str:
+    return re.sub(r"\b\d+(\.\d+)+\b", "<version>", str(name))
+
+
 def _same_as_banked(checks: list[dict[str, object]]) -> None:
     """Fresh cross-checks equal the banked artifacts/e0/crosscheck.json entries (D-040).
 
@@ -154,7 +159,10 @@ def _same_as_banked(checks: list[dict[str, object]]) -> None:
     banked = {c["name"]: c for c in data["checks"]}
     for c in checks:
         b = banked[c["name"]]
-        assert (c["tolerance"], c["reference_impl"]) == (b["tolerance"], b["reference_impl"])
+        # the pinned scipy differs by interpreter (1.17 on 3.11, 1.18 on 3.12), and the
+        # reference name records its version, so compare the name without it
+        assert c["tolerance"] == b["tolerance"]
+        assert _unversioned(c["reference_impl"]) == _unversioned(b["reference_impl"])
         for key in ("value", "reference", "abs_diff"):
             assert c[key] == pytest.approx(b[key], rel=1e-6, abs=1e-6)
 

@@ -72,6 +72,7 @@ def test_planted_shares() -> None:
     assert "share:batch" not in shares  # not analyzed, so not part of the total
 
 
+@needs_r
 def test_recover_and_pilot_rows() -> None:
     settings = rc.AnalysisSettings(n_boot=4)
     row = rc.recover(SMALL, SMALL_PLANTED, settings, 7)
@@ -336,6 +337,7 @@ def test_simulated_batches_spread_like_the_plan() -> None:
         assert len(slots) == 6 and max(slots.values()) - min(slots.values()) <= 1
 
 
+@needs_r
 def test_planted_interactions_and_jackknife_pilot_row() -> None:
     het = rc.Planted(model=(0.3, -0.3), day=(0.0, 0.1), block=(0.0,), interactions={"harness": 1.0})
     plain = rc.simulate(SMALL, SMALL_PLANTED, 4)
