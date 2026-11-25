@@ -1204,3 +1204,35 @@ From the review's completeness critic (seven gaps, each checked in the code befo
    21:05 is a day later); the check-ins at about 21:10 and 23:00 UTC are the launch backstop.
    `tools/wait_e1.sh` and `tools/wait_until.sh` hold a lock, so a second copy exits instead of
    running beside the first with another two-hour limit.
+
+## D-045 2026-11-25 After the pause: finalization, the merge of main, and how to resume
+D-044 stays reserved for the banking commit (D-042 item 5).
+1. Raj ended the build on 2026-11-13 to save usage: the driver was stopped at about 00:23 UTC
+   with every raw row whole and committed (40daf13), and the scheduled check-ins were deleted.
+   On 2026-11-25 the session resumed in a new container: no virtualenv, no R, no
+   `~/.cache/noisefloor` (the model weights and the llama-server build), and no scratchpad, so
+   the banking-text drafts of D-042 and docs/PLAN.md step 5 are gone and are redrafted from that
+   step on banking day.
+2. Raj asked for a one-hour finalization. Main carried his two CI fixes (f53828d, bc3785e); the
+   branch merged them (c68090c), so main is updated by a fast-forward at the next RELEASE-READY
+   point. bc3785e changes `src/noisefloor/method_pilots.py`, which is outside the analysis-code
+   pin: recomputed with the library versions the rows recorded, the analysis code is still
+   b6b0e09229761233. It is inside the `src/` tree that the study's environment hash covers, so
+   E0 part 2 cannot resume at HEAD in environment c1569b433f0f5a99.
+3. To resume E0 part 2 in its recorded environment: a checkout whose `src/` is tree 036a0cb (for
+   example a worktree at 40daf13 with the later raw rows copied in), `uv.lock` b916d99, Python
+   3.12.3, R 4.3.3, lme4 1.1-35.1, Matrix 1.6-5, and BLAS and LAPACK 3.12.0
+   (`artifacts/e0/raw/environments.json`), then `tools/e0g6_driver.sh`, whose preflight refuses
+   any other environment. Otherwise prereg 0005 applies: rows from two environments are set aside
+   unread and the study runs again in one, reported as a deviation.
+4. The E1 local arm needs the llama-server build that 0004 pins and the three weight files: the
+   weights are downloaded again and checked against their pins, and a rebuilt server whose digest
+   differs needs a frozen amendment of 0004 with a ```json llama-server``` block before any run
+   (`e1.check_server`), reported as a deviation.
+5. The Claude slice cannot now reach G7's 150 Claude-tier runs: it may start only after G5 and G6
+   pass and the local arm has started (D-036 item 1), at most 6 runs a UTC day at `cap_share`
+   0.2, and it starts no run from 2026-12-26T04:21:42Z on. Only Raj can raise `cap_share` (0.5
+   gives 15 runs a day) or decide on an amendment of the end date, which would be a deviation.
+6. README and REPORT now say the validation runs are paused part way, not running; the README
+   gains the CI badge of this repository (badges from other sites would count as unverified
+   citations under G13).

@@ -1,5 +1,7 @@
 # noise-floor
 
+[![ci](https://github.com/raj200501/noise-floor/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/raj200501/noise-floor/actions/workflows/ci.yml)
+
 **How much of a leaderboard gap is the model, and how much is noise?**
 
 noise-floor is a toolkit and a set of preregistered studies for telling real differences between
@@ -92,8 +94,8 @@ uv run evalstats rank --help                                    # also: power, d
   coverage simulations (E0): a method used on a design at least as small as one where it failed
   its check emits `UnsupportedDesignWarning`. The one exception behind these results is the
   interval on a pair's bounded difference that E3's robust counts use, which has no coverage cell
-  of its own. The GLMM and Wilson cells (E0's second part) are running, after the G6 recovery study
-  wrote all its rows; nothing from either is banked yet. API reference in [docs/api](docs/api), runnable examples in
+  of its own. The GLMM and Wilson cells (E0's second part) ran part way, after the G6 recovery study
+  wrote all its rows, and are paused; nothing from either is banked yet. API reference in [docs/api](docs/api), runnable examples in
   [docs/examples](docs/examples).
 - **Confidence reports for public leaderboards** (experiments E2 and E3): each submission's score
   with an interval, every adjacent ordering tested on shared tasks, simultaneous rank intervals,
@@ -139,9 +141,9 @@ clone ([docs/GATES.md](docs/GATES.md)). In the latest fast run (`python tools/sh
 Still in progress, and failing until their experiments run: library validity for E1's
 intervals (G5, the second part of the E0 coverage cells), planted-component recovery of the E1 analysis
 (G6), the factorial study itself (G7), the E3 bounds on E1 (G8), and the independent review of
-the finished study (G12). Their plans are frozen. The validation runs behind G5 and G6 are under
-way and their raw rows are committed as they arrive, but nothing from them is banked or reported
-until both studies finish, and nothing in this README presents them as results.
+the finished study (G12). Their plans are frozen. The validation runs behind G5 and G6 are paused part way (G6 has all its rows; E0's second
+part has its first group and part of its second), with every raw row committed; nothing from
+them is banked or reported until both studies finish, and nothing in this README presents them as results.
 [STATUS.md](STATUS.md) has the live table and next steps.
 
 **The Claude slice of E1 is pending.** The Claude tiers cannot run in the hosted session where
